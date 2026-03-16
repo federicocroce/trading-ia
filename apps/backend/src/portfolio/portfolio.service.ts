@@ -1,0 +1,45 @@
+import type { PortfolioPosition, PortfolioSummary } from '@trading/shared';
+import { getAllPrices } from '../prices/prices.service.js';
+import { getPortfolioPositions } from '../db/repository.js';
+
+export async function getPortfolio(): Promise<PortfolioSummary> {
+  const prices = await getAllPrices();
+  const priceMap = new Map(prices.map((p) => [p.symbol, p.current]));
+
+  const dbPositions = getPortfolioPositions();
+
+  let totalValue = 0;
+  let totalCost = 0;
+
+  const positions: PortfolioPosition[] = dbPositions.map((pos) => {
+    const currentPrice = priceMap.get(pos.symbol) ?? 0;
+    const value = pos.quantity * currentPrice;
+    const cost = pos.quantity * pos.avgCost;
+    const pnl = value - cost;
+    const pnlPercent = cost > 0 ? (pnl / cost) * 100 : 0;
+
+    totalValue += value;
+    totalCost += cost;
+
+    return {
+      symbol: pos.symbol,
+      quantity: pos.quantity,
+      avgCost: pos.avgCost,
+      currentPrice,
+      value,
+      pnl,
+      pnlPercent,
+    };
+  });
+
+  const totalPnl = totalValue - totalCost;
+  const totalPnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
+  return {
+    totalValue,
+    totalCost,
+    totalPnl,
+    totalPnlPercent,
+    positions,
+  };
+}

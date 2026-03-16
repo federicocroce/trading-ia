@@ -1,0 +1,20 @@
+{
+  "name": "trading-dashboard",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/backend & npm run dev --workspace=apps/frontend",
+    "dev:backend": "npm run dev --workspace=apps/backend",
+    "dev:frontend": "npm run dev --workspace=apps/frontend",
+    "build": "npm run build --workspace=packages/shared && npm run build --workspaces --if-present",
+    "build:shared": "npm run build --workspace=packages/shared",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "clean": "rm -rf node_modules packages/*/dist apps/*/dist"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
