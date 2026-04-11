@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Header } from '@/layout/Header';
 import { Sidebar } from '@/layout/Sidebar';
 import { PriceTicker } from '@/prices/PriceTicker';
+import { InfraBar } from '@/layout/InfraBar';
 import { PortfolioTable } from '@/portfolio/PortfolioTable';
 import { TransactionHistory } from '@/portfolio/TransactionHistory';
 import { NewsAndIntelligence } from '@/news/NewsAndIntelligence';
@@ -52,7 +53,7 @@ export function App() {
           <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-100 focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:rounded">
             Ir al contenido principal
           </a>
-
+          <InfraBar />
           <PriceTicker />
           <div className="flex items-center">
             <Button
