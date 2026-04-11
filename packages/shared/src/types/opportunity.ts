@@ -1,4 +1,5 @@
 import type { AnalysisBreakdown, SignalAction } from './signal.js';
+import type { AssetClassification } from './discovery.js';
 
 export type OpportunitySector =
   | 'argentina-energy'
@@ -7,7 +8,18 @@ export type OpportunitySector =
   | 'us-energy'
   | 'us-tech'
   | 'crypto'
-  | 'bonds';
+  | 'bonds'
+  | 'etfs-sectors'
+  | 'commodities'
+  | 'emerging-markets';
+
+export interface ConfluenceDetail {
+  bullishSignals: string[];
+  bearishSignals: string[];
+  neutralSignals: string[];
+  confluencePercent: number;
+  direction: 'bullish' | 'bearish' | 'mixed';
+}
 
 export interface ReturnEstimate {
   lowPercent: number;
@@ -17,17 +29,64 @@ export interface ReturnEstimate {
   keyDrivers: string[];
 }
 
+export interface ActionCondition {
+  holdUntil: string;              // "Hasta que las divergencias diarias se resuelvan (~3 días)"
+  reEvaluateAt?: number;          // precio donde re-evaluar (soporte)
+  reEvaluateReason?: string;      // "Si corrige a $65 (soporte), re-evaluar como BUY"
+  exitAt: number;                 // precio de salida (stop)
+  exitReason: string;             // "Si rompe $53.78 → SELL inmediato"
+  estimatedDays?: number;         // días estimados para resolución
+}
+
+export interface TradeLevels {
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+  riskRewardRatio: number;
+  entryReason: string;
+  stopReason: string;
+  targetReason: string;
+  suggestedQuantity?: number;
+  suggestedAmount?: number;
+  sizingReason?: string;
+}
+
+export interface SignalConflict {
+  signalA: string;
+  signalB: string;
+  directionA: 'bullish' | 'bearish';
+  directionB: 'bullish' | 'bearish';
+  explanation: string;
+  implication: 'wait' | 'caution' | 'confirm';
+}
+
+export interface TimingView {
+  action: 'BUY' | 'SELL' | 'WAIT';
+  timing: 'now' | 'soon' | 'approaching';
+  confidence: number;
+  triggers: {
+    type: string;
+    description: string;
+    estimatedDays: number | null;
+    impact: 'high' | 'medium';
+  }[];
+}
+
 export interface Opportunity {
   symbol: string;
   sector: OpportunitySector;
   sectorLabel: string;
   currentPrice: number;
   opportunityScore: number;
-  action: SignalAction; // BUY, SELL, HOLD, WATCH
+  action: SignalAction; // BUY, SELL, HOLD, WATCH — señal compuesta
+  technicalAction: SignalAction; // solo análisis técnico
+  fundamentalAction: SignalAction; // solo análisis fundamental
+  sentimentAction: SignalAction; // solo sentimiento/noticias
   confidence: number;
   shortTerm: ReturnEstimate;
   mediumTerm: ReturnEstimate;
   reasoning: string;
+  simpleReasoning?: string;
   catalysts: string[];
   risks: string[];
   breakdown: AnalysisBreakdown;
@@ -37,6 +96,28 @@ export interface Opportunity {
   scoringMethod?: 'hybrid' | 'ai-full' | 'algorithmic';
   horizonScores?: { shortTerm: number; mediumTerm: number };
   passedAntiHype?: boolean;
+  confluenceDetail?: ConfluenceDetail;
+  tradeLevels?: TradeLevels;
+  timingView?: TimingView;
+  signalConflicts?: SignalConflict[];
+  narrativeDigest?: string;
+  actionCondition?: ActionCondition;
+  classification?: AssetClassification;
+  divergences?: import('./technical.js').DivergenceSignal[];
+  weekly?: import('./technical.js').WeeklyAnalysis;
+  deepAnalysis?: DeepAnalysis;
+  convictionTier?: ConvictionTier;
+}
+
+export type ConvictionTier = 'strong' | 'standard' | 'speculative';
+
+export interface DeepAnalysis {
+  positives: string[];
+  concerns: string[];
+  recommendation: string;
+  wouldDo: string[];
+  wouldNotDo: string[];
+  generatedBy: 'deepseek' | 'groq' | 'qwen' | 'algorithmic';
 }
 
 export interface SectorSummary {

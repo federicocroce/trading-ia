@@ -14,12 +14,12 @@ export const PLAZA_CONFIG: Record<MarketPlaza, { label: string; emoji: string; s
   'argentina-cedears': {
     label: 'Argentina / CEDEARs',
     emoji: '🇦🇷📈',
-    symbols: ['MELI', 'GLOB', 'DESP', 'CAAP', 'LOMA', 'TXAR'],
+    symbols: ['MELI', 'GLOB', 'CAAP', 'LOMA', 'TEO', 'BIOX'],
   },
   'us-energy': {
     label: 'US / Energía',
     emoji: '🇺🇸⛽',
-    symbols: ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'PXD', 'HAL'],
+    symbols: ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'OXY', 'HAL'],
   },
   'us-tech': {
     label: 'US / Tech',
@@ -35,6 +35,21 @@ export const PLAZA_CONFIG: Record<MarketPlaza, { label: string; emoji: string; s
     label: 'Bonos',
     emoji: '📜',
     symbols: ['TLT', 'HYG', 'EMB', 'AGG'],
+  },
+  'etfs-sectors': {
+    label: 'ETFs Sectoriales',
+    emoji: '📊',
+    symbols: ['SPY', 'QQQ', 'XLE', 'XLF', 'DIA'],
+  },
+  commodities: {
+    label: 'Commodities',
+    emoji: '🪙',
+    symbols: ['GLD', 'SLV', 'USO', 'UNG', 'COPX'],
+  },
+  'emerging-markets': {
+    label: 'Mercados Emergentes',
+    emoji: '🌎',
+    symbols: ['EEM', 'EWZ', 'ARGT'],
   },
   global: {
     label: 'Global / Macro',

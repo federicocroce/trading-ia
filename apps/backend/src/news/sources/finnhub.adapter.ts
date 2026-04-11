@@ -1,5 +1,6 @@
 import type { RawNewsArticle } from '@trading/shared';
 import type { NewsSourceAdapter } from './adapter.js';
+import { reportOk, reportError } from '../../shared/service-health.js';
 
 const FINNHUB_BASE = 'https://finnhub.io/api/v1';
 
@@ -53,8 +54,9 @@ async function fetchMarketNews(apiKey: string): Promise<FinnhubNewsItem[]> {
     const res = await fetch(url);
     if (!res.ok) return [];
     const data = (await res.json()) as FinnhubNewsItem[];
-    return Array.isArray(data) ? data.slice(0, 10) : [];
-  } catch {
+    return Array.isArray(data) ? data.slice(0, 20) : [];
+  } catch (err) {
+    console.warn(`[Finnhub] Market news error: ${(err as Error).message?.slice(0, 80)}`);
     return [];
   }
 }
@@ -88,26 +90,44 @@ export const finnhubAdapter: NewsSourceAdapter = {
 
   async fetchNews(symbols: string[]): Promise<RawNewsArticle[]> {
     const apiKey = getApiKey();
-    if (!apiKey) return [];
+    if (!apiKey) {
+      reportError('Finnhub', 'API key no configurada (FINNHUB_API_KEY)');
+      return [];
+    }
 
-    // Filtrar simbolos crypto (Finnhub no soporta BTC-USD, etc)
+    // Filtrar simbolos crypto y ETFs (Finnhub no los soporta en company-news)
     const stockSymbols = symbols.filter((s) => !s.includes('-'));
 
-    // Fetch company news para cada symbol + market news general
-    const [companyResults, marketNews] = await Promise.all([
-      Promise.allSettled(stockSymbols.map((s) => fetchCompanyNews(s, apiKey))),
-      fetchMarketNews(apiKey),
-    ]);
+    // 1. Market news primero (siempre funciona)
+    const marketNews = await fetchMarketNews(apiKey);
+    const articles: RawNewsArticle[] = marketNews.map(toRawArticle);
 
-    const articles: RawNewsArticle[] = [];
+    // 2. Company news — rotar simbolos priorizando portfolio
+    // Priorizar: portfolio primero, luego rotar el resto por fecha
+    const portfolioSymbols = stockSymbols.slice(0, Math.min(stockSymbols.length, 7)); // Primeros son watchlist/portfolio
+    const otherSymbols = stockSymbols.slice(7);
+    // Rotar otros por hora del dia para cubrir todos con el tiempo
+    const rotationOffset = Math.floor(Date.now() / (3600_000)) % Math.max(1, otherSymbols.length);
+    const rotatedOthers = [...otherSymbols.slice(rotationOffset), ...otherSymbols.slice(0, rotationOffset)];
+    const companySymbols = [...portfolioSymbols, ...rotatedOthers].slice(0, 15);
+    const companyResults = await Promise.allSettled(
+      companySymbols.map((s) => fetchCompanyNews(s, apiKey)),
+    );
 
+    let failedCount = 0;
     for (const r of companyResults) {
       if (r.status === 'fulfilled') {
         articles.push(...r.value.map(toRawArticle));
+      } else {
+        failedCount++;
       }
     }
 
-    articles.push(...marketNews.map(toRawArticle));
+    if (articles.length > 0) {
+      reportOk('Finnhub');
+    } else {
+      reportError('Finnhub', `Sin noticias obtenidas (${failedCount} errores de ${companySymbols.length} simbolos)`);
+    }
 
     return articles;
   },

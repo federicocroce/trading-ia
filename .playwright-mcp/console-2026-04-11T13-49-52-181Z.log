@@ -1,0 +1,26 @@
+[    1094ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:20102
+[  654760ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[  655253ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[  655993ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[  656274ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[  889729ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[  890772ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[ 1580415ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[ 1580909ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[ 1581571ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[ 1581916ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[ 1583613ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[ 1590757ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[ 1591769ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[ 1591975ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[ 1592981ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[ 1593789ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[ 1594799ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[ 1905040ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[ 1905874ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[ 1906160ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[ 1906881ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[ 1907815ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/portfolio.summary?batch=1&input=%7B%7D:0
+[ 1908824ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/portfolio.summary?batch=1&input=%7B%7D:0
+[ 1908889ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[ 1909894ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0

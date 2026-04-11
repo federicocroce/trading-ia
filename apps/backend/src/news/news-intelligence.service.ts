@@ -10,102 +10,229 @@ import type {
   SentimentType,
   MarketPlaza,
 } from '@trading/shared';
-import { BATCH_NEWS_ANALYSIS_PROMPT, getPlazaForSymbol, PLAZA_CONFIG } from '@trading/shared';
-import { getActiveSymbolList } from '../db/repository.js';
-import { askLMStudio } from '../shared/lmstudio.js';
-import { getNews } from './news.service.js';
+import { buildBatchNewsAnalysisPrompt, getPlazaForSymbol, PLAZA_CONFIG } from '@trading/shared';
+import { getActiveSymbolList, updateNewsAnalysis } from '../db/repository.js';
+import { getFullSymbolUniverse } from '../discovery/discovery-registry.js';
+import { callAI } from '../shared/ai-router.js';
+import { getNews, getNewsFromDB } from './news.service.js';
 import { triangulateNews } from './triangulation.service.js';
 
-const MAX_NEWS_FOR_BATCH = 10; // Qwen 3.5 9B con ctx 4096 no soporta más
-const INTELLIGENCE_TTL = 15 * 60 * 1000; // 15 minutes
+function getMaxBatchSize(): number {
+  // Adaptive batch size based on AI provider
+  // LMStudio local (Qwen 9B) → small batches for quality
+  // Cloud models (Groq 70B, OpenRouter) → larger batches
+  const isLocal = process.env.LMSTUDIO_URL || !process.env.GROQ_API_KEY;
+  return isLocal ? 6 : 15;
+}
+const INTELLIGENCE_TTL = 60 * 60 * 1000; // 60 minutes — swing trader revisa 1-2x/dia
+
+// Keyword-based sentiment analysis — funciona sin IA
+const POSITIVE_KEYWORDS = [
+  // English
+  'surge', 'surges', 'soar', 'soars', 'rally', 'rallies', 'gain', 'gains', 'jump', 'jumps',
+  'rise', 'rises', 'climb', 'climbs', 'boost', 'record high', 'all-time high', 'breakout',
+  'upgrade', 'upgrades', 'outperform', 'beat', 'beats', 'strong', 'bullish', 'upbeat',
+  'recovery', 'recovers', 'profit', 'profits', 'dividend', 'buyback', 'growth',
+  'positive', 'optimism', 'optimistic', 'momentum', 'opportunity', 'upside',
+  'acquisition', 'merger', 'partnership', 'expansion', 'innovation',
+  'revenue beat', 'earnings beat', 'guidance raise', 'margin expansion',
+  'short squeeze', 'golden cross', 'accumulation', 'inflows', 'rebound',
+  'approval', 'contract win', 'price target raise', 'overweight',
+  'buyback program', 'special dividend', 'stock split',
+  // Spanish
+  'sube', 'suba', 'alcista', 'récord', 'crece', 'crecimiento', 'ganancias',
+  'mejora', 'repunte', 'impulso', 'oportunidad', 'recuperacion', 'expansion',
+  'licitacion exitosa', 'flujo de capitales', 'superavit', 'desregulacion',
+  'acuerdo comercial', 'inversion extranjera', 'produccion record',
+];
+
+const NEGATIVE_KEYWORDS = [
+  // English
+  'crash', 'crashes', 'plunge', 'plunges', 'drop', 'drops', 'fall', 'falls', 'sink', 'sinks',
+  'decline', 'declines', 'tumble', 'tumbles', 'slump', 'loss', 'losses', 'sell-off', 'selloff',
+  'downgrade', 'downgrades', 'underperform', 'miss', 'misses', 'weak', 'bearish',
+  'risk', 'risks', 'warning', 'warns', 'fear', 'fears', 'crisis', 'recession',
+  'bankruptcy', 'default', 'layoff', 'layoffs', 'cut', 'cuts', 'fraud', 'investigation',
+  'sanction', 'sanctions', 'tariff', 'tariffs', 'inflation', 'shutdown',
+  'profit warning', 'guidance cut', 'margin compression', 'debt restructuring',
+  'death cross', 'distribution', 'outflows', 'delisting', 'sec probe',
+  'class action', 'recall', 'supply disruption', 'margin call',
+  'price target cut', 'underweight', 'downside', 'headwinds',
+  // Spanish
+  'baja', 'bajista', 'caída', 'pérdida', 'pérdidas', 'riesgo', 'crisis',
+  'toma de ganancias', 'presion vendedora', 'riesgo pais', 'dolar blue',
+  'brecha cambiaria', 'cepo', 'default', 'devaluacion', 'inflacion',
+  'conflicto gremial', 'paro', 'embargo', 'deuda soberana',
+];
+
+const HIGH_IMPACT_KEYWORDS = [
+  'crash', 'surge', 'record', 'all-time', 'bankruptcy', 'merger', 'acquisition',
+  'fed', 'interest rate', 'earnings', 'guidance', 'tariff', 'sanction', 'war',
+  'crisis', 'default', 'rally', 'breakout', 'plunge',
+  'fed rate', 'rate cut', 'rate hike', 'quantitative', 'stimulus',
+  'opec', 'embargo', 'invasion', 'ceasefire', 'election',
+  'devaluation', 'devaluacion', 'riesgo pais',
+];
+
+function keywordSentimentAnalysis(title: string): { sentiment: SentimentType; impact: 'high' | 'medium' | 'low' } {
+  const lower = title.toLowerCase();
+  let posScore = 0;
+  let negScore = 0;
+
+  for (const kw of POSITIVE_KEYWORDS) {
+    if (lower.includes(kw)) posScore++;
+  }
+  for (const kw of NEGATIVE_KEYWORDS) {
+    if (lower.includes(kw)) negScore++;
+  }
+
+  const sentiment: SentimentType = posScore > negScore ? 'positive'
+    : negScore > posScore ? 'negative'
+    : 'neutral';
+
+  let impact: 'high' | 'medium' | 'low' = 'low';
+  for (const kw of HIGH_IMPACT_KEYWORDS) {
+    if (lower.includes(kw)) { impact = 'high'; break; }
+  }
+  if (impact === 'low' && (posScore + negScore) >= 2) impact = 'medium';
+
+  return { sentiment, impact };
+}
 
 function fallbackAnalysis(item: NewsItem): NewsAnalysis {
   const plaza = item.relatedTickers.length > 0
     ? getPlazaForSymbol(item.relatedTickers[0])
     : 'global';
 
+  const { sentiment, impact } = keywordSentimentAnalysis(item.title);
+
   return {
-    sentiment: item.sentiment,
-    impact: item.impact,
-    affectedTickers: item.relatedTickers.filter((t) => getActiveSymbolList().includes(t)),
+    sentiment,
+    impact,
+    affectedTickers: item.relatedTickers.filter((t) => getFullSymbolUniverse().includes(t)),
     summary: '',
     marketPlaza: plaza,
   };
 }
 
-async function analyzeBatch(news: NewsItem[]): Promise<AnalyzedNewsItem[]> {
-  const toAnalyze = news.slice(0, MAX_NEWS_FOR_BATCH);
+function parseBatchResponse(raw: string, engineName: string): Array<{
+  newsId: string;
+  sentiment: SentimentType;
+  impact: 'high' | 'medium' | 'low';
+  affectedTickers: string[];
+  summary: string;
+  marketPlaza: MarketPlaza;
+}> | null {
+  try {
+    const parsed = JSON.parse(raw);
+    const rawAnalyses = parsed.analyses ?? parsed.results ?? parsed.data ?? parsed;
+    const analyses = Array.isArray(rawAnalyses) ? rawAnalyses
+      : typeof rawAnalyses === 'object' ? Object.values(rawAnalyses).find(Array.isArray) as typeof rawAnalyses ?? []
+      : [];
 
-  // Include triangulation confidence in the payload for the LLM
-  const newsPayload = toAnalyze.map((n) => ({
-    newsId: n.id,
-    title: n.title,
-    tickers: n.relatedTickers.join(','),
-    confidence: n.triangulation?.confidence ?? 'unknown',
-    sources: n.triangulation?.sourceCount ?? 1,
-  }));
-
-  const prompt = `Noticias a analizar (incluye nivel de confianza por triangulacion de fuentes — priorizá las de confianza "high"):\n${JSON.stringify(newsPayload)}\n\nRespondé con un objeto JSON con la clave "analyses" conteniendo el array de resultados.`;
-
-  function parseAnalysesResponse(raw: string, engineName: string): AnalyzedNewsItem[] | null {
-    try {
-      const parsed = JSON.parse(raw);
-      const analyses: Array<{
-        newsId: string;
-        sentiment: SentimentType;
-        impact: 'high' | 'medium' | 'low';
-        affectedTickers: string[];
-        summary: string;
-        marketPlaza: MarketPlaza;
-      }> = parsed.analyses ?? parsed;
-
-      if (!Array.isArray(analyses)) {
-        console.warn(`[intelligence] ${engineName}: unexpected response format`);
-        return null;
-      }
-
-      const analysisMap = new Map(analyses.map((a) => [a.newsId, a]));
-      console.log(`[intelligence] ${engineName} analyzed ${analyses.length}/${news.length} news items`);
-
-      return news.map((n) => {
-        const a = analysisMap.get(n.id);
-        if (a) {
-          return {
-            ...n,
-            sentiment: a.sentiment,
-            impact: a.impact,
-            analysis: {
-              sentiment: a.sentiment,
-              impact: a.impact,
-              affectedTickers: a.affectedTickers,
-              summary: a.summary,
-              marketPlaza: a.marketPlaza,
-            },
-          };
-        }
-        return { ...n, analysis: fallbackAnalysis(n) };
-      });
-    } catch {
-      console.warn(`[intelligence] ${engineName}: failed to parse response`);
+    if (!Array.isArray(analyses) || analyses.length === 0) {
+      console.warn(`[intelligence] ${engineName}: no analyses found. Keys: ${Object.keys(parsed).join(', ')}. Raw: ${raw.slice(0, 300)}`);
       return null;
+    }
+    return analyses;
+  } catch {
+    console.warn(`[intelligence] ${engineName}: failed to parse response`);
+    return null;
+  }
+}
+
+async function analyzeBatch(news: NewsItem[]): Promise<AnalyzedNewsItem[]> {
+  const analysisMap = new Map<string, {
+    sentiment: SentimentType;
+    impact: 'high' | 'medium' | 'low';
+    affectedTickers: string[];
+    summary: string;
+    marketPlaza: MarketPlaza;
+  }>();
+
+  // Pre-populate with DB values: noticias que ya tienen sentiment/impact guardado no necesitan re-analisis
+  const needsAnalysis: NewsItem[] = [];
+  for (const n of news) {
+    if (n.sentiment !== 'neutral' || n.impact !== 'low') {
+      // Ya tiene analisis de la BD — usar directamente
+      const plaza = n.relatedTickers.length > 0 ? getPlazaForSymbol(n.relatedTickers[0]) : 'global';
+      analysisMap.set(n.id, {
+        sentiment: n.sentiment as SentimentType,
+        impact: n.impact as 'high' | 'medium' | 'low',
+        affectedTickers: n.relatedTickers.filter((t) => getActiveSymbolList().includes(t)),
+        summary: '',
+        marketPlaza: plaza,
+      });
+    } else {
+      needsAnalysis.push(n);
     }
   }
 
-  // 1. Try LM Studio (local, no API key needed)
-  try {
-    const raw = await askLMStudio(prompt, BATCH_NEWS_ANALYSIS_PROMPT, 2048);
-    const result = parseAnalysesResponse(raw, 'LM Studio');
-    if (result) return result;
-  } catch (lmErr) {
-    console.warn('[intelligence] LM Studio failed:', (lmErr as Error).message.slice(0, 120));
+  console.log(`[intelligence] ${news.length} noticias total, ${news.length - needsAnalysis.length} ya analizadas en BD, ${needsAnalysis.length} pendientes`);
+
+  // Analizar en batches de MAX_NEWS_FOR_BATCH
+  const batchSize = getMaxBatchSize();
+  for (let i = 0; i < needsAnalysis.length; i += batchSize) {
+    const batch = needsAnalysis.slice(i, i + batchSize);
+    const batchNum = Math.floor(i / batchSize) + 1;
+    const totalBatches = Math.ceil(needsAnalysis.length / batchSize);
+
+    const newsPayload = batch.map((n) => ({
+      newsId: n.id,
+      title: n.title,
+      tickers: n.relatedTickers.join(','),
+      confidence: n.triangulation?.confidence ?? 'unknown',
+      sources: n.triangulation?.sourceCount ?? 1,
+    }));
+
+    const prompt = `Noticias a analizar (incluye nivel de confianza por triangulacion de fuentes — priorizá las de confianza "high"):\n${JSON.stringify(newsPayload)}\n\nRespondé con un objeto JSON con la clave "analyses" conteniendo el array de resultados.`;
+
+    let batchResults: ReturnType<typeof parseBatchResponse> = null;
+
+    try {
+      const raw = await callAI('classification', prompt, buildBatchNewsAnalysisPrompt(getFullSymbolUniverse()), 3072);
+      batchResults = parseBatchResponse(raw, `LM Studio batch ${batchNum}/${totalBatches}`);
+    } catch (lmErr) {
+      console.warn(`[intelligence] LM Studio batch ${batchNum}/${totalBatches} failed:`, (lmErr as Error).message.slice(0, 120));
+    }
+
+    if (batchResults) {
+      for (const a of batchResults) {
+        analysisMap.set(a.newsId, a);
+        updateNewsAnalysis(a.newsId, a.sentiment, a.impact);
+      }
+      console.log(`[intelligence] Batch ${batchNum}/${totalBatches}: ${batchResults.length} analizadas con IA y persistidas`);
+    } else {
+      // Fallback algoritmico por keywords
+      for (const n of batch) {
+        const fa = fallbackAnalysis(n);
+        analysisMap.set(n.id, fa);
+        updateNewsAnalysis(n.id, fa.sentiment, fa.impact);
+      }
+      console.log(`[intelligence] Batch ${batchNum}/${totalBatches}: ${batch.length} analizadas con fallback algoritmico`);
+    }
+
+    // Rate limit protection: wait 2s between batches
+    if (batchNum < totalBatches) {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
   }
 
-  // 2. Fallbacks deshabilitados — solo LM Studio local
-  // if (process.env.GROQ_API_KEY) { ... }
-
-  // 3. Fallback (si LM Studio falla)
-  console.warn('[intelligence] LM Studio failed, using fallback');
-  return news.map((n) => ({ ...n, analysis: fallbackAnalysis(n) }));
+  // Construir resultado final
+  return news.map((n) => {
+    const a = analysisMap.get(n.id);
+    if (a) {
+      return {
+        ...n,
+        sentiment: a.sentiment,
+        impact: a.impact,
+        analysis: a,
+      };
+    }
+    // No deberia llegar aca, pero por seguridad
+    const fa = fallbackAnalysis(n);
+    return { ...n, sentiment: fa.sentiment, impact: fa.impact, analysis: fa };
+  });
 }
 
 function aggregateTrends(analyzed: AnalyzedNewsItem[]): PlazaSummary[] {
@@ -122,7 +249,7 @@ function aggregateTrends(analyzed: AnalyzedNewsItem[]): PlazaSummary[] {
   for (const [plaza, items] of byPlaza) {
     const bySymbol = new Map<string, AnalyzedNewsItem[]>();
     for (const item of items) {
-      for (const ticker of item.analysis.affectedTickers) {
+      for (const ticker of (item.analysis.affectedTickers ?? [])) {
         if (!bySymbol.has(ticker)) bySymbol.set(ticker, []);
         bySymbol.get(ticker)!.push(item);
       }
@@ -185,6 +312,7 @@ function aggregateTrends(analyzed: AnalyzedNewsItem[]): PlazaSummary[] {
       plazaScore > 0.2 ? 'positive' : plazaScore < -0.2 ? 'negative' : 'neutral';
 
     const config = PLAZA_CONFIG[plaza];
+    if (!config) continue; // Skip unknown plazas (discovered tickers without plaza mapping)
     const trendWord = overallSentiment === 'positive' ? 'positiva' : overallSentiment === 'negative' ? 'negativa' : 'neutral';
     const keyInsight = symbolTrends.length > 0
       ? `${config.label}: tendencia ${trendWord} con ${items.length} noticias y ${symbolTrends.length} tickers afectados`
@@ -307,6 +435,47 @@ export async function getIntelligence(): Promise<NewsIntelligence> {
     plazas,
     alerts,
   };
+  intelligenceTimestamp = now;
+
+  return cachedIntelligence;
+}
+
+/**
+ * Get intelligence from BD only — no API fetch, no LLM analysis.
+ * Uses only news that were ALREADY analyzed (have sentiment in DB).
+ * Used by "Analizar" process.
+ */
+export async function getIntelligenceFromDB(): Promise<NewsIntelligence> {
+  const now = Date.now();
+  if (cachedIntelligence && now - intelligenceTimestamp < INTELLIGENCE_TTL) {
+    return cachedIntelligence;
+  }
+
+  // Read news from BD — only those already analyzed (have sentiment)
+  const rawNews = getNewsFromDB();
+  if (rawNews.length === 0) {
+    return { analyzedAt: now, totalNewsCount: 0, plazas: [], alerts: [] };
+  }
+
+  // Use already-analyzed news only (skip analyzeBatch / LLM entirely)
+  const validSentiments = new Set(['positive', 'negative', 'neutral']);
+  const alreadyAnalyzed: AnalyzedNewsItem[] = rawNews
+    .filter(n => n.sentiment && validSentiments.has(n.sentiment))
+    .map(n => ({
+      ...n,
+      analysis: {
+        sentiment: n.sentiment as 'positive' | 'negative' | 'neutral',
+        impact: (n.impact ?? 'low') as 'high' | 'medium' | 'low',
+        affectedTickers: n.relatedTickers,
+        summary: n.title,
+        marketPlaza: 'global' as const,
+      },
+    }));
+
+  const plazas = aggregateTrends(alreadyAnalyzed);
+  const alerts = generateAlerts(plazas, alreadyAnalyzed);
+
+  cachedIntelligence = { analyzedAt: now, totalNewsCount: alreadyAnalyzed.length, plazas, alerts };
   intelligenceTimestamp = now;
 
   return cachedIntelligence;

@@ -1,0 +1,20 @@
+CREATE TABLE `signal_tracking` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`symbol` text NOT NULL,
+	`signal_date` text NOT NULL,
+	`action` text NOT NULL,
+	`entry_price` real NOT NULL,
+	`target_price` real,
+	`stop_loss` real,
+	`confidence` integer NOT NULL,
+	`opportunity_score` integer NOT NULL,
+	`price_after_7d` real,
+	`price_after_30d` real,
+	`return_after_7d` real,
+	`return_after_30d` real,
+	`hit_target` integer,
+	`hit_stop` integer,
+	`outcome` text DEFAULT 'pending',
+	`resolved_at` text,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL
+);

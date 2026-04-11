@@ -9,11 +9,62 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/shared/trpc';
 import { useNavigation } from '@/shared/navigation';
+import { TableSkeleton } from '@/shared/Skeleton';
 import { PositionDialog } from './PositionDialog';
 import { TransactionDialog } from './TransactionDialog';
 import { SymbolHistoryDialog } from './SymbolHistoryDialog';
+
+type SignalAction = 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
+type ConvictionTier = 'strong' | 'standard' | 'speculative';
+
+const actionStyle: Record<SignalAction, { label: string; bg: string; text: string }> = {
+  BUY: { label: 'COMPRAR', bg: 'bg-green-500/20', text: 'text-green-400' },
+  SELL: { label: 'VENDER', bg: 'bg-red-500/20', text: 'text-red-400' },
+  HOLD: { label: 'MANTENER', bg: 'bg-blue-500/20', text: 'text-blue-400' },
+  WATCH: { label: 'OBSERVAR', bg: 'bg-yellow-500/20', text: 'text-yellow-400' },
+};
+
+function RecommendationCell({
+  action,
+  score,
+  confidence,
+  convictionTier,
+  reasoning,
+}: {
+  action: SignalAction;
+  score: number;
+  confidence: number;
+  convictionTier?: ConvictionTier;
+  reasoning?: string;
+}) {
+  const act = actionStyle[action] ?? actionStyle.WATCH;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="flex items-center gap-1.5 justify-end cursor-help">
+          <Badge className={`text-[9px] h-4 font-bold ${act.bg} ${act.text}`}>{act.label}</Badge>
+          <span className="text-[9px] font-mono text-muted-foreground">{score}</span>
+          {convictionTier === 'strong' && (
+            <Badge variant="outline" className="text-[8px] h-3.5 border-trading-green text-trading-green px-1">STRONG</Badge>
+          )}
+          {convictionTier === 'speculative' && (
+            <Badge variant="outline" className="text-[8px] h-3.5 border-yellow-500 text-yellow-500 px-1">SPEC.</Badge>
+          )}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs text-xs">
+        <div className="space-y-1">
+          <div>Confianza: {confidence}%</div>
+          {reasoning && <div>{reasoning}</div>}
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function PortfolioTable() {
   const [posDialogOpen, setPosDialogOpen] = useState(false);
@@ -26,8 +77,16 @@ export function PortfolioTable() {
   const { goToSymbol } = useNavigation();
   const utils = trpc.useUtils();
   const { data: portfolio, isLoading } = trpc.portfolio.get.useQuery(undefined, {
-    refetchInterval: 10_000,
+    refetchInterval: 60_000,
   });
+  const { data: scan } = trpc.opportunities.scan.useQuery(undefined, {
+    staleTime: 5 * 60_000,
+  });
+
+  // Build lookup map from latest scan: symbol → opportunity
+  const opportunityMap = new Map(
+    (scan?.opportunities ?? []).map((o) => [o.symbol, o]),
+  );
   const deletePos = trpc.portfolio.positions.delete.useMutation({
     onSuccess: () => {
       utils.portfolio.positions.list.invalidate();
@@ -36,7 +95,7 @@ export function PortfolioTable() {
   });
 
   if (isLoading) {
-    return <div className="p-6 text-muted-foreground">Cargando portfolio...</div>;
+    return <TableSkeleton rows={6} cols={8} />;
   }
 
   if (!portfolio) return null;
@@ -93,8 +152,35 @@ export function PortfolioTable() {
         />
       </div>
 
-      {/* Positions table */}
-      <Table>
+      {/* Mobile card layout */}
+      <div className="lg:hidden space-y-2">
+        {portfolio.positions.map((pos) => (
+          <Card key={pos.symbol} className="p-3 cursor-pointer" onClick={() => goToSymbol(pos.symbol)}>
+            <div className="flex justify-between items-center">
+              <span className="font-bold font-mono">{pos.symbol}</span>
+              <Badge
+                variant={pos.pnlPercent >= 0 ? 'secondary' : 'destructive'}
+                className={pos.pnlPercent >= 0 ? 'bg-trading-green text-foreground' : ''}
+              >
+                {pos.pnlPercent >= 0 ? '+' : ''}{pos.pnlPercent.toFixed(1)}%
+              </Badge>
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground mt-1">
+              <span>{pos.quantity} @ ${pos.avgCost.toFixed(2)}</span>
+              <span className={pos.pnl >= 0 ? 'text-trading-green' : 'text-trading-red'}>
+                {pos.pnl >= 0 ? '+' : ''}${pos.pnl.toLocaleString('en-US', { minimumFractionDigits: 0 })}
+              </span>
+            </div>
+            <div className="flex justify-between text-xs mt-1">
+              <span className="text-muted-foreground">${pos.currentPrice.toFixed(2)}</span>
+              <span>${pos.value.toLocaleString('en-US', { minimumFractionDigits: 0 })}</span>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <Table className="hidden lg:table">
         <TableHeader>
           <TableRow>
             <TableHead>Simbolo</TableHead>
@@ -105,6 +191,7 @@ export function PortfolioTable() {
             <TableHead className="text-right">Valor</TableHead>
             <TableHead className="text-right">P&L</TableHead>
             <TableHead className="text-right">P&L %</TableHead>
+            <TableHead className="text-right">Señal IA</TableHead>
             <TableHead className="text-right">Acciones</TableHead>
           </TableRow>
         </TableHeader>
@@ -138,6 +225,21 @@ export function PortfolioTable() {
                 >
                   {pos.pnlPercent >= 0 ? '+' : ''}{pos.pnlPercent.toFixed(1)}%
                 </Badge>
+              </TableCell>
+              <TableCell className="text-right">
+                {(() => {
+                  const opp = opportunityMap.get(pos.symbol);
+                  if (!opp) return <span className="text-[9px] text-muted-foreground/40">—</span>;
+                  return (
+                    <RecommendationCell
+                      action={opp.action as SignalAction}
+                      score={opp.opportunityScore}
+                      confidence={opp.confidence}
+                      convictionTier={(opp as any).convictionTier as ConvictionTier | undefined}
+                      reasoning={(opp as any).simpleReasoning ?? opp.reasoning}
+                    />
+                  );
+                })()}
               </TableCell>
               <TableCell className="text-right">
                 <div className="flex items-center justify-end gap-1">

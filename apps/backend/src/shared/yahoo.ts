@@ -1,6 +1,17 @@
 import type { Price, OHLC, FundamentalData } from '@trading/shared';
+import { reportOk, reportError } from './service-health.js';
+import { withRetry } from './retry.js';
+
+const SVC_PRICES = 'Yahoo Precios';
+const SVC_FUNDAMENTALS = 'Yahoo Fundamentales';
 
 const YAHOO_BASE = 'https://query1.finance.yahoo.com/v8/finance/chart';
+
+const EMPTY_EXTENDED_FUNDAMENTALS = {
+  revenueGrowth: null, grossMargin: null, operatingMargin: null, netMargin: null,
+  debtToEquity: null, freeCashFlow: null, returnOnEquity: null, returnOnAssets: null,
+  earningsSurprise: null, nextEarningsDate: null,
+} as const;
 
 const YAHOO_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
@@ -38,9 +49,14 @@ interface YahooResponse {
 export async function getQuote(symbol: string): Promise<Price> {
   const url = `${YAHOO_BASE}/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
 
-  const res = await fetch(url, { headers: YAHOO_HEADERS });
+  const res = await withRetry(
+    () => fetch(url, { headers: YAHOO_HEADERS }),
+    `Yahoo:${symbol}`,
+    { maxRetries: 2, baseDelayMs: 1000 },
+  );
 
   if (!res.ok) {
+    reportError(SVC_PRICES, `HTTP ${res.status} para ${symbol}`);
     throw new Error(`Yahoo Finance HTTP ${res.status} for ${symbol}`);
   }
 
@@ -63,6 +79,7 @@ export async function getQuote(symbol: string): Promise<Price> {
   const todayHigh = quotes.high?.[quotes.high.length - 1] ?? current;
   const todayLow = quotes.low?.[quotes.low.length - 1] ?? current;
 
+  reportOk(SVC_PRICES);
   return {
     symbol,
     open: todayOpen,
@@ -129,7 +146,10 @@ export async function getHistoricalQuotes(
     if (open == null || high == null || low == null || close == null) continue;
 
     ohlc.push({
-      date: new Date(timestamps[i] * 1000).toISOString().split('T')[0],
+      // For intraday intervals keep full ISO datetime, for daily+ keep date only
+      date: interval.includes('m') || interval.includes('h')
+        ? new Date(timestamps[i] * 1000).toISOString()
+        : new Date(timestamps[i] * 1000).toISOString().split('T')[0],
       open,
       high,
       low,
@@ -188,6 +208,59 @@ export async function searchSymbols(query: string): Promise<Array<{
     });
 }
 
+// --- Yahoo crumb + cookie auth ---
+
+let yahooCrumb: string | null = null;
+let yahooCookie: string | null = null;
+let crumbFetchedAt = 0;
+const CRUMB_TTL = 30 * 60 * 1000; // 30 minutes
+
+async function ensureCrumb(): Promise<{ crumb: string; cookie: string } | null> {
+  if (yahooCrumb && yahooCookie && Date.now() - crumbFetchedAt < CRUMB_TTL) {
+    return { crumb: yahooCrumb, cookie: yahooCookie };
+  }
+
+  try {
+    // Step 1: Get cookie from Yahoo consent page
+    const consentRes = await fetch('https://fc.yahoo.com', {
+      headers: YAHOO_HEADERS,
+      redirect: 'manual',
+    });
+    const setCookie = consentRes.headers.get('set-cookie');
+    const cookie = setCookie?.split(';')[0] ?? '';
+
+    if (!cookie) {
+      console.warn('[Yahoo] No cookie received from fc.yahoo.com');
+      return null;
+    }
+
+    // Step 2: Get crumb using the cookie
+    const crumbRes = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
+      headers: { ...YAHOO_HEADERS, Cookie: cookie },
+    });
+
+    if (!crumbRes.ok) {
+      console.warn('[Yahoo] Crumb fetch failed:', crumbRes.status);
+      return null;
+    }
+
+    const crumb = await crumbRes.text();
+    if (!crumb || crumb.includes('<')) {
+      console.warn('[Yahoo] Invalid crumb response');
+      return null;
+    }
+
+    yahooCrumb = crumb;
+    yahooCookie = cookie;
+    crumbFetchedAt = Date.now();
+    console.log('[Yahoo] Crumb obtained successfully');
+    return { crumb, cookie };
+  } catch (err) {
+    console.warn('[Yahoo] Crumb auth failed:', (err as Error).message);
+    return null;
+  }
+}
+
 // --- Fundamental data ---
 
 interface YahooQuoteSummary {
@@ -196,6 +269,25 @@ interface YahooQuoteSummary {
       defaultKeyStatistics?: Record<string, { raw?: number }>;
       financialData?: Record<string, { raw?: number }>;
       summaryDetail?: Record<string, { raw?: number }>;
+      incomeStatementHistory?: {
+        incomeStatementHistory?: Array<Record<string, { raw?: number }>>;
+      };
+      balanceSheetHistory?: {
+        balanceSheetStatements?: Array<Record<string, { raw?: number }>>;
+      };
+      cashflowStatementHistory?: {
+        cashflowStatements?: Array<Record<string, { raw?: number }>>;
+      };
+      earningsTrend?: {
+        trend?: Array<{
+          earningsEstimate?: { avg?: { raw?: number } };
+        }>;
+      };
+      calendarEvents?: {
+        earnings?: {
+          earningsDate?: Array<{ raw?: number }>;
+        };
+      };
     }> | null;
     error: { code: string; description: string } | null;
   };
@@ -206,48 +298,151 @@ function extractRaw(obj: Record<string, { raw?: number }> | undefined, key: stri
   return val != null && isFinite(val) ? val : null;
 }
 
+function parseFundamentalsFromSummary(
+  symbol: string,
+  result: NonNullable<YahooQuoteSummary['quoteSummary']['result']>[0],
+): FundamentalData | null {
+  const stats = result.defaultKeyStatistics;
+  const fin = result.financialData;
+  const summary = result.summaryDetail;
+
+  const currentPrice = extractRaw(fin, 'currentPrice') ?? extractRaw(summary, 'previousClose') ?? 0;
+  const high52 = extractRaw(summary, 'fiftyTwoWeekHigh');
+  const low52 = extractRaw(summary, 'fiftyTwoWeekLow');
+
+  // Extract financial statement data if available
+  const income = result.incomeStatementHistory?.incomeStatementHistory?.[0];
+  const prevIncome = result.incomeStatementHistory?.incomeStatementHistory?.[1];
+  const balance = result.balanceSheetHistory?.balanceSheetStatements?.[0];
+  const cashflow = result.cashflowStatementHistory?.cashflowStatements?.[0];
+  const earningsTrend = result.earningsTrend?.trend?.[0];
+
+  // Revenue growth YoY
+  const revenue = extractRaw(income, 'totalRevenue');
+  const prevRevenue = extractRaw(prevIncome, 'totalRevenue');
+  const revenueGrowth = revenue && prevRevenue && prevRevenue > 0
+    ? ((revenue - prevRevenue) / prevRevenue) * 100 : null;
+
+  // Margins
+  const grossProfit = extractRaw(income, 'grossProfit');
+  const operatingIncome = extractRaw(income, 'operatingIncome');
+  const netIncome = extractRaw(income, 'netIncome');
+  const grossMargin = revenue && grossProfit ? (grossProfit / revenue) * 100 : null;
+  const operatingMargin = revenue && operatingIncome ? (operatingIncome / revenue) * 100 : null;
+  const netMargin = revenue && netIncome ? (netIncome / revenue) * 100 : null;
+
+  // Balance sheet
+  const totalDebt = extractRaw(balance, 'longTermDebt') ?? extractRaw(balance, 'totalDebt');
+  const totalEquity = extractRaw(balance, 'totalStockholderEquity');
+  const debtToEquity = totalDebt != null && totalEquity && totalEquity > 0
+    ? totalDebt / totalEquity : null;
+
+  // Cash flow
+  const freeCashFlow = extractRaw(cashflow, 'freeCashFlow')
+    ?? extractRaw(cashflow, 'totalCashFromOperatingActivities');
+
+  // ROE / ROA
+  const totalAssets = extractRaw(balance, 'totalAssets');
+  const returnOnEquity = netIncome && totalEquity && totalEquity > 0
+    ? (netIncome / totalEquity) * 100 : null;
+  const returnOnAssets = netIncome && totalAssets && totalAssets > 0
+    ? (netIncome / totalAssets) * 100 : null;
+
+  // Earnings surprise
+  const earningsSurprise = earningsTrend?.earningsEstimate?.avg?.raw != null && extractRaw(stats, 'trailingEps') != null
+    ? ((extractRaw(stats, 'trailingEps')! - earningsTrend.earningsEstimate.avg.raw) / Math.abs(earningsTrend.earningsEstimate.avg.raw)) * 100
+    : null;
+
+  return {
+    symbol,
+    marketCap: extractRaw(summary, 'marketCap'),
+    peRatio: extractRaw(summary, 'trailingPE'),
+    forwardPE: extractRaw(stats, 'forwardPE') ?? extractRaw(summary, 'forwardPE'),
+    eps: extractRaw(stats, 'trailingEps'),
+    dividendYield: extractRaw(summary, 'dividendYield'),
+    fiftyTwoWeekHigh: high52,
+    fiftyTwoWeekLow: low52,
+    currentPrice,
+    priceVs52wHigh: high52 && currentPrice ? ((currentPrice - high52) / high52) * 100 : null,
+    priceVs52wLow: low52 && currentPrice ? ((currentPrice - low52) / low52) * 100 : null,
+    avgVolume: extractRaw(summary, 'averageVolume') ?? extractRaw(stats, 'averageVolume'),
+    beta: extractRaw(stats, 'beta'),
+    revenueGrowth: revenueGrowth != null ? Math.round(revenueGrowth * 100) / 100 : null,
+    grossMargin: grossMargin != null ? Math.round(grossMargin * 100) / 100 : null,
+    operatingMargin: operatingMargin != null ? Math.round(operatingMargin * 100) / 100 : null,
+    netMargin: netMargin != null ? Math.round(netMargin * 100) / 100 : null,
+    debtToEquity: debtToEquity != null ? Math.round(debtToEquity * 100) / 100 : null,
+    freeCashFlow: freeCashFlow != null ? Math.round(freeCashFlow) : null,
+    returnOnEquity: returnOnEquity != null ? Math.round(returnOnEquity * 100) / 100 : null,
+    returnOnAssets: returnOnAssets != null ? Math.round(returnOnAssets * 100) / 100 : null,
+    earningsSurprise: earningsSurprise != null ? Math.round(earningsSurprise * 100) / 100 : null,
+    nextEarningsDate: (() => {
+      const earningsTimestamp = result.calendarEvents?.earnings?.earningsDate?.[0]?.raw;
+      if (earningsTimestamp) {
+        return new Date(earningsTimestamp * 1000).toISOString().split('T')[0];
+      }
+      return null;
+    })()
+  };
+}
+
 export async function getFundamentals(symbol: string): Promise<FundamentalData> {
-  const modules = 'defaultKeyStatistics,financialData,summaryDetail';
-  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
+  const modules = 'defaultKeyStatistics,financialData,summaryDetail,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,earningsTrend,calendarEvents';
 
+  // Try with crumb auth first
+  const auth = await ensureCrumb();
+  if (auth) {
+    try {
+      const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}&crumb=${encodeURIComponent(auth.crumb)}`;
+      const res = await fetch(url, {
+        headers: { ...YAHOO_HEADERS, Cookie: auth.cookie },
+      });
+
+      if (res.ok) {
+        const data = (await res.json()) as YahooQuoteSummary;
+        const result = data.quoteSummary?.result?.[0];
+        if (result) {
+          const parsed = parseFundamentalsFromSummary(symbol, result);
+          if (parsed) {
+            reportOk(SVC_FUNDAMENTALS);
+            return parsed;
+          }
+        }
+      } else if (res.status === 401) {
+        yahooCrumb = null;
+        yahooCookie = null;
+        crumbFetchedAt = 0;
+        reportError(SVC_FUNDAMENTALS, `Crumb expirado (401) para ${symbol}`);
+      }
+    } catch (err) {
+      console.warn(`[Yahoo] quoteSummary with crumb failed for ${symbol}:`, (err as Error).message);
+      reportError(SVC_FUNDAMENTALS, `Error de red para ${symbol}: ${(err as Error).message.slice(0, 100)}`);
+    }
+  } else {
+    reportError(SVC_FUNDAMENTALS, 'No se pudo obtener crumb de Yahoo (autenticacion fallida)');
+  }
+
+  // Fallback: try without auth (may work for some endpoints)
   try {
+    const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
     const res = await fetch(url, { headers: YAHOO_HEADERS });
-
     if (res.ok) {
       const data = (await res.json()) as YahooQuoteSummary;
       const result = data.quoteSummary?.result?.[0];
-
       if (result) {
-        const stats = result.defaultKeyStatistics;
-        const fin = result.financialData;
-        const summary = result.summaryDetail;
-
-        const currentPrice = extractRaw(fin, 'currentPrice') ?? extractRaw(summary, 'previousClose') ?? 0;
-        const high52 = extractRaw(summary, 'fiftyTwoWeekHigh');
-        const low52 = extractRaw(summary, 'fiftyTwoWeekLow');
-
-        return {
-          symbol,
-          marketCap: extractRaw(summary, 'marketCap'),
-          peRatio: extractRaw(summary, 'trailingPE'),
-          forwardPE: extractRaw(stats, 'forwardPE') ?? extractRaw(summary, 'forwardPE'),
-          eps: extractRaw(stats, 'trailingEps'),
-          dividendYield: extractRaw(summary, 'dividendYield'),
-          fiftyTwoWeekHigh: high52,
-          fiftyTwoWeekLow: low52,
-          currentPrice,
-          priceVs52wHigh: high52 && currentPrice ? ((currentPrice - high52) / high52) * 100 : null,
-          priceVs52wLow: low52 && currentPrice ? ((currentPrice - low52) / low52) * 100 : null,
-          avgVolume: extractRaw(summary, 'averageVolume') ?? extractRaw(stats, 'averageVolume'),
-          beta: extractRaw(stats, 'beta'),
-        };
+        const parsed = parseFundamentalsFromSummary(symbol, result);
+        if (parsed) {
+          reportOk(SVC_FUNDAMENTALS);
+          return parsed;
+        }
       }
     }
-  } catch (err) {
-    console.warn(`[Yahoo] quoteSummary failed for ${symbol}, trying chart fallback:`, (err as Error).message);
+  } catch {
+    // ignore — fallback below
   }
 
-  // Fallback: extract what we can from the chart endpoint meta
+  // Final fallback: chart endpoint (no P/E, EPS, dividends)
+  reportError(SVC_FUNDAMENTALS, `Sin datos fundamentales para ${symbol} — usando solo datos de precio`);
   return getFundamentalsFromChart(symbol);
 }
 
@@ -277,6 +472,7 @@ async function getFundamentalsFromChart(symbol: string): Promise<FundamentalData
         priceVs52wLow: low52 ? ((currentPrice - low52) / low52) * 100 : null,
         avgVolume: meta.averageDailyVolume10Day ?? null,
         beta: null,
+        ...EMPTY_EXTENDED_FUNDAMENTALS,
       };
     }
   } catch {
@@ -288,5 +484,54 @@ async function getFundamentalsFromChart(symbol: string): Promise<FundamentalData
     dividendYield: null, fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null,
     currentPrice: 0, priceVs52wHigh: null, priceVs52wLow: null,
     avgVolume: null, beta: null,
+    ...EMPTY_EXTENDED_FUNDAMENTALS,
   };
+}
+
+// --- Asset Profile (sector, industry, quoteType, exchange) ---
+
+export interface YahooAssetProfile {
+  quoteType: string;    // EQUITY, ETF, CRYPTOCURRENCY, MUTUALFUND
+  exchange: string;     // NMS, NYQ, BUE
+  sector: string | null;
+  industry: string | null;
+  longName: string;
+}
+
+export async function getAssetProfile(symbol: string): Promise<YahooAssetProfile | null> {
+  const modules = 'assetProfile,quoteType';
+  const auth = await ensureCrumb();
+
+  const tryFetch = async (baseUrl: string, headers: Record<string, string>): Promise<YahooAssetProfile | null> => {
+    try {
+      const url = `${baseUrl}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : ''}`;
+      const res = await fetch(url, { headers });
+      if (!res.ok) return null;
+
+      const data = (await res.json()) as any;
+      const result = data.quoteSummary?.result?.[0];
+      if (!result) return null;
+
+      const profile = result.assetProfile ?? {};
+      const qt = result.quoteType ?? {};
+
+      return {
+        quoteType: qt.quoteType ?? 'EQUITY',
+        exchange: qt.exchange ?? '',
+        sector: profile.sector ?? null,
+        industry: profile.industry ?? null,
+        longName: qt.longName ?? profile.companyName ?? symbol,
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  // Try authenticated first, then unauthenticated
+  if (auth) {
+    const result = await tryFetch('https://query2.finance.yahoo.com', { ...YAHOO_HEADERS, Cookie: auth.cookie });
+    if (result) return result;
+  }
+
+  return tryFetch('https://query1.finance.yahoo.com', YAHOO_HEADERS);
 }

@@ -2,6 +2,7 @@ import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { trpc, getTRPCClient } from '@/shared/trpc';
+import { ErrorBoundary } from '@/shared/ErrorBoundary';
 import { App } from '@/App';
 import '@/styles/globals.css';
 
@@ -19,7 +20,9 @@ function Root() {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
-        <App />
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
       </QueryClientProvider>
     </trpc.Provider>
   );

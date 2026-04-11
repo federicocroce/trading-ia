@@ -1,6 +1,7 @@
 import type {
   Opportunity,
   OpportunitySector,
+  ConfluenceDetail,
   SignalAction,
   TechnicalSummary,
   FundamentalSummary,
@@ -9,8 +10,14 @@ import type {
   FASignal,
   ReturnEstimate,
   MarketPlaza,
+  TradeLevels,
+  TimingView,
+  ActionCondition,
+  ConvictionTier,
 } from '@trading/shared';
 import { OPPORTUNITY_UNIVERSE, getSectorForSymbol } from '@trading/shared';
+import { getSectorForSymbolDynamic, getSectorLabelDynamic, getClassificationForSymbol } from '../discovery/discovery-registry.js';
+import { detectSignalConflicts } from './signal-conflicts.js';
 
 // --- Normalización a escala 0-100 ---
 
@@ -36,14 +43,14 @@ export interface HorizonWeights {
 
 export const SHORT_TERM_WEIGHTS: HorizonWeights = {
   sentiment: 0.40,
-  technical: 0.45,
-  fundamental: 0.15,
+  technical: 0.40,
+  fundamental: 0.20,
 };
 
 export const MEDIUM_TERM_WEIGHTS: HorizonWeights = {
   sentiment: 0.20,
-  technical: 0.30,
-  fundamental: 0.50,
+  technical: 0.35,
+  fundamental: 0.45,
 };
 
 // --- Scoring ---
@@ -72,32 +79,463 @@ export function computeCompositeScore(
 ): { shortTerm: number; mediumTerm: number; composite: number } {
   const shortTerm = computeHorizonScore(techScore, fundScore, sentScore, SHORT_TERM_WEIGHTS);
   const mediumTerm = computeHorizonScore(techScore, fundScore, sentScore, MEDIUM_TERM_WEIGHTS);
-  const composite = Math.round((shortTerm + mediumTerm) / 2);
+  const composite = Math.round(shortTerm * 0.4 + mediumTerm * 0.6);
   return { shortTerm, mediumTerm, composite };
 }
 
-// --- Confianza (alineación de fuentes) ---
+// --- Confianza por confluencia de señales ---
 
-export function computeConfidence(techScore: number, fundScore: number, sentScore: number): number {
+type Vote = { name: string; direction: 'bullish' | 'bearish' | 'neutral' };
+
+function computeConfluence(
+  tech: TechnicalSummary | undefined,
+  fund: FundamentalSummary | undefined,
+  sent: SentimentInput | undefined,
+): ConfluenceDetail {
+  const votes: Vote[] = [];
+  const ind = tech?.indicators;
+
+  // =====================================================
+  // TECHNICAL VOTES (~11 señales)
+  // =====================================================
+  if (ind) {
+    // 1. RSI
+    if (ind.rsi14 != null) {
+      if (ind.rsi14 < 35) votes.push({ name: `RSI ${ind.rsi14.toFixed(0)} (sobreventa)`, direction: 'bullish' });
+      else if (ind.rsi14 > 70) votes.push({ name: `RSI ${ind.rsi14.toFixed(0)} (sobrecompra)`, direction: 'bearish' });
+      else votes.push({ name: `RSI ${ind.rsi14.toFixed(0)} (neutral)`, direction: 'neutral' });
+    }
+
+    // 2. MACD histogram
+    if (ind.macd) {
+      if (ind.macd.histogram > 0) votes.push({ name: 'MACD histograma positivo', direction: 'bullish' });
+      else votes.push({ name: 'MACD histograma negativo', direction: 'bearish' });
+    }
+
+    // 3. Precio vs SMA200 (tendencia largo plazo)
+    if (ind.sma200 != null) {
+      if (ind.currentPrice > ind.sma200) votes.push({ name: 'Precio > SMA200', direction: 'bullish' });
+      else votes.push({ name: 'Precio < SMA200', direction: 'bearish' });
+    }
+
+    // 4. Precio vs SMA50 (tendencia mediano plazo)
+    if (ind.sma50 != null) {
+      if (ind.currentPrice > ind.sma50) votes.push({ name: 'Precio > SMA50', direction: 'bullish' });
+      else votes.push({ name: 'Precio < SMA50', direction: 'bearish' });
+    }
+
+    // 5. Golden/Death cross
+    if (ind.crossovers?.goldenCross) votes.push({ name: 'Golden Cross reciente', direction: 'bullish' });
+    if (ind.crossovers?.deathCross) votes.push({ name: 'Death Cross reciente', direction: 'bearish' });
+
+    // 6. Stochastic
+    if (ind.stochastic) {
+      if (ind.stochastic.k < 20 && ind.stochastic.k > ind.stochastic.d)
+        votes.push({ name: 'Stochastic sobreventa + cruce alcista', direction: 'bullish' });
+      else if (ind.stochastic.k > 80 && ind.stochastic.k < ind.stochastic.d)
+        votes.push({ name: 'Stochastic sobrecompra + cruce bajista', direction: 'bearish' });
+      else
+        votes.push({ name: `Stochastic K=${ind.stochastic.k.toFixed(0)}`, direction: 'neutral' });
+    }
+
+    // 7. Bollinger position
+    if (ind.bollingerBands) {
+      const range = ind.bollingerBands.upper - ind.bollingerBands.lower;
+      if (range > 0) {
+        const pos = (ind.currentPrice - ind.bollingerBands.lower) / range;
+        if (pos < 0.2) votes.push({ name: 'Precio en banda inferior Bollinger', direction: 'bullish' });
+        else if (pos > 0.8) votes.push({ name: 'Precio en banda superior Bollinger', direction: 'bearish' });
+        else votes.push({ name: 'Precio en rango medio Bollinger', direction: 'neutral' });
+      }
+    }
+
+    // 8. OBV
+    if (ind.obvTrend === 'rising') votes.push({ name: 'OBV en acumulación', direction: 'bullish' });
+    else if (ind.obvTrend === 'falling') votes.push({ name: 'OBV en distribución', direction: 'bearish' });
+
+    // 9. OBV divergence (strong signal)
+    if (ind.obvDivergence) {
+      votes.push({
+        name: `Divergencia OBV (${ind.obvTrend === 'rising' ? 'alcista' : 'bajista'})`,
+        direction: ind.obvTrend === 'rising' ? 'bullish' : 'bearish',
+      });
+    }
+
+    // 10. Soporte/resistencia cercano
+    if (ind.nearestSupport != null && ind.nearestSupport < 3)
+      votes.push({ name: `Cerca de soporte (${ind.nearestSupport.toFixed(1)}%)`, direction: 'bullish' });
+    if (ind.nearestResistance != null && ind.nearestResistance < 3)
+      votes.push({ name: `Cerca de resistencia (${ind.nearestResistance.toFixed(1)}%)`, direction: 'bearish' });
+
+    // 11. Volumen
+    if (ind.volumeRatio > 1.5) votes.push({ name: `Volumen alto (${ind.volumeRatio.toFixed(1)}x)`, direction: tech?.score != null && tech.score > 0 ? 'bullish' : 'bearish' });
+  }
+
+  // =====================================================
+  // FUNDAMENTAL VOTES (~5 señales independientes)
+  // =====================================================
+  if (fund) {
+    const d = fund.data;
+
+    // F1. P/E Ratio — valuación actual
+    if (d.peRatio != null && d.eps != null) {
+      if (d.peRatio > 0 && d.peRatio < 15 && d.eps > 0)
+        votes.push({ name: `P/E ${d.peRatio.toFixed(1)} (barato)`, direction: 'bullish' });
+      else if (d.peRatio > 30)
+        votes.push({ name: `P/E ${d.peRatio.toFixed(1)} (caro)`, direction: 'bearish' });
+      else if (d.peRatio > 0)
+        votes.push({ name: `P/E ${d.peRatio.toFixed(1)} (razonable)`, direction: 'neutral' });
+      else
+        votes.push({ name: `P/E negativo (perdidas)`, direction: 'bearish' });
+    }
+
+    // F2. Forward P/E vs P/E — crecimiento esperado
+    if (d.forwardPE != null && d.peRatio != null && d.peRatio > 0) {
+      if (d.forwardPE < d.peRatio * 0.8)
+        votes.push({ name: `Forward P/E ${d.forwardPE.toFixed(1)} mejora vs ${d.peRatio.toFixed(1)}`, direction: 'bullish' });
+      else if (d.forwardPE > d.peRatio * 1.2)
+        votes.push({ name: `Forward P/E ${d.forwardPE.toFixed(1)} empeora vs ${d.peRatio.toFixed(1)}`, direction: 'bearish' });
+    }
+
+    // F3. Dividendo
+    if (d.dividendYield != null) {
+      if (d.dividendYield > 0.03)
+        votes.push({ name: `Dividendo ${(d.dividendYield * 100).toFixed(1)}% (atractivo)`, direction: 'bullish' });
+      else if (d.dividendYield > 0.01)
+        votes.push({ name: `Dividendo ${(d.dividendYield * 100).toFixed(1)}%`, direction: 'neutral' });
+    }
+
+    // F4. Posición vs máximo 52 semanas
+    if (d.priceVs52wHigh != null) {
+      if (d.priceVs52wHigh < -25)
+        votes.push({ name: `${Math.abs(d.priceVs52wHigh).toFixed(0)}% debajo de max 52s (oportunidad)`, direction: 'bullish' });
+      else if (d.priceVs52wHigh > -5)
+        votes.push({ name: `Cerca de max 52s (${d.priceVs52wHigh.toFixed(0)}%)`, direction: 'bearish' });
+    }
+
+    // F5. Posición vs mínimo 52 semanas
+    if (d.priceVs52wLow != null) {
+      if (d.priceVs52wLow < 10)
+        votes.push({ name: `Cerca de min 52s (+${d.priceVs52wLow.toFixed(0)}%)`, direction: 'bearish' });
+      else if (d.priceVs52wLow > 50)
+        votes.push({ name: `${d.priceVs52wLow.toFixed(0)}% arriba de min 52s`, direction: 'bullish' });
+    }
+  }
+
+  // =====================================================
+  // SENTIMENT VOTES (~3 señales independientes)
+  // =====================================================
+  const sentScore = sent?.score ?? 0;
   const sentScaled = sentScore * 100;
-  const signs = [
-    techScore > 10 ? 1 : techScore < -10 ? -1 : 0,
-    fundScore > 10 ? 1 : fundScore < -10 ? -1 : 0,
-    sentScaled > 10 ? 1 : sentScaled < -10 ? -1 : 0,
-  ];
-  const active = signs.filter((s) => s !== 0);
-  if (active.length === 0) return 40;
-  const allSame = active.every((s) => s === active[0]);
-  if (allSame && active.length === 3) return 75;
-  if (allSame && active.length === 2) return 60;
-  return 45;
+
+  // S1. Score general de sentimiento
+  if (sentScaled > 15) votes.push({ name: `Sentimiento positivo (${sentScaled.toFixed(0)}%)`, direction: 'bullish' });
+  else if (sentScaled < -15) votes.push({ name: `Sentimiento negativo (${sentScaled.toFixed(0)}%)`, direction: 'bearish' });
+  else votes.push({ name: 'Sentimiento neutral', direction: 'neutral' });
+
+  // S2. Volumen de noticias — muchas noticias amplifica la señal
+  if (sent?.newsCount != null && sent.newsCount >= 3) {
+    const posRatio = (sent.positiveCount ?? 0) / sent.newsCount;
+    const negRatio = (sent.negativeCount ?? 0) / sent.newsCount;
+    if (posRatio >= 0.6)
+      votes.push({ name: `${sent.positiveCount}/${sent.newsCount} noticias positivas`, direction: 'bullish' });
+    else if (negRatio >= 0.6)
+      votes.push({ name: `${sent.negativeCount}/${sent.newsCount} noticias negativas`, direction: 'bearish' });
+  }
+
+  // S3. Consenso fuerte — todas las noticias apuntan igual
+  if (sent?.newsCount != null && sent.newsCount >= 2) {
+    const neg = sent.negativeCount ?? 0;
+    const pos = sent.positiveCount ?? 0;
+    if (pos > 0 && neg === 0)
+      votes.push({ name: `Consenso total positivo (${pos} noticias)`, direction: 'bullish' });
+    else if (neg > 0 && pos === 0)
+      votes.push({ name: `Consenso total negativo (${neg} noticias)`, direction: 'bearish' });
+  }
+
+  // --- Calculate confluence ---
+  const bullish = votes.filter((v) => v.direction === 'bullish');
+  const bearish = votes.filter((v) => v.direction === 'bearish');
+  const neutral = votes.filter((v) => v.direction === 'neutral');
+
+  const totalDirectional = bullish.length + bearish.length;
+  if (totalDirectional === 0) {
+    return {
+      bullishSignals: [],
+      bearishSignals: [],
+      neutralSignals: neutral.map((v) => v.name),
+      confluencePercent: 30,
+      direction: 'mixed',
+    };
+  }
+
+  const dominant = bullish.length >= bearish.length ? 'bullish' : 'bearish';
+  const dominantCount = dominant === 'bullish' ? bullish.length : bearish.length;
+
+  // Confluence = % of directional votes aligned with dominant direction
+  // Scale: if all align = 90-95%, if split 50/50 = ~30%
+  const rawConfluence = (dominantCount / votes.length) * 100;
+  // Bonus for having more total signals (more data = more reliable)
+  const dataBonus = Math.min(10, votes.length);
+  const confluencePercent = Math.round(Math.min(95, Math.max(20, rawConfluence + dataBonus)));
+
+  return {
+    bullishSignals: bullish.map((v) => v.name),
+    bearishSignals: bearish.map((v) => v.name),
+    neutralSignals: neutral.map((v) => v.name),
+    confluencePercent,
+    direction: dominant,
+  };
+}
+
+/** Legacy wrapper — returns simple confidence number */
+export function computeConfidence(
+  _techScore: number,
+  _fundScore: number,
+  _sentScore: number,
+  tech?: TechnicalSummary,
+  fund?: FundamentalSummary,
+  sent?: SentimentInput,
+): number {
+  const detail = computeConfluence(tech, fund, sent);
+  return detail.confluencePercent;
+}
+
+/** Full confluence detail for enriched opportunities */
+export function computeConfluenceDetail(
+  tech: TechnicalSummary | undefined,
+  fund: FundamentalSummary | undefined,
+  sent: SentimentInput | undefined,
+): ConfluenceDetail {
+  return computeConfluence(tech, fund, sent);
 }
 
 // --- Action ---
 
-export function scoreToAction(score: number, inPortfolio: boolean): SignalAction {
-  if (score >= 60) return 'BUY';
-  if (score >= 40) return inPortfolio ? 'HOLD' : 'WATCH';
+/**
+ * Score → Action (ajustado para swing trader táctico).
+ * Más agresivo que un inversor conservador: SELL antes, BUY requiere más confirmación.
+ *
+ * hasConflicts penaliza en TODOS los rangos, no solo en el tier STRONG:
+ * - Score 72+ sin conflictos → BUY (STRONG tier)
+ * - Score 72+ con conflictos → WATCH (conflicto sería grave, señales contradictorias)
+ * - Score 62-71 sin conflictos → BUY
+ * - Score 62-71 con conflictos → WATCH (no entrar cuando hay contradicción)
+ */
+export function scoreToAction(score: number, inPortfolio: boolean, confidence?: number, hasConflicts?: boolean): SignalAction {
+  if (score >= 72 && (confidence ?? 0) >= 70 && !hasConflicts) return 'BUY'; // STRONG BUY tier
+  if (score >= 72) return hasConflicts ? 'WATCH' : 'BUY';
+  if (score >= 62) return hasConflicts ? 'WATCH' : 'BUY';
+  if (score >= 52 && inPortfolio) return 'HOLD';
+  if (score >= 42) return inPortfolio ? 'HOLD' : 'WATCH';
+  return inPortfolio ? 'SELL' : 'WATCH'; // <42 en portfolio = SELL
+}
+
+export function getConvictionTier(score: number, confidence: number, hasConflicts: boolean, hasBullishDivergence: boolean): ConvictionTier {
+  if (score >= 72 && confidence >= 70 && !hasConflicts) return 'strong';
+  if (score >= 52 && score < 62 && hasBullishDivergence) return 'speculative';
+  return 'standard';
+}
+
+/**
+ * Smart action that considers divergences, trade levels, and portfolio context.
+ * This OVERRIDES the basic scoreToAction when there's a strong anticipatory signal.
+ */
+function smartAction(
+  baseAction: SignalAction,
+  composite: number,
+  tech: TechnicalSummary | undefined,
+  fund: FundamentalSummary | undefined,
+  tradeLevels: TradeLevels | undefined,
+  inPortfolio: boolean,
+  symbol: string,
+): { action: SignalAction; reason?: string } {
+  const divergences = tech?.divergences ?? [];
+  const weeklyDivs = divergences.filter(d => d.timeframe === 'weekly');
+  const dailyDivs = divergences.filter(d => d.timeframe === 'daily');
+  const price = tech?.indicators.currentPrice ?? 0;
+
+  if (!price || price <= 0) return { action: baseAction };
+
+  const p = (v: number) => `$${v.toFixed(2)}`;
+
+  // Count bearish/bullish signals across both timeframes
+  const bearishWeekly = weeklyDivs.filter(d => d.type === 'bearish');
+  const bearishDaily = dailyDivs.filter(d => d.type === 'bearish');
+  const bullishWeekly = weeklyDivs.filter(d => d.type === 'bullish');
+  const bullishDaily = dailyDivs.filter(d => d.type === 'bullish');
+
+  // === PORTFOLIO: anticipar caída ===
+  if (inPortfolio && tradeLevels) {
+    const distToStop = ((price - tradeLevels.stopLoss) / price) * 100;
+    const allBearishIndicators = [...bearishWeekly, ...bearishDaily].map(d => `${d.indicator.toUpperCase()} (${d.timeframe === 'weekly' ? 'semanal' : 'diario'})`);
+
+    // Precio cerca del stop (< 5%) + cualquier divergencia bajista → SELL anticipado
+    if (distToStop < 5 && (bearishWeekly.length > 0 || bearishDaily.length >= 2)) {
+      return {
+        action: 'SELL',
+        reason: `Tenes ${symbol} a ${p(price)} y el stop esta en ${p(tradeLevels.stopLoss)} (a solo ${distToStop.toFixed(1)}%). Las divergencias bajistas en ${allBearishIndicators.join(' + ')} dicen que va a seguir cayendo — mejor salir ahora y proteger capital.`,
+      };
+    }
+
+    // Divergencia bajista semanal fuerte (RSI + MACD ambas bajistas) → SELL
+    if (bearishWeekly.length >= 2) {
+      return {
+        action: 'SELL',
+        reason: `${symbol} tiene divergencia bajista en ${allBearishIndicators.join(' y ')} en velas semanales — el precio sube pero los indicadores no acompanian. Esto anticipa una correccion. Con el stop en ${p(tradeLevels.stopLoss)}, mejor vender ahora a ${p(price)}.`,
+      };
+    }
+
+    // 2+ divergencias bajistas diarias en portfolio → SELL (swing trader: anticipar corrección)
+    // No importa el RSI ni el score — si RSI y MACD ambos divergen bajista, hay que salir
+    const rsi = tech?.indicators.rsi14;
+    if (bearishDaily.length >= 2) {
+      const rsiNote = rsi != null && rsi > 60 ? ` con RSI en ${rsi.toFixed(0)} (zona alta)` : '';
+      const weeklyRSI = tech?.weekly?.rsi14;
+      const weeklyNote = weeklyRSI != null && weeklyRSI > 60 ? ` RSI semanal en ${weeklyRSI.toFixed(0)}.` : '';
+      return {
+        action: 'SELL',
+        reason: `${symbol} a ${p(price)} tiene ${bearishDaily.length} divergencias bajistas diarias (${allBearishIndicators.join(' + ')})${rsiNote}.${weeklyNote} El precio esta en maximos pero los indicadores pierden fuerza — esto anticipa una correccion. Para tu perfil de swing trader, vender ahora para proteger ganancia y recomprar cuando corrija al soporte en ${p(tradeLevels.stopLoss)}.`,
+      };
+    }
+
+    // 1 divergencia bajista semanal + score bajo → SELL
+    if (bearishWeekly.length > 0 && composite < 55) {
+      return {
+        action: 'SELL',
+        reason: `${symbol} a ${p(price)} muestra divergencia bajista semanal y score debil (${composite}/100). Las seniales dicen que va a caer — reducir posicion.`,
+      };
+    }
+
+    // 1 divergencia bajista diaria + RSI alto → SELL (threshold adapta a volatilidad del activo)
+    const beta = fund?.data.beta ?? 1;
+    const rsiSellThreshold = beta > 1.5 ? 70 : 60; // high-beta stocks: RSI 70, normal: RSI 60
+    if (bearishDaily.length >= 1 && rsi != null && rsi > rsiSellThreshold) {
+      return {
+        action: 'SELL',
+        reason: `${symbol} tiene divergencia bajista diaria (${allBearishIndicators.join(', ')}) con RSI en ${rsi.toFixed(0)}${beta > 1.5 ? ` (umbral ${rsiSellThreshold} por beta alta ${beta.toFixed(1)})` : ''}. El momentum pierde fuerza en zona alta — vender para proteger ganancia antes de que corrija.`,
+      };
+    }
+
+    // 1 divergencia bajista diaria + precio cayendo (bajo SMA20) → SELL
+    if (bearishDaily.length >= 1 && tech?.indicators.priceVsSma20 != null && tech.indicators.priceVsSma20 < -2) {
+      return {
+        action: 'SELL',
+        reason: `${symbol} tiene divergencia bajista diaria y el precio ya esta ${Math.abs(tech.indicators.priceVsSma20).toFixed(1)}% debajo de la media de 20 dias. La correccion ya empezo — vender para proteger capital.`,
+      };
+    }
+  }
+
+  // === NO EN PORTFOLIO: anticipar movimiento ===
+  if (!inPortfolio && tradeLevels) {
+    const marginToTarget = ((tradeLevels.takeProfit - price) / price) * 100;
+    const rr = tradeLevels.riskRewardRatio;
+    const bullishIndicators = [...bullishWeekly, ...bullishDaily].map(d => `${d.indicator.toUpperCase()} (${d.timeframe === 'weekly' ? 'semanal' : 'diario'})`);
+    const bearishIndicators = [...bearishWeekly, ...bearishDaily].map(d => `${d.indicator.toUpperCase()} (${d.timeframe === 'weekly' ? 'semanal' : 'diario'})`);
+
+    // Cualquier divergencia bajista + BUY → bajar a WATCH (no comprar con div bajista)
+    if ((bearishDaily.length > 0 || bearishWeekly.length > 0) && (baseAction === 'BUY' || baseAction === 'HOLD')) {
+      return {
+        action: 'WATCH',
+        reason: `${symbol} tiene divergencias bajistas (${bearishIndicators.join(' + ')}) que anticipan una correccion. NO es momento de entrar. Esperar a que corrija y entrar a mejor precio. Vigilar soporte en ${p(tradeLevels.stopLoss)}.`,
+      };
+    }
+
+    // Divergencia alcista semanal + buen R/R → BUY
+    if (bullishWeekly.length > 0 && rr >= 1.5 && marginToTarget > 10) {
+      return {
+        action: 'BUY',
+        reason: `${symbol} a ${p(price)} tiene divergencia alcista semanal en ${bullishIndicators.join(' + ')} — el precio esta bajo pero los indicadores muestran que esta por rebotar. Con target en ${p(tradeLevels.takeProfit)} (+${marginToTarget.toFixed(0)}%) y stop en ${p(tradeLevels.stopLoss)}, R/R 1:${rr.toFixed(1)}.`,
+      };
+    }
+
+    // Divergencia alcista semanal + WATCH → BUY
+    if (bullishWeekly.length > 0 && composite >= 45 && baseAction === 'WATCH') {
+      return {
+        action: 'BUY',
+        reason: `${symbol} estaba para observar, pero la divergencia alcista semanal en ${bullishIndicators.join(' + ')} cambia el panorama. El precio cae pero el momentum frena — es el momento de comprar antes de que rebote.`,
+      };
+    }
+
+    // 2+ divergencias alcistas diarias + score moderado + WATCH → BUY (anticipo)
+    if (bullishDaily.length >= 2 && composite >= 50 && baseAction === 'WATCH' && rr >= 1.5) {
+      return {
+        action: 'BUY',
+        reason: `${symbol} tiene ${bullishDaily.length} divergencias alcistas diarias (${bullishIndicators.join(' + ')}) — los indicadores anticipan un rebote aunque el precio siga bajo. Con R/R de 1:${rr.toFixed(1)}, buen momento para anticiparse.`,
+      };
+    }
+  }
+
+  // === EN PORTFOLIO: divergencia alcista → comprar más ===
+  if (inPortfolio && baseAction === 'HOLD') {
+    const bullishIndicators = [...bullishWeekly, ...bullishDaily].map(d => `${d.indicator.toUpperCase()} (${d.timeframe === 'weekly' ? 'semanal' : 'diario'})`);
+
+    if (bullishWeekly.length > 0 && tradeLevels && tradeLevels.riskRewardRatio >= 2) {
+      const marginToTarget = ((tradeLevels.takeProfit - price) / price) * 100;
+      return {
+        action: 'BUY',
+        reason: `Ya tenes ${symbol} y tiene divergencia alcista semanal en ${bullishIndicators.join(' + ')} — el precio corrigio pero el momentum dice que va a rebotar. Con target +${marginToTarget.toFixed(0)}% y R/R 1:${tradeLevels.riskRewardRatio.toFixed(1)}, buen momento para comprar mas.`,
+      };
+    }
+  }
+
+  // === TIMING vs ACTION: si el timing con alta confianza contradice la acción final, degradar ===
+  // Fix: timing.action era calculado pero completamente ignorado en la decisión final.
+  // Ahora: si timing.action = SELL con confianza >= 65% y acción base es BUY → bajar a WATCH.
+  // Solo aplica fuera del portfolio (no queremos forzar ventas por timing solo).
+  if (!inPortfolio && tradeLevels) {
+    const timingSignal = tech?.timing;
+    if (timingSignal && timingSignal.confidence >= 65) {
+      if (timingSignal.action === 'SELL' && (baseAction === 'BUY' || baseAction === 'HOLD')) {
+        const sellTriggerDescriptions = timingSignal.triggers
+          .filter(t => t.description.includes('bajista') || t.description.includes('sobrecompra') || t.description.includes('venta') || t.description.includes('Death Cross'))
+          .map(t => t.description)
+          .slice(0, 2)
+          .join('; ');
+        return {
+          action: 'WATCH',
+          reason: `El análisis de timing detecta señales de venta con ${timingSignal.confidence}% de confianza (${sellTriggerDescriptions || 'múltiples triggers bajistas'}), lo que contradice la señal de compra del score combinado. El timing y el score van en direcciones opuestas: esperar confirmación antes de entrar.`,
+        };
+      }
+      // Si timing dice BUY con alta confianza y base es WATCH, y hay buen R/R → considerar subir
+      if (timingSignal.action === 'BUY' && timingSignal.confidence >= 75 && baseAction === 'WATCH' && composite >= 48) {
+        const buyTriggerDescriptions = timingSignal.triggers
+          .filter(t => t.description.includes('alcista') || t.description.includes('sobreventa') || t.description.includes('compra') || t.description.includes('Golden Cross'))
+          .map(t => t.description)
+          .slice(0, 2)
+          .join('; ');
+        const rr = tradeLevels.riskRewardRatio;
+        if (rr >= 1.5) {
+          return {
+            action: 'BUY',
+            reason: `El timing detecta señales de entrada con ${timingSignal.confidence}% de confianza (${buyTriggerDescriptions || 'múltiples triggers alcistas'}) y R/R 1:${rr.toFixed(1)}. El análisis de timing eleva la señal de observar a comprar.`,
+          };
+        }
+      }
+    }
+  }
+
+  return { action: baseAction };
+}
+
+/** Technical-only action — uses raw tech score (-100..+100). Swing trader thresholds. */
+export function techScoreToAction(techScore: number, inPortfolio: boolean): SignalAction {
+  if (techScore > 15) return 'BUY';
+  if (techScore >= -5) return inPortfolio ? 'HOLD' : 'WATCH';
+  return inPortfolio ? 'SELL' : 'WATCH'; // <-5 con portfolio = SELL técnico
+}
+
+/** Fundamental-only action — uses raw fund score (-100..+100) */
+export function fundScoreToAction(fundScore: number, inPortfolio: boolean): SignalAction {
+  if (fundScore > 10) return 'BUY';
+  if (fundScore >= -10) return inPortfolio ? 'HOLD' : 'WATCH';
+  return inPortfolio ? 'SELL' : 'WATCH';
+}
+
+/** Sentiment-only action — uses raw sent score (-1..+1) */
+export function sentScoreToAction(sentScore: number, inPortfolio: boolean): SignalAction {
+  if (sentScore > 0.15) return 'BUY';
+  if (sentScore >= -0.15) return inPortfolio ? 'HOLD' : 'WATCH';
   return inPortfolio ? 'SELL' : 'WATCH';
 }
 
@@ -111,6 +549,9 @@ const SECTOR_TO_PLAZA: Record<OpportunitySector, MarketPlaza> = {
   'us-tech': 'us-tech',
   crypto: 'crypto',
   bonds: 'bonds',
+  'etfs-sectors': 'etfs-sectors',
+  commodities: 'commodities',
+  'emerging-markets': 'emerging-markets',
 };
 
 export function sectorToPlaza(sector: OpportunitySector): MarketPlaza {
@@ -130,7 +571,7 @@ export function filterSymbolsByPositiveSectors(
     // Si todos los sectores son negativos → no filtrar (safety valve)
     if (allNegative) return true;
 
-    const sector = getSectorForSymbol(symbol);
+    const sector = getSectorForSymbolDynamic(symbol);
     if (!sector) return true; // sin sector = no filtrar
 
     const plaza = sectorToPlaza(sector);
@@ -149,15 +590,19 @@ export interface AntiHypeFilterResult {
   passedAll: number;
   filtered: string[];
   rejected: Array<{ symbol: string; reasons: string[] }>;
+  mode: 'strict' | 'relaxed';
 }
 
 export function applyAntiHypeFilters(
   symbols: string[],
   techMap: Map<string, TechnicalSummary>,
   portfolioSymbols: Set<string>,
+  options?: { includeVolume?: boolean },
 ): AntiHypeFilterResult {
+  const includeVolume = options?.includeVolume ?? true;
   const filtered: string[] = [];
   const rejected: Array<{ symbol: string; reasons: string[] }> = [];
+  const MAX_FAILURES = 1; // pass with 2 of 3 (or 2 of 2 without volume)
 
   for (const symbol of symbols) {
     // Portfolio symbols always pass (for SELL signals)
@@ -180,17 +625,17 @@ export function applyAntiHypeFilters(
       reasons.push(`Precio (${ind.currentPrice.toFixed(2)}) <= SMA200 (${ind.sma200.toFixed(2)})`);
     }
 
-    // Filter 2: RSI between 40-65 (not overbought)
-    if (ind.rsi14 != null && (ind.rsi14 < 40 || ind.rsi14 > 65)) {
-      reasons.push(`RSI ${ind.rsi14.toFixed(0)} fuera de rango 40-65`);
+    // Filter 2: RSI < 85 (solo filtrar sobrecompra extrema — sobreventa es oportunidad swing)
+    if (ind.rsi14 != null && ind.rsi14 > 85) {
+      reasons.push(`RSI ${ind.rsi14.toFixed(0)} en sobrecompra extrema (>85)`);
     }
 
-    // Filter 3: Volume > 150% of 20-day average
-    if (ind.volumeRatio < 1.5) {
-      reasons.push(`Volumen ratio ${ind.volumeRatio.toFixed(2)}x < 1.5x`);
+    // Filter 3: Volume > 100% of 20-day average (optional)
+    if (includeVolume && ind.volumeRatio < 1.0) {
+      reasons.push(`Volumen ratio ${ind.volumeRatio.toFixed(2)}x < 1.0x`);
     }
 
-    if (reasons.length === 0) {
+    if (reasons.length <= MAX_FAILURES) {
       filtered.push(symbol);
     } else {
       rejected.push({ symbol, reasons });
@@ -202,50 +647,153 @@ export function applyAntiHypeFilters(
     passedAll: filtered.length,
     filtered,
     rejected,
+    mode: includeVolume ? 'strict' : 'relaxed',
   };
 }
 
 // --- Return estimates ---
 
+/**
+ * Estimate short-term return (1-4 weeks).
+ * Weights: Technical 50%, Sentiment 35%, Fundamental 15%
+ * Uses RSI mean-reversion, distance to SMA20, Bollinger position, volume, and sentiment.
+ */
 function estimateShortTermReturn(
   tech: TechnicalSummary | undefined,
-  catalysts: string[],
+  sent: SentimentInput | undefined,
+  fund: FundamentalSummary | undefined,
   shortTermScore: number,
+  catalysts: string[],
 ): ReturnEstimate {
-  const distToSma20 = tech?.indicators.priceVsSma20 ?? 0;
-  const base = Math.round(Math.max(-5, Math.min(10, -distToSma20 * 0.4)));
+  const ind = tech?.indicators;
+  const distToSma20 = ind?.priceVsSma20 ?? 0;
+  const rsi = ind?.rsi14 ?? 50;
+  const volRatio = ind?.volumeRatio ?? 1;
+  const sentScore = sent?.score ?? 0;
+
+  // Technical component: RSI mean-reversion + SMA20 distance
+  const rsiComponent = rsi < 30 ? 6 : rsi < 40 ? 3 : rsi > 70 ? -5 : rsi > 60 ? -2 : 0;
+  const smaComponent = Math.round(-distToSma20 * 0.3); // if below SMA20, positive return expected
+  const techBase = Math.max(-8, Math.min(12, rsiComponent + smaComponent));
+
+  // Sentiment component
+  const sentComponent = Math.round(sentScore * 5); // -5 to +5
+
+  // Fundamental minor component
+  const fundComponent = (fund?.score ?? 0) > 15 ? 2 : (fund?.score ?? 0) < -15 ? -1 : 0;
+
+  // Weighted base
+  let base = Math.round(techBase * 0.5 + sentComponent * 0.35 + fundComponent * 0.15);
+  base = Math.max(-8, Math.min(15, base));
+
+  // Volatility adjustment: high volume = wider range
+  const volSpread = volRatio > 2 ? 1.5 : volRatio > 1.5 ? 1.2 : 1;
+  const lowSpread = Math.round(4 * volSpread);
+  const highSpread = Math.round(6 * volSpread);
+
+  // Confidence based on data alignment
+  const hasGoodData = ind?.rsi14 != null && ind?.sma20 != null;
+  const confidence = !hasGoodData ? 35
+    : shortTermScore > 60 ? 70
+    : shortTermScore > 50 ? 55
+    : 40;
+
+  // Key drivers
+  const drivers: string[] = [];
+  if (rsiComponent !== 0) drivers.push(`RSI ${rsi.toFixed(0)} ${rsiComponent > 0 ? 'sugiere rebote' : 'indica sobrecompra'}`);
+  if (Math.abs(distToSma20) > 3) drivers.push(`${Math.abs(distToSma20).toFixed(1)}% ${distToSma20 < 0 ? 'debajo' : 'arriba'} de SMA20`);
+  if (sentScore > 0.2) drivers.push('Sentimiento positivo impulsa');
+  else if (sentScore < -0.2) drivers.push('Sentimiento negativo presiona');
+  if (drivers.length === 0) drivers.push(...catalysts.slice(0, 2));
 
   return {
-    lowPercent: base - 4,
+    lowPercent: base - lowSpread,
     midPercent: base,
-    highPercent: base + 6,
-    confidence: shortTermScore > 60 ? 65 : shortTermScore > 50 ? 50 : 40,
-    keyDrivers: catalysts.slice(0, 2),
+    highPercent: base + highSpread,
+    confidence,
+    keyDrivers: drivers.slice(0, 2),
   };
 }
 
+/**
+ * Estimate medium-term return (1-6 months).
+ * Weights: Fundamental 45%, Technical 30%, Sentiment 25%
+ * Uses SMA50/SMA200 distance, P/E vs Forward P/E, 52w range, and sentiment trend.
+ */
 function estimateMediumTermReturn(
   tech: TechnicalSummary | undefined,
   fund: FundamentalSummary | undefined,
+  sent: SentimentInput | undefined,
   mediumTermScore: number,
 ): ReturnEstimate {
-  const distToSma50 = tech?.indicators.priceVsSma50 ?? 0;
+  const ind = tech?.indicators;
+  const distToSma50 = ind?.priceVsSma50 ?? 0;
+  const distToSma200 = ind?.priceVsSma200 ?? 0;
   const fundScore = fund?.score ?? 0;
-  const base = Math.round(
-    Math.max(-8, Math.min(25, -distToSma50 * 0.5 + (fundScore > 0 ? 5 : fundScore < 0 ? -3 : 0))),
-  );
+  const sentScore = sent?.score ?? 0;
+
+  // Fundamental component: P/E compression, 52w range, dividend
+  let fundComponent = 0;
+  const pe = fund?.data.peRatio;
+  const fpe = fund?.data.forwardPE;
+  if (fpe != null && pe != null && fpe < pe) {
+    fundComponent += Math.round(((pe - fpe) / pe) * 20); // earnings growth implied
+  }
+  if (fund?.data.priceVs52wHigh != null && fund.data.priceVs52wHigh < -30) {
+    fundComponent += 5; // far from 52w high = upside potential
+  }
+  if (fund?.data.dividendYield != null && fund.data.dividendYield > 0.03) {
+    fundComponent += 2; // good dividend adds return
+  }
+  fundComponent += fundScore > 20 ? 5 : fundScore < -20 ? -5 : 0;
+  fundComponent = Math.max(-10, Math.min(20, fundComponent));
+
+  // Technical component: mean reversion to SMA50/SMA200
+  const sma50Component = Math.round(-distToSma50 * 0.3);
+  const sma200Component = distToSma200 < -10 ? 5 : distToSma200 > 20 ? -3 : 0;
+  const techComponent = Math.max(-8, Math.min(12, sma50Component + sma200Component));
+
+  // Sentiment component
+  const sentComponent = Math.round(sentScore * 8); // -8 to +8
+
+  // Weighted base
+  let base = Math.round(fundComponent * 0.45 + techComponent * 0.30 + sentComponent * 0.25);
+  base = Math.max(-15, Math.min(30, base));
+
+  // Wider range for medium-term
+  const lowSpread = 8;
+  const highSpread = 15;
+
+  // Confidence
+  const hasGoodData = pe != null || (ind?.sma50 != null && ind?.sma200 != null);
+  const confidence = !hasGoodData ? 30
+    : mediumTermScore > 60 ? 65
+    : mediumTermScore > 50 ? 50
+    : 35;
+
+  // Key drivers
+  const drivers: string[] = [];
+  if (fpe != null && pe != null && fpe < pe) {
+    drivers.push(`Forward P/E ${fpe.toFixed(1)} vs ${pe.toFixed(1)} implica crecimiento`);
+  }
+  if (Math.abs(distToSma50) > 5) {
+    drivers.push(`${Math.abs(distToSma50).toFixed(0)}% ${distToSma50 < 0 ? 'debajo' : 'arriba'} de SMA50`);
+  }
+  if (fund?.data.priceVs52wHigh != null && fund.data.priceVs52wHigh < -20) {
+    drivers.push(`${Math.abs(fund.data.priceVs52wHigh).toFixed(0)}% debajo de maximo 52 semanas`);
+  }
+  if (sentScore > 0.2) drivers.push('Tendencia de sentimiento positiva');
+  else if (sentScore < -0.2) drivers.push('Presion negativa en noticias');
+  if (drivers.length === 0) {
+    drivers.push(fundScore > 0 ? 'Fundamentales soportan upside' : 'Sin catalizador fundamental claro');
+  }
 
   return {
-    lowPercent: base - 6,
+    lowPercent: base - lowSpread,
     midPercent: base,
-    highPercent: base + 12,
-    confidence: mediumTermScore > 60 ? 60 : mediumTermScore > 50 ? 45 : 35,
-    keyDrivers: [
-      fundScore > 0 ? 'Fundamentales soportan upside' : 'Sin catalizador fundamental claro',
-      distToSma50 < -5
-        ? `Precio ${Math.abs(distToSma50).toFixed(0)}% debajo de SMA50 — potencial mean reversion`
-        : 'Cerca de promedio de mediano plazo',
-    ],
+    highPercent: base + highSpread,
+    confidence,
+    keyDrivers: drivers.slice(0, 2),
   };
 }
 
@@ -255,6 +803,361 @@ export interface SentimentInput {
   score: number; // -1..+1
   sentiment: SentimentType;
   headlines: string[];
+  newsCount?: number;
+  positiveCount?: number;
+  negativeCount?: number;
+  neutralCount?: number;
+}
+
+function buildSimpleReasoning(
+  action: SignalAction,
+  score: number,
+  confidence: number,
+  confluence: ConfluenceDetail,
+  techScore: number,
+  fundScore: number,
+  sentScaled: number,
+  rsi: number | null | undefined,
+  pe: number | null | undefined,
+  distToSma50: number,
+  inPortfolio: boolean,
+): string {
+  const confLabel = confidence >= 70 ? 'con alta confianza' : confidence >= 50 ? 'con confianza moderada' : 'con baja confianza';
+  const bull = confluence.bullishSignals.length;
+  const bear = confluence.bearishSignals.length;
+
+  // --- BUY ---
+  if (action === 'BUY') {
+    if (rsi != null && rsi < 35 && techScore > 0)
+      return `Precio castigado con senales de recuperacion. Buen momento para entrar ${confLabel}. ${bull} de ${bull + bear} indicadores a favor.`;
+    if (fundScore > 15 && techScore > 0)
+      return `Precio atractivo y con buen impulso. Oportunidad de compra ${confLabel}. ${bull} de ${bull + bear} indicadores a favor.`;
+    if (sentScaled > 20 && techScore > 0)
+      return `Noticias positivas y tendencia alcista. Buena oportunidad ${confLabel}. ${bull} de ${bull + bear} indicadores a favor.`;
+    return `Multiples senales positivas alineadas. Oportunidad de compra ${confLabel}. ${bull} de ${bull + bear} indicadores a favor.`;
+  }
+
+  // --- SELL ---
+  if (action === 'SELL') {
+    if (rsi != null && rsi > 70)
+      return `Precio en zona alta, posible caida proxima. Considerar vender ${confLabel}. ${bear} de ${bull + bear} indicadores en contra.`;
+    if (techScore < -20)
+      return `Tendencia negativa. Mejor salir y proteger capital ${confLabel}. ${bear} de ${bull + bear} indicadores en contra.`;
+    if (sentScaled < -20)
+      return `Noticias negativas presionan el precio. Considerar reducir posicion ${confLabel}.`;
+    return `Senales negativas predominan. Considerar vender ${confLabel}. ${bear} de ${bull + bear} indicadores en contra.`;
+  }
+
+  // --- HOLD ---
+  if (action === 'HOLD') {
+    if (score >= 55)
+      return `Andando bien. Mantener y seguir de cerca ${confLabel}. ${bull} a favor vs ${bear} en contra.`;
+    if (distToSma50 > 0)
+      return `Todavia en tendencia positiva pero sin fuerza clara. Mantener por ahora ${confLabel}.`;
+    return `Sin senal clara para comprar mas ni para vender. Mantener ${confLabel}. ${bull} a favor vs ${bear} en contra.`;
+  }
+
+  // --- WATCH ---
+  if (score >= 55)
+    return `Interesante pero todavia no es momento de entrar. Seguir de cerca ${confLabel}. ${bull} a favor vs ${bear} en contra.`;
+  if (rsi != null && rsi < 40 && techScore > 0)
+    return `Precio bajo con potencial de rebote. Puede ser buena entrada pronto ${confLabel}.`;
+  if (confluence.direction === 'mixed')
+    return `Senales mixtas, no hay direccion clara. Esperar mejor momento. ${bull} a favor vs ${bear} en contra.`;
+  return `Potencial pero necesita confirmacion. Observar antes de actuar ${confLabel}. ${bull} a favor vs ${bear} en contra.`;
+}
+
+// --- Trade Levels (entry / stop-loss / take-profit) ---
+
+function computeTradeLevels(
+  tech: TechnicalSummary | undefined,
+  action: SignalAction,
+  portfolioValue?: number,
+  existingQuantity?: number,
+): TradeLevels | undefined {
+  const ind = tech?.indicators;
+  if (!ind || ind.currentPrice <= 0) return undefined;
+
+  const price = ind.currentPrice;
+  const atr = ind.atr14 ?? price * 0.03; // fallback 3% si no hay ATR
+  const supports = ind.supports ?? [];
+  const resistances = ind.resistances ?? [];
+
+  let entryPrice: number;
+  let stopLoss: number;
+  let takeProfit: number;
+  let entryReason: string;
+  let stopReason: string;
+  let targetReason: string;
+
+  if (action === 'BUY' || action === 'WATCH') {
+    // Entry: precio actual o soporte cercano (el que sea mas bajo)
+    const nearestSupport = supports[0];
+    if (nearestSupport && nearestSupport.price < price && (price - nearestSupport.price) / price < 0.05) {
+      entryPrice = Math.round(nearestSupport.price * 100) / 100;
+      entryReason = `Soporte en $${entryPrice.toFixed(2)} (${nearestSupport.touches} toques)`;
+    } else {
+      entryPrice = Math.round(price * 100) / 100;
+      entryReason = 'Precio actual de mercado';
+    }
+
+    // Stop: debajo del soporte mas fuerte o 1.5x ATR debajo de entry
+    const strongSupport = supports.find(s => s.price < entryPrice);
+    if (strongSupport) {
+      stopLoss = Math.round((strongSupport.price - atr * 0.3) * 100) / 100;
+      stopReason = `Debajo de soporte $${strongSupport.price.toFixed(2)} - margen ATR`;
+    } else {
+      stopLoss = Math.round((entryPrice - atr * 1.5) * 100) / 100;
+      stopReason = `1.5x ATR ($${atr.toFixed(2)}) debajo de entrada`;
+    }
+
+    // Target: buscar resistencia que de un R/R minimo de 1.5
+    const risk = Math.abs(entryPrice - stopLoss);
+    const minTarget = entryPrice + risk * 1.5; // minimo 1.5:1 R/R
+    const atrTarget = entryPrice + atr * 2.5;
+    const minRequired = Math.max(minTarget, atrTarget); // el mayor de ambos
+
+    // Buscar la mejor resistencia: que esté por encima del minimo requerido
+    const goodResistance = resistances.find(r => r.price >= minRequired);
+    const nearestResistance = resistances[0];
+
+    if (goodResistance && goodResistance.price > entryPrice) {
+      takeProfit = Math.round(goodResistance.price * 100) / 100;
+      targetReason = `Resistencia en $${takeProfit.toFixed(2)} (${goodResistance.touches} toques, R/R favorable)`;
+    } else if (nearestResistance && nearestResistance.price >= minRequired) {
+      takeProfit = Math.round(nearestResistance.price * 100) / 100;
+      targetReason = `Resistencia en $${takeProfit.toFixed(2)} (${nearestResistance.touches} toques)`;
+    } else {
+      // No hay resistencia con buen R/R — usar ATR como target
+      takeProfit = Math.round(minRequired * 100) / 100;
+      targetReason = nearestResistance
+        ? `Resistencia cercana en $${nearestResistance.price.toFixed(2)} es muy baja — target ajustado a $${takeProfit.toFixed(2)} (1.5x riesgo minimo)`
+        : `2.5x ATR ($${atr.toFixed(2)}) arriba de entrada`;
+    }
+  } else if (action === 'SELL') {
+    // Para SELL: inverso
+    entryPrice = Math.round(price * 100) / 100;
+    entryReason = 'Vender a precio actual';
+
+    const nearestResistance = resistances[0];
+    if (nearestResistance && nearestResistance.price > price) {
+      stopLoss = Math.round((nearestResistance.price + atr * 0.3) * 100) / 100;
+      stopReason = `Arriba de resistencia $${nearestResistance.price.toFixed(2)} - margen ATR`;
+    } else {
+      stopLoss = Math.round((price + atr * 1.5) * 100) / 100;
+      stopReason = `1.5x ATR arriba (para cortar perdida si sube)`;
+    }
+
+    // Target: buscar soporte que de buen R/R
+    const sellRisk = Math.abs(stopLoss - entryPrice);
+    const sellMinTarget = entryPrice - sellRisk * 1.5;
+    const sellAtrTarget = entryPrice - atr * 2.5;
+    const sellMinRequired = Math.min(sellMinTarget, sellAtrTarget);
+
+    const goodSupport = supports.find(s => s.price <= sellMinRequired);
+    const nearestSupport = supports[0];
+
+    if (goodSupport && goodSupport.price < entryPrice) {
+      takeProfit = Math.round(goodSupport.price * 100) / 100;
+      targetReason = `Soporte en $${takeProfit.toFixed(2)} (${goodSupport.touches} toques, R/R favorable)`;
+    } else if (nearestSupport && nearestSupport.price <= sellMinRequired) {
+      takeProfit = Math.round(nearestSupport.price * 100) / 100;
+      targetReason = `Soporte en $${takeProfit.toFixed(2)} (objetivo de caida)`;
+    } else {
+      takeProfit = Math.round(sellMinRequired * 100) / 100;
+      targetReason = nearestSupport
+        ? `Soporte cercano en $${nearestSupport.price.toFixed(2)} es muy alto — target ajustado a $${takeProfit.toFixed(2)} (1.5x riesgo minimo)`
+        : `2.5x ATR debajo de precio actual`;
+    }
+  } else {
+    // HOLD: niveles informativos
+    entryPrice = Math.round(price * 100) / 100;
+    entryReason = 'Precio actual (ya en portfolio)';
+    stopLoss = supports[0]
+      ? Math.round((supports[0].price - atr * 0.3) * 100) / 100
+      : Math.round((price - atr * 1.5) * 100) / 100;
+    stopReason = supports[0]
+      ? `Debajo de soporte $${supports[0].price.toFixed(2)}`
+      : `1.5x ATR debajo de precio actual`;
+    takeProfit = resistances[0]
+      ? Math.round(resistances[0].price * 100) / 100
+      : Math.round((price + atr * 2.5) * 100) / 100;
+    targetReason = resistances[0]
+      ? `Resistencia en $${resistances[0].price.toFixed(2)}`
+      : `2.5x ATR arriba de precio actual`;
+  }
+
+  // Validaciones de seguridad
+  if (stopLoss <= 0) stopLoss = Math.round(entryPrice * 0.92 * 100) / 100;
+  if (takeProfit <= entryPrice && action !== 'SELL') takeProfit = Math.round(entryPrice * 1.08 * 100) / 100;
+  if (takeProfit >= entryPrice && action === 'SELL') takeProfit = Math.round(entryPrice * 0.92 * 100) / 100;
+
+  const risk = Math.abs(entryPrice - stopLoss);
+  const reward = Math.abs(takeProfit - entryPrice);
+  const riskRewardRatio = risk > 0 ? Math.round((reward / risk) * 100) / 100 : 0;
+
+  // Position sizing basado en portfolio value y risk/reward
+  let suggestedQuantity: number | undefined;
+  let suggestedAmount: number | undefined;
+  let sizingReason: string | undefined;
+
+  if (portfolioValue && portfolioValue > 0 && (action === 'BUY' || action === 'WATCH') && entryPrice > 0) {
+    // Max 20% del portfolio por activo, ajustado por R/R
+    const maxPct = riskRewardRatio >= 2 ? 0.20 : riskRewardRatio >= 1 ? 0.10 : 0;
+    if (maxPct > 0) {
+      let maxAmount = portfolioValue * maxPct;
+      // Descontar lo que ya tiene
+      if (existingQuantity && existingQuantity > 0) {
+        const existingValue = existingQuantity * entryPrice;
+        maxAmount = Math.max(0, maxAmount - existingValue);
+      }
+      if (maxAmount > 0) {
+        suggestedQuantity = Math.floor(maxAmount / entryPrice);
+        suggestedAmount = Math.round(suggestedQuantity * entryPrice);
+        const pctLabel = (maxPct * 100).toFixed(0);
+        sizingReason = existingQuantity && existingQuantity > 0
+          ? `${pctLabel}% del portfolio ($${suggestedAmount.toLocaleString()}) a $${entryPrice.toFixed(2)} = ${suggestedQuantity} acciones (ya tenes ${existingQuantity})`
+          : `${pctLabel}% del portfolio ($${suggestedAmount.toLocaleString()}) a $${entryPrice.toFixed(2)} = ${suggestedQuantity} acciones`;
+      }
+    }
+  }
+
+  return {
+    entryPrice, stopLoss, takeProfit, riskRewardRatio,
+    entryReason, stopReason, targetReason,
+    suggestedQuantity, suggestedAmount, sizingReason,
+  };
+}
+
+// --- Timing View (resumen de triggers para el frontend) ---
+
+function buildTimingView(tech: TechnicalSummary | undefined): TimingView | undefined {
+  const timing = tech?.timing;
+  if (!timing || timing.triggers.length === 0) return undefined;
+
+  return {
+    action: timing.action,
+    timing: timing.timing,
+    confidence: timing.confidence,
+    triggers: timing.triggers.map(t => ({
+      type: t.type,
+      description: t.description,
+      estimatedDays: t.estimatedDays,
+      impact: t.impact,
+    })),
+  };
+}
+
+// --- Action Condition: hasta cuándo mantener, cuándo re-evaluar, cuándo salir ---
+
+function buildActionCondition(opp: Opportunity, tech: TechnicalSummary | undefined): ActionCondition | undefined {
+  const price = opp.currentPrice;
+  const levels = opp.tradeLevels;
+  if (!price || !levels) return undefined;
+
+  const divergences = tech?.divergences ?? [];
+  const bearishDivs = divergences.filter(d => d.type === 'bearish');
+  const bullishDivs = divergences.filter(d => d.type === 'bullish');
+  const supports = tech?.indicators.supports ?? [];
+  const p = (v: number) => `$${v.toFixed(2)}`;
+
+  // Estimate days from timing triggers
+  const divTriggers = tech?.timing?.triggers.filter(t =>
+    t.type === 'rsi_divergence' || t.type === 'macd_divergence' || t.type === 'obv_divergence',
+  ) ?? [];
+  const estimatedDays = divTriggers.length > 0
+    ? Math.max(...divTriggers.map(t => t.estimatedDays ?? 3))
+    : undefined;
+
+  // Nearest support for re-evaluation
+  const nearestSupport = supports[0];
+
+  if (opp.action === 'HOLD') {
+    if (bearishDivs.length > 0) {
+      const divNames = bearishDivs.map(d => `${d.indicator.toUpperCase()} ${d.timeframe === 'weekly' ? 'semanal' : 'diario'}`).join(' + ');
+      return {
+        holdUntil: `Hasta que las divergencias bajistas se resuelvan (${divNames}). Estimado ~${estimatedDays ?? 3} dias.`,
+        reEvaluateAt: nearestSupport ? nearestSupport.price : undefined,
+        reEvaluateReason: nearestSupport
+          ? `Si corrige a ${p(nearestSupport.price)} (soporte con ${nearestSupport.touches} toques), re-evaluar como BUY.`
+          : undefined,
+        exitAt: levels.stopLoss,
+        exitReason: `Si rompe ${p(levels.stopLoss)} → SELL inmediato, no esperar.`,
+        estimatedDays: estimatedDays ?? 3,
+      };
+    }
+    return {
+      holdUntil: 'Sin divergencias activas. Mantener mientras el precio siga sobre la SMA50.',
+      exitAt: levels.stopLoss,
+      exitReason: `Si cae a ${p(levels.stopLoss)} → SELL.`,
+    };
+  }
+
+  if (opp.action === 'WATCH') {
+    if (bearishDivs.length > 0) {
+      return {
+        holdUntil: `Esperar a que las divergencias bajistas se resuelvan (~${estimatedDays ?? 3} dias) y el precio corrija.`,
+        reEvaluateAt: nearestSupport ? nearestSupport.price : undefined,
+        reEvaluateReason: nearestSupport
+          ? `Si corrige a ${p(nearestSupport.price)}, evaluar entrada con mejor R/R.`
+          : 'Esperar correccion de precio para mejor R/R.',
+        exitAt: levels.stopLoss,
+        exitReason: 'No entrar todavia.',
+        estimatedDays: estimatedDays ?? 3,
+      };
+    }
+    if (bullishDivs.length > 0) {
+      return {
+        holdUntil: `Divergencia alcista detectada. Confirmar con volumen y cierre sobre ${p(tech?.indicators.sma20 ?? price * 1.02)}.`,
+        reEvaluateAt: levels.entryPrice,
+        reEvaluateReason: `Entrada sugerida en ${p(levels.entryPrice)} si confirma.`,
+        exitAt: levels.stopLoss,
+        exitReason: `Stop en ${p(levels.stopLoss)} si entra.`,
+        estimatedDays: estimatedDays ?? 3,
+      };
+    }
+
+    // WATCH sin divergencias: dar condiciones concretas de upgrade
+    if (opp.action === 'WATCH' && bullishDivs.length === 0 && bearishDivs.length === 0) {
+      const rsi = tech?.indicators.rsi14;
+      const upgradeConditions: string[] = [];
+      if (rsi != null && rsi > 40) upgradeConditions.push(`RSI baje de 35 (ahora ${rsi.toFixed(0)})`);
+      if (tech?.indicators.volumeRatio != null && tech.indicators.volumeRatio < 1.5)
+        upgradeConditions.push(`Volumen suba a 1.5x promedio (ahora ${tech.indicators.volumeRatio.toFixed(1)}x)`);
+      if (tech?.indicators.sma50 != null && (tech.indicators.currentPrice < tech.indicators.sma50))
+        upgradeConditions.push(`Precio recupere SMA50 ($${tech.indicators.sma50.toFixed(2)})`);
+
+      return {
+        holdUntil: upgradeConditions.length > 0
+          ? `Se convierte en BUY si: ${upgradeConditions.join(' + ')}.`
+          : 'Sin condiciones claras de upgrade. Esperar nueva informacion.',
+        exitAt: levels.stopLoss,
+        exitReason: `No entrar a menos que se cumplan las condiciones.`,
+      };
+    }
+  }
+
+  if (opp.action === 'BUY') {
+    return {
+      holdUntil: `Comprar ahora. Target en ${p(levels.takeProfit)}, stop en ${p(levels.stopLoss)}.`,
+      exitAt: levels.stopLoss,
+      exitReason: `Si cae a ${p(levels.stopLoss)} despues de comprar → cortar perdida.`,
+    };
+  }
+
+  if (opp.action === 'SELL') {
+    return {
+      holdUntil: 'Vender ahora o reducir posicion.',
+      reEvaluateAt: nearestSupport ? nearestSupport.price : undefined,
+      reEvaluateReason: nearestSupport
+        ? `Si rebota en ${p(nearestSupport.price)} con divergencia alcista → re-evaluar compra.`
+        : undefined,
+      exitAt: price,
+      exitReason: 'Salir al precio actual.',
+    };
+  }
+
+  return undefined;
 }
 
 export function buildAlgorithmicOpportunity(
@@ -264,17 +1167,38 @@ export function buildAlgorithmicOpportunity(
   sent: SentimentInput | undefined,
   inPortfolio: boolean,
   portfolioQuantity?: number,
+  portfolioValue?: number,
+  swingAlert?: { direction: 'BUY' | 'SELL'; winRate: number; avgReturn: number } | null,
+  sectorSentiment?: number | null,
 ): Opportunity | null {
   const techScore = tech?.score ?? 0;
   const fundScore = fund?.score ?? 0;
   const sentScore = sent?.score ?? 0;
 
-  const sector = getSectorForSymbol(symbol);
+  const sector = getSectorForSymbolDynamic(symbol);
   if (!sector) return null;
 
   const { shortTerm, mediumTerm, composite } = computeCompositeScore(techScore, fundScore, sentScore);
-  const action = scoreToAction(composite, inPortfolio);
-  const confidence = computeConfidence(techScore, fundScore, sentScore);
+  const confluenceDetail = computeConfluenceDetail(tech, fund, sent);
+  const confidence = confluenceDetail.confluencePercent;
+
+  // Pre-calcular acción base sin conflictos para pasarla como contexto al detector
+  const baseActionForConflicts = scoreToAction(composite, inPortfolio, confidence, false);
+
+  const conflictOptions = {
+    weeklyDivergences: tech?.weekly?.divergences,
+    earningsInDays: fund?.data.nextEarningsDate
+      ? Math.floor((new Date(fund.data.nextEarningsDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+      : null,
+    sectorSentiment: sectorSentiment ?? null,
+    timingTriggers: tech?.timing?.triggers,           // FIX: detectar conflictos de timing
+    baseAction: baseActionForConflicts as 'BUY' | 'SELL' | 'HOLD' | 'WATCH',
+  };
+  const hasConflicts = tech ? detectSignalConflicts(tech.indicators, sent ? { score: sent.score } : undefined, conflictOptions).length > 0 : false;
+  const action = scoreToAction(composite, inPortfolio, confidence, hasConflicts);
+  const technicalAction = techScoreToAction(techScore, inPortfolio);
+  const fundamentalAction = fundScoreToAction(fundScore, inPortfolio);
+  const sentimentAction = sentScoreToAction(sentScore, inPortfolio);
   const currentPrice = tech?.indicators.currentPrice ?? fund?.data.currentPrice ?? 0;
   const rsi = tech?.indicators.rsi14;
   const pe = fund?.data.peRatio;
@@ -285,23 +1209,66 @@ export function buildAlgorithmicOpportunity(
 
   // Catalysts
   const catalysts: string[] = [];
-  if (rsi != null && rsi < 40) catalysts.push(`RSI en ${rsi.toFixed(0)} — potencial rebote tecnico`);
-  if (techScore > 0 && tech?.indicators.macd?.histogram && tech.indicators.macd.histogram > 0)
+
+  // Timing-based catalysts (highest priority — specific and actionable)
+  const timing = tech?.timing;
+  if (timing && timing.triggers.length > 0) {
+    const topTriggers = timing.triggers
+      .filter((t) => t.impact === 'high')
+      .slice(0, 2);
+    for (const trigger of topTriggers) {
+      catalysts.push(trigger.description);
+    }
+  }
+
+  if (rsi != null && rsi < 40 && catalysts.length < 3) catalysts.push(`RSI en ${rsi.toFixed(0)} — potencial rebote tecnico`);
+  if (techScore > 0 && tech?.indicators.macd?.histogram && tech.indicators.macd.histogram > 0 && catalysts.length < 3)
     catalysts.push('MACD positivo confirma momentum');
-  if (fundScore > 15) catalysts.push('Valuacion por debajo de promedios historicos');
-  if (fpe != null && pe != null && fpe < pe * 0.85)
+  if (fundScore > 15 && catalysts.length < 3) catalysts.push('Valuacion por debajo de promedios historicos');
+  if (fpe != null && pe != null && fpe < pe * 0.85 && catalysts.length < 3)
     catalysts.push(`Forward P/E (${fpe.toFixed(1)}) mejora vs actual (${pe.toFixed(1)})`);
-  if (sentScaled > 20) catalysts.push('Noticias recientes positivas');
+  if (sentScaled > 20 && catalysts.length < 3) catalysts.push('Noticias recientes positivas');
+
+  // Earnings date alert
+  const earningsDate = fund?.data.nextEarningsDate;
+  if (earningsDate) {
+    const daysToEarnings = Math.floor((new Date(earningsDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    if (daysToEarnings >= 0 && daysToEarnings <= 14) {
+      if (daysToEarnings <= 7) {
+        catalysts.push(`Earnings en ${daysToEarnings} dias — alta volatilidad esperada`);
+      } else {
+        catalysts.push(`Earnings el ${earningsDate} (~${daysToEarnings}d)`);
+      }
+      if (fund.data.earningsSurprise != null && fund.data.earningsSurprise > 0) {
+        catalysts.push(`Historial de superar expectativas (+${fund.data.earningsSurprise.toFixed(1)}%)`);
+      }
+    }
+  }
+
   if (catalysts.length === 0) catalysts.push('Potencial de recuperacion tecnica');
+
+  // Swing alert integration
+  if (swingAlert && swingAlert.direction === 'BUY' && swingAlert.winRate > 60) {
+    catalysts.push(`Swing alert activo: ${swingAlert.winRate.toFixed(0)}% win rate historico, retorno promedio ${swingAlert.avgReturn.toFixed(1)}%`);
+  }
 
   // Risks
   const risks: string[] = [];
   if (rsi != null && rsi > 60) risks.push(`RSI en ${rsi.toFixed(0)} — posible sobrecompra`);
   if (fundScore < -10) risks.push('Valuacion elevada vs fundamentales');
   if (sentScaled < -10) risks.push('Sentimiento negativo en noticias');
+  if (earningsDate) {
+    const daysToEarnings = Math.floor((new Date(earningsDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+    if (daysToEarnings >= 0 && daysToEarnings <= 7) {
+      risks.push(`Earnings en ${daysToEarnings} dias — volatilidad alta, puede abrir con gap`);
+    }
+  }
+  if (swingAlert && swingAlert.direction === 'SELL') {
+    risks.push(`Swing alert bajista activo: patron historico sugiere caida`);
+  }
   if (risks.length === 0) risks.push('Volatilidad general de mercado');
 
-  // Reasoning
+  // Reasoning (técnico — para el detalle expandible)
   const reasonParts: string[] = [];
   if (techScore > 0) reasonParts.push(`momentum tecnico positivo (score ${techScore})`);
   else if (techScore < 0) reasonParts.push(`debilidad tecnica (score ${techScore})`);
@@ -310,35 +1277,57 @@ export function buildAlgorithmicOpportunity(
   if (rsi != null && rsi < 35) reasonParts.push(`RSI ${rsi.toFixed(0)} sugiere sobreventa`);
   if (sentScaled > 20) reasonParts.push('sentimiento positivo en noticias');
 
+  if (timing && timing.action !== 'WAIT' && timing.estimatedDays != null) {
+    const timingLabel = timing.timing === 'now' ? 'señal activa ahora'
+      : timing.timing === 'soon' ? `señal esperada en ~${timing.estimatedDays} dias`
+      : `señal acercandose (~${timing.estimatedDays} dias)`;
+    reasonParts.push(`timing: ${timing.action} ${timingLabel}`);
+  }
+
   const reasoning =
     reasonParts.length > 0
       ? `${symbol}: ${reasonParts.join(', ')}. Score ${composite}/100.`
       : `${symbol}: datos mixtos, requiere mas analisis. Score ${composite}/100.`;
 
-  return {
+  // Simple Reasoning (lenguaje humano, sin jerga)
+  const simpleReasoning = buildSimpleReasoning(action, composite, confidence, confluenceDetail, techScore, fundScore, sentScaled, rsi, pe, distToSma50, inPortfolio);
+
+  const result: Opportunity = {
     symbol,
     sector,
-    sectorLabel: OPPORTUNITY_UNIVERSE[sector].label,
+    sectorLabel: getSectorLabelDynamic(symbol, sector),
     currentPrice,
     opportunityScore: composite,
     action,
+    technicalAction,
+    fundamentalAction,
+    sentimentAction,
     confidence,
-    shortTerm: estimateShortTermReturn(tech, catalysts, shortTerm),
-    mediumTerm: estimateMediumTermReturn(tech, fund, mediumTerm),
+    shortTerm: estimateShortTermReturn(tech, sent, fund, shortTerm, catalysts),
+    mediumTerm: estimateMediumTermReturn(tech, fund, sent, mediumTerm),
     reasoning,
+    simpleReasoning,
     catalysts: catalysts.slice(0, 3),
     risks: risks.slice(0, 2),
     breakdown: {
       technical: {
         signal: (tech?.signal ?? 'neutral') as TASignal,
         score: techScore,
-        keyFactors:
-          rsi != null
-            ? [
-                `RSI ${rsi.toFixed(0)} — ${rsi < 30 ? 'sobreventa' : rsi < 40 ? 'cerca de sobreventa' : rsi > 70 ? 'sobrecompra' : 'neutral'}`,
-                `Precio ${distToSma50 > 0 ? '+' : ''}${distToSma50.toFixed(1)}% vs SMA50`,
-              ]
-            : ['Sin datos tecnicos'],
+        keyFactors: (() => {
+          if (rsi == null) return ['Sin datos tecnicos'];
+          const factors: string[] = [
+            `RSI ${rsi.toFixed(0)} — ${rsi < 30 ? 'sobreventa' : rsi < 40 ? 'cerca de sobreventa' : rsi > 70 ? 'sobrecompra' : 'neutral'}`,
+            `Precio ${distToSma50 > 0 ? '+' : ''}${distToSma50.toFixed(1)}% vs SMA50`,
+          ];
+          if (tech?.indicators.nearestSupport != null && tech.indicators.nearestSupport < 5) {
+            factors.push(`Soporte a ${tech.indicators.nearestSupport.toFixed(1)}%`);
+          }
+          if (tech?.indicators.crossovers?.estimatedDaysToCross != null) {
+            const dir = tech.indicators.crossovers.crossDirection === 'golden' ? 'Golden' : 'Death';
+            factors.push(`${dir} Cross en ~${tech.indicators.crossovers.estimatedDaysToCross}d`);
+          }
+          return factors.slice(0, 3);
+        })(),
       },
       fundamental: {
         signal: (fund?.signal ?? 'fair') as FASignal,
@@ -365,5 +1354,55 @@ export function buildAlgorithmicOpportunity(
     timestamp: Date.now(),
     scoringMethod: 'hybrid',
     horizonScores: { shortTerm, mediumTerm },
+    confluenceDetail,
+    tradeLevels: computeTradeLevels(tech, action, portfolioValue, portfolioQuantity),
+    timingView: buildTimingView(tech),
+    classification: getClassificationForSymbol(symbol),
+    divergences: tech?.divergences,
+    weekly: tech?.weekly,
+    signalConflicts: tech ? detectSignalConflicts(tech.indicators, sent ? { score: sent.score } : undefined, conflictOptions) : undefined,
   };
+
+  // === SMART ACTION: override based on divergences + trade levels ===
+  const levels = result.tradeLevels;
+  const smart = smartAction(result.action, composite, tech, fund, levels, inPortfolio, symbol);
+  if (smart.action !== result.action) {
+    result.action = smart.action;
+    // Recalculate trade levels with new action
+    result.tradeLevels = computeTradeLevels(tech, smart.action, portfolioValue, portfolioQuantity);
+    // Replace reasoning with the coloquial smart reason
+    if (smart.reason) {
+      result.simpleReasoning = smart.reason;
+      const shortReason = smart.reason.split('.')[0];
+      result.catalysts = [shortReason, ...result.catalysts.filter(c => c !== shortReason)].slice(0, 3);
+    }
+  }
+
+  // Post-smartAction safety: si smartAction subió a BUY, re-chequear conflictos con la acción final
+  if (result.action === 'BUY' && tech) {
+    const postConflicts = detectSignalConflicts(tech.indicators, sent ? { score: sent.score } : undefined, {
+      ...conflictOptions,
+      baseAction: 'BUY',
+    });
+    if (postConflicts.length > 0) {
+      result.signalConflicts = postConflicts;
+      result.action = 'WATCH';
+      result.tradeLevels = computeTradeLevels(tech, 'WATCH', portfolioValue, portfolioQuantity);
+    }
+  }
+
+  // Compute conviction tier based on final state
+  const hasBullishDivergence = tech?.divergences?.some(d => d.type === 'bullish') ?? false;
+  const finalHasConflicts = (result.signalConflicts?.length ?? 0) > 0;
+  result.convictionTier = getConvictionTier(
+    result.opportunityScore,
+    result.confidence,
+    finalHasConflicts,
+    hasBullishDivergence,
+  );
+
+  // === ACTION CONDITION: qué tiene que pasar para que cambie la acción ===
+  result.actionCondition = buildActionCondition(result, tech);
+
+  return result;
 }

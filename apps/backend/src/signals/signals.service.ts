@@ -1,8 +1,8 @@
 import type { Signal } from '@trading/shared';
-import { PORTFOLIO_POSITIONS, SIGNAL_GENERATION_PROMPT } from '@trading/shared';
-// import { askClaude } from '../shared/claude.js';
+import { ANALYST_SYSTEM_PROMPT } from '@trading/shared';
 import { askLMStudio } from '../shared/lmstudio.js';
 import { getPriceBySymbol } from '../prices/prices.service.js';
+import { getPortfolioPositions } from '../db/repository.js';
 
 export async function getSignalForSymbol(symbol: string): Promise<Signal> {
   const price = await getPriceBySymbol(symbol);
@@ -15,7 +15,7 @@ Máximo: $${price.high}, Mínimo: $${price.low}
 Respondé SOLO en formato JSON:
 {"action": "BUY|SELL|HOLD|WATCH", "confidence": 0-100, "reason": "razón concisa"}`;
 
-  const raw = await askLMStudio(prompt, SIGNAL_GENERATION_PROMPT);
+  const raw = await askLMStudio(prompt, ANALYST_SYSTEM_PROMPT);
 
   try {
     const match = raw.match(/\{[\s\S]*\}/);
@@ -43,7 +43,7 @@ Respondé SOLO en formato JSON:
 }
 
 export async function getAllSignals(): Promise<Signal[]> {
-  const symbols = PORTFOLIO_POSITIONS.map((p) => p.symbol);
+  const symbols = getPortfolioPositions().map((p) => p.symbol);
   const results = await Promise.allSettled(symbols.map(getSignalForSymbol));
 
   return results

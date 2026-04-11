@@ -12,12 +12,12 @@ function getClient(): OpenAI {
   return client;
 }
 
-// Free models on OpenRouter (updated March 2026)
+// Free models on OpenRouter (verified April 2026)
 const OPENROUTER_FREE_MODELS = [
-  'meta-llama/llama-3.3-70b-instruct:free',
-  'deepseek/deepseek-r1:free',
-  'google/gemma-3-27b-it:free',
-  'mistralai/mistral-small-3.1-24b-instruct:free',
+  'nousresearch/hermes-3-llama-3.1-405b:free',    // 405B — mejor para razonamiento
+  'nvidia/nemotron-3-super-120b-a12b:free',        // 120B — buen razonamiento
+  'meta-llama/llama-3.3-70b-instruct:free',        // 70B — general purpose
+  'google/gemma-4-31b-it:free',                     // 31B — rápido
 ] as const;
 
 export async function askOpenRouter(

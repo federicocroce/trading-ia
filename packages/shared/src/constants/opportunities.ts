@@ -1,57 +1,41 @@
 import type { OpportunitySector } from '../types/opportunity.js';
 
+/**
+ * Sector definitions: labels and emojis.
+ * Symbols are NO LONGER hardcoded here — the scan universe comes from:
+ *   1. DB watchlist/portfolio (symbols table)
+ *   2. Discovered dynamically from news
+ */
 export const OPPORTUNITY_UNIVERSE: Record<OpportunitySector, {
   label: string;
   emoji: string;
-  symbols: string[];
+  symbols: string[]; // kept for backward compat, but empty — dynamic now
 }> = {
-  'argentina-energy': {
-    label: 'Argentina / Energía',
-    emoji: '🇦🇷⛽',
-    symbols: ['VIST', 'YPF', 'PAM', 'TGS', 'CEPU'],
-  },
-  'argentina-finance': {
-    label: 'Argentina / Finanzas',
-    emoji: '🇦🇷🏦',
-    symbols: ['GGAL', 'BMA', 'BBAR', 'SUPV', 'CRESY'],
-  },
-  'argentina-cedears': {
-    label: 'Argentina / CEDEARs',
-    emoji: '🇦🇷📈',
-    symbols: ['MELI', 'GLOB', 'DESP', 'CAAP', 'LOMA', 'TXAR'],
-  },
-  'us-energy': {
-    label: 'US / Energía',
-    emoji: '🇺🇸⛽',
-    symbols: ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'PXD', 'HAL'],
-  },
-  'us-tech': {
-    label: 'US / Tech',
-    emoji: '🇺🇸💻',
-    symbols: ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA'],
-  },
-  crypto: {
-    label: 'Crypto',
-    emoji: '🌐',
-    symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD', 'ADA-USD', 'DOGE-USD', 'AVAX-USD'],
-  },
-  bonds: {
-    label: 'Bonos',
-    emoji: '📜',
-    symbols: ['TLT', 'HYG', 'EMB', 'AGG'],
-  },
+  'argentina-energy': { label: 'Argentina / Energía', emoji: '🇦🇷⛽', symbols: [] },
+  'argentina-finance': { label: 'Argentina / Finanzas', emoji: '🇦🇷🏦', symbols: [] },
+  'argentina-cedears': { label: 'Argentina / CEDEARs', emoji: '🇦🇷📈', symbols: [] },
+  'us-energy': { label: 'US / Energía', emoji: '🇺🇸⛽', symbols: [] },
+  'us-tech': { label: 'US / Tech', emoji: '🇺🇸💻', symbols: [] },
+  crypto: { label: 'Crypto', emoji: '🌐', symbols: [] },
+  bonds: { label: 'Bonos', emoji: '📜', symbols: [] },
+  'etfs-sectors': { label: 'ETFs Sectoriales', emoji: '📊', symbols: [] },
+  commodities: { label: 'Commodities', emoji: '🪙', symbols: [] },
+  'emerging-markets': { label: 'Mercados Emergentes', emoji: '🌎', symbols: [] },
 };
 
-export const ALL_OPPORTUNITY_SYMBOLS: string[] = Object.values(OPPORTUNITY_UNIVERSE)
-  .flatMap((s) => s.symbols);
+/** @deprecated Use getFullSymbolUniverse() from discovery-registry instead */
+export const ALL_OPPORTUNITY_SYMBOLS: string[] = [];
 
 export function getSectorForSymbol(symbol: string): OpportunitySector | null {
+  // Static lookup no longer has symbols — always returns null
+  // Use getSectorForSymbolDynamic() from discovery-registry instead
   for (const [sector, config] of Object.entries(OPPORTUNITY_UNIVERSE)) {
     if (config.symbols.includes(symbol)) return sector as OpportunitySector;
   }
   return null;
 }
 
-export function getSymbolsForSectors(sectors: OpportunitySector[]): string[] {
-  return sectors.flatMap((s) => OPPORTUNITY_UNIVERSE[s].symbols);
+export function getSymbolsForSectors(_sectors: OpportunitySector[]): string[] {
+  // No longer hardcoded — return empty, callers use dynamic universe
+  return [];
 }

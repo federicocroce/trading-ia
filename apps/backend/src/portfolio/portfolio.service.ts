@@ -1,22 +1,33 @@
 import type { PortfolioPosition, PortfolioSummary } from '@trading/shared';
 import { getAllPrices } from '../prices/prices.service.js';
+import { getQuotes } from '../shared/yahoo.js';
 import { getPortfolioPositions } from '../db/repository.js';
 
 export async function getPortfolio(): Promise<PortfolioSummary> {
-  const prices = await getAllPrices();
-  const priceMap = new Map(prices.map((p) => [p.symbol, p.current]));
-
   const dbPositions = getPortfolioPositions();
+  // Solo pedir precios de los símbolos que tenemos en portfolio
+  const portfolioSymbols = dbPositions.map(p => p.symbol);
+  const prices = portfolioSymbols.length > 0
+    ? await getQuotes(portfolioSymbols)
+    : await getAllPrices();
+  const priceMap = new Map(prices.map((p) => [p.symbol, p.current]));
 
   let totalValue = 0;
   let totalCost = 0;
 
   const positions: PortfolioPosition[] = dbPositions.map((pos) => {
-    const currentPrice = priceMap.get(pos.symbol) ?? 0;
+    const fetchedPrice = priceMap.get(pos.symbol);
+    // If price API fails, use avgCost as fallback (shows 0% P&L) instead of $0 which collapses portfolio
+    const currentPrice = (fetchedPrice !== undefined && fetchedPrice > 0) ? fetchedPrice : pos.avgCost;
+    const hasPriceData = fetchedPrice !== undefined && fetchedPrice > 0;
     const value = pos.quantity * currentPrice;
     const cost = pos.quantity * pos.avgCost;
-    const pnl = value - cost;
-    const pnlPercent = cost > 0 ? (pnl / cost) * 100 : 0;
+    const pnl = hasPriceData ? value - cost : 0;
+    const pnlPercent = hasPriceData && cost > 0 ? (pnl / cost) * 100 : 0;
+
+    if (!hasPriceData) {
+      console.warn(`[Portfolio] No price for ${pos.symbol}, using avgCost as fallback`);
+    }
 
     totalValue += value;
     totalCost += cost;

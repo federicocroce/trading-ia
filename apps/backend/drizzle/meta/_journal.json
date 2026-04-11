@@ -29,6 +29,76 @@
       "when": 1773625920462,
       "tag": "0003_fine_lizard",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1773666306099,
+      "tag": "0004_curly_human_fly",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1773712029980,
+      "tag": "0005_cooing_rattler",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1774539766148,
+      "tag": "0006_tranquil_xorn",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1774900000000,
+      "tag": "0007_signal_tracking",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1774990000000,
+      "tag": "0008_discovered_symbols",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1775000000000,
+      "tag": "0009_add_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1775100000000,
+      "tag": "0010_fundamental_cache_and_sectors",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1775200000000,
+      "tag": "0011_historical_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1775300000000,
+      "tag": "0012_signal_tracking_dimensions",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1775400000000,
+      "tag": "0013_add_missing_indexes",
+      "breakpoints": true
     }
   ]
 }

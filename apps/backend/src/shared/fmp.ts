@@ -1,4 +1,5 @@
 import type { MarketMovers, TopMover } from '@trading/shared';
+import { withRetry } from './retry.js';
 
 const FMP_BASE = 'https://financialmodelingprep.com/api/v3';
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
@@ -38,13 +39,16 @@ export async function getMarketMovers(): Promise<MarketMovers> {
 
   try {
     const [gainersRes, losersRes] = await Promise.all([
-      fetch(`${FMP_BASE}/stock_market/gainers?apikey=${apiKey}`),
-      fetch(`${FMP_BASE}/stock_market/losers?apikey=${apiKey}`),
+      withRetry(() => fetch(`${FMP_BASE}/stock_market/gainers?apikey=${apiKey}`), 'FMP:gainers', { maxRetries: 2 }),
+      withRetry(() => fetch(`${FMP_BASE}/stock_market/losers?apikey=${apiKey}`), 'FMP:losers', { maxRetries: 2 }),
     ]);
 
     if (!gainersRes.ok || !losersRes.ok) {
-      console.error('[FMP] Error fetching market movers:', gainersRes.status, losersRes.status);
-      return cached ?? { gainers: [], losers: [] };
+      // Don't spam logs — log once then cache the empty result
+      if (!cached) console.warn('[FMP] API no disponible (status:', gainersRes.status, '). Market movers desactivados.');
+      cached = { gainers: [], losers: [] };
+      lastFetch = now; // Don't retry for CACHE_TTL
+      return cached;
     }
 
     const gainersData = (await gainersRes.json()) as FMPMover[];

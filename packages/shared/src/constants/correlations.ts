@@ -139,4 +139,59 @@ export const SECTOR_CORRELATIONS: SectorCorrelation[] = [
     direction: 'mixed',
     strength: 0.5,
   },
+
+  // --- Commodities ---
+  {
+    trigger: 'gold-rally',
+    from: 'commodities',
+    to: ['emerging-markets', 'bonds'],
+    direction: 'positive',
+    strength: 0.4,
+  },
+  {
+    trigger: 'copper-up',
+    from: 'commodities',
+    to: ['argentina-cedears', 'emerging-markets'],
+    direction: 'positive',
+    strength: 0.5,
+  },
+  {
+    trigger: 'natural-gas-up',
+    from: 'commodities',
+    to: ['argentina-energy', 'us-energy'],
+    direction: 'positive',
+    strength: 0.6,
+  },
+
+  // --- ETFs como termometro ---
+  {
+    trigger: 'spy-selloff',
+    from: 'etfs-sectors',
+    to: ['us-tech', 'argentina-cedears', 'emerging-markets'],
+    direction: 'negative',
+    strength: 0.7,
+  },
+  {
+    trigger: 'xle-rally',
+    from: 'etfs-sectors',
+    to: ['us-energy', 'argentina-energy'],
+    direction: 'positive',
+    strength: 0.65,
+  },
+
+  // --- Emerging Markets ---
+  {
+    trigger: 'em-capital-inflow',
+    from: 'emerging-markets',
+    to: ['argentina-finance', 'argentina-energy', 'argentina-cedears'],
+    direction: 'positive',
+    strength: 0.55,
+  },
+  {
+    trigger: 'brazil-crisis',
+    from: 'emerging-markets',
+    to: ['argentina-finance', 'argentina-cedears'],
+    direction: 'negative',
+    strength: 0.45,
+  },
 ];

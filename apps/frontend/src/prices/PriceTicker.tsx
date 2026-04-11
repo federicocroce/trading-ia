@@ -32,7 +32,7 @@ export function PriceTicker() {
   });
 
   const { data: prices } = trpc.prices.getAll.useQuery(undefined, {
-    refetchInterval: 10_000,
+    refetchInterval: 60_000,
   });
 
   // Si hay movers de FMP, usarlos. Sino fallback al watchlist ordenado por |changePercent|

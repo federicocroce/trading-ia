@@ -1,0 +1,20 @@
+CREATE TABLE `swing_alerts` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`symbol` text NOT NULL,
+	`alert_type` text NOT NULL,
+	`direction` text NOT NULL,
+	`trigger_description` text NOT NULL,
+	`trigger_percent` real NOT NULL,
+	`trigger_price` real NOT NULL,
+	`entry_price` real NOT NULL,
+	`target_price` real,
+	`stop_loss` real,
+	`historical_win_rate` real NOT NULL,
+	`historical_avg_return` real NOT NULL,
+	`historical_sample_size` integer NOT NULL,
+	`status` text DEFAULT 'active' NOT NULL,
+	`next_day_close` real,
+	`next_day_change` real,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`resolved_at` text
+);

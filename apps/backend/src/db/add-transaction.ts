@@ -17,6 +17,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, schema } from './index.js';
+import { rebuildPositionsFromTransactions } from './repository.js';
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {};
@@ -72,3 +73,7 @@ db.insert(schema.transactions).values(data).run();
 
 const total = data.totalAmount ?? data.quantity * data.price;
 console.log(`OK: ${data.type} ${data.quantity} ${data.symbol} @ ${data.price} ${data.currency} = ${total.toFixed(2)} ${data.currency} [${data.platform ?? '-'}]`);
+
+// Recalcular posiciones del portfolio
+rebuildPositionsFromTransactions();
+console.log('Posiciones del portfolio recalculadas.');

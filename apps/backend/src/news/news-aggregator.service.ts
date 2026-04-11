@@ -1,6 +1,8 @@
 import type { NewsItem, RawNewsArticle } from '@trading/shared';
 import { getAvailableAdapters } from './sources/index.js';
 import { getActiveSymbolList } from '../db/repository.js';
+import { registerNovelTickers } from '../discovery/discovery-registry.js';
+import { isValidTickerFormat } from '../discovery/ticker-validator.js';
 
 // --- Deduplication ---
 
@@ -160,6 +162,29 @@ export async function aggregateNews(): Promise<AggregationResult> {
     `[aggregator] ${news.length} noticias de ${Object.keys(sourceStats).length} fuentes` +
     ` (${duplicatesRemoved} duplicados removidos de ${totalRaw} totales)`,
   );
+
+  // --- Discover novel tickers from news ---
+  try {
+    const allMentionedTickers = new Set<string>();
+    for (const article of deduped) {
+      for (const ticker of article.relatedSymbols) {
+        if (isValidTickerFormat(ticker)) allMentionedTickers.add(ticker);
+      }
+    }
+    const known = new Set(activeSymbols);
+    const novel = [...allMentionedTickers].filter(t => !known.has(t));
+
+    if (novel.length > 0) {
+      // Determine source (best guess from adapters)
+      const source = Object.keys(sourceStats).includes('Finnhub') ? 'finnhub' as const : 'yahoo' as const;
+      registerNovelTickers(novel, source).catch(err =>
+        console.warn('[aggregator] Error registrando novel tickers:', err),
+      );
+      console.log(`[aggregator] ${novel.length} novel tickers detectados: ${novel.slice(0, 10).join(', ')}${novel.length > 10 ? '...' : ''}`);
+    }
+  } catch {
+    // Non-critical, don't fail aggregation
+  }
 
   return { news, sourceStats, totalRaw, duplicatesRemoved };
 }

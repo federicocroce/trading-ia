@@ -5,10 +5,11 @@ import type { AppRouter } from '@trading/backend/trpc';
 export const trpc = createTRPCReact<AppRouter>();
 
 export function getTRPCClient() {
+  const baseUrl = import.meta.env.VITE_API_URL || '';
   return trpc.createClient({
     links: [
       httpBatchLink({
-        url: '/trpc',
+        url: `${baseUrl}/trpc`,
       }),
     ],
   });

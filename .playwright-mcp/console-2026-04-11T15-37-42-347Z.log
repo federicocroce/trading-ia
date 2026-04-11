@@ -1,0 +1,93 @@
+[    1408ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:20102
+[ 4104078ms] [ERROR] You are calling ReactDOMClient.createRoot() on a container that has already been passed to createRoot() before. Instead, call root.render() on the existing root instead if you want to update it. @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:17253
+[ 4134596ms] NotFoundError: Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.
+    at removeChildFromContainer (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:15921:128)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:997:72)
+    at commitDeletionEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10175:19)
+    at recursivelyTraverseDeletionEffects (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10115:11)
+    at commitDeletionEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10272:13)
+    at recursivelyTraverseDeletionEffects (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10115:11)
+    at commitDeletionEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10272:13)
+    at recursivelyTraverseDeletionEffects (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10115:11)
+    at commitDeletionEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10237:13)
+    at recursivelyTraverseDeletionEffects (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10115:11)
+[ 4134585ms] [WARNING] %s
+
+%s
+ An error occurred in the <div> component. Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries. @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:6965
+[ 4170568ms] [ERROR] %o
+
+%s
+
+%s
+ NotFoundError: Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.
+    at removeChildFromContainer (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:15921:128)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:997:72)
+    at commitDeletionEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10175:19)
+    at recursivelyTraverseDeletionEffects (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10115:11)
+    at commitDeletionEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10272:13)
+    at recursivelyTraverseDeletionEffects (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10115:11)
+    at commitDeletionEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10272:13)
+    at recursivelyTraverseDeletionEffects (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10115:11)
+    at commitDeletionEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10237:13)
+    at recursivelyTraverseDeletionEffects (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10115:11) The above error occurred in the <div> component. React will try to recreate this component tree from scratch using the error boundary you provided, ErrorBoundary. @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:7000
+[ 4170577ms] [ERROR] [ErrorBoundary] NotFoundError: Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.
+    at removeChildFromContainer (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:15921:128)
+    at runWithFiberInDEV (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:997:72)
+    at commitDeletionEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10175:19)
+    at recursivelyTraverseDeletionEffects (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10115:11)
+    at commitDeletionEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10272:13)
+    at recursivelyTraverseDeletionEffects (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10115:11)
+    at commitDeletionEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10272:13)
+    at recursivelyTraverseDeletionEffects (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10115:11)
+    at commitDeletionEffectsOnFiber (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10237:13)
+    at recursivelyTraverseDeletionEffects (http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:10115:11) 
+    at div (<anonymous>)
+    at Provider4 (http://localhost:5173/node_modules/.vite/deps/radix-ui.js?v=c5047fb6:316:15)
+    at TooltipProvider (http://localhost:5173/node_modules/.vite/deps/radix-ui.js?v=c5047fb6:15281:5)
+    at TooltipProvider (http://localhost:5173/src/components/ui/tooltip.tsx:21:3)
+    at App (http://localhost:5173/src/App.tsx?t=1775926006690:38:47)
+    at ErrorBoundary (http://localhost:5173/src/shared/ErrorBoundary.tsx:7:8)
+    at QueryClientProvider (http://localhost:5173/node_modules/.vite/deps/chunk-JTSFHFV4.js?v=c5047fb6:3168:3)
+    at TRPCProvider (http://localhost:5173/node_modules/.vite/deps/@trpc_react-query.js?v=c5047fb6:563:13)
+    at Root (http://localhost:5173/src/main.tsx?t=1775925964225:27:25) @ http://localhost:5173/src/shared/ErrorBoundary.tsx:12
+[ 4268257ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:5173/src/opportunities/OpportunityCard.tsx?t=1775926130333:0
+[ 4268299ms] [ERROR] [vite] Failed to reload /src/opportunities/OpportunityCard.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5173/@vite/client:881
+[ 4370797ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=c5047fb6:20102
+[ 4442964ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=b8b63267:20102
+[ 4463586ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=b8b63267:20102
+[ 4476325ms] [ERROR] You are calling ReactDOMClient.createRoot() on a container that has already been passed to createRoot() before. Instead, call root.render() on the existing root instead if you want to update it. @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=b8b63267:17253
+[ 4590130ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=b8b63267:20102
+[15776668ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:5173/@vite/client:963
+[15776799ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15777236ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[15777813ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15778284ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[15778438ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[15778818ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15779335ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[15779820ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15780833ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15781376ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[15781838ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15782380ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[15782851ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15783562ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[15783874ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15784388ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[15784568ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[15784914ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15785394ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[15785955ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15787174ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15787506ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[15788412ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15788617ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[15789596ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[15789902ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15790602ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.processTimestamps?batch=1&input=%7B%7D:0
+[15790628ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[15791350ms] [ERROR] WebSocket connection to 'ws://localhost:5173/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/@vite/client:1034
+[15791635ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5173/trpc/opportunities.scanStatus?batch=1&input=%7B%7D:0
+[15799252ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=3adca91c:20102

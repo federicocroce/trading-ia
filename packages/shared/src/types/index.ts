@@ -10,3 +10,5 @@ export * from './alert.js';
 export * from './chat.js';
 export * from './opportunity.js';
 export * from './intelligence.js';
+export * from './swing-alert.js';
+export * from './discovery.js';

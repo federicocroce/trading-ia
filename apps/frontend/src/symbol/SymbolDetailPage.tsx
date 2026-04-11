@@ -24,7 +24,7 @@ export function SymbolDetailPage({ symbol, onBack }: SymbolDetailPageProps) {
 
   const { data: price } = trpc.prices.getBySymbol.useQuery(
     { symbol },
-    { refetchInterval: 10_000 },
+    { refetchInterval: 60_000 },
   );
 
   const { data: portfolio } = trpc.portfolio.get.useQuery(undefined, {
@@ -139,6 +139,54 @@ export function SymbolDetailPage({ symbol, onBack }: SymbolDetailPageProps) {
       {/* AI Signal */}
       {signal && (
         <SignalCard signal={signal as any} />
+      )}
+
+      {/* Deep Analysis */}
+      {signal?.deepAnalysis && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold">Analisis completo</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-md bg-green-500/5 border border-green-500/20 p-3">
+              <span className="text-[10px] text-green-400 uppercase tracking-wider font-medium">Lo bueno</span>
+              <div className="space-y-1 mt-1">
+                {(signal.deepAnalysis.positives ?? []).map((p: string, i: number) => (
+                  <p key={i} className="text-xs text-foreground">- {p}</p>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-md bg-red-500/5 border border-red-500/20 p-3">
+              <span className="text-[10px] text-red-400 uppercase tracking-wider font-medium">Lo preocupante</span>
+              <div className="space-y-1 mt-1">
+                {(signal.deepAnalysis.concerns ?? []).map((c: string, i: number) => (
+                  <p key={i} className="text-xs text-foreground">- {c}</p>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="rounded-md bg-blue-500/5 border border-blue-500/20 p-3">
+            <span className="text-[10px] text-blue-400 uppercase tracking-wider font-medium">Recomendacion</span>
+            <p className="text-xs text-foreground leading-relaxed mt-1">{signal.deepAnalysis.recommendation}</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-md bg-green-500/5 border border-green-500/30 p-3">
+              <span className="text-[10px] text-green-400 uppercase tracking-wider font-medium">Lo que haria</span>
+              <div className="space-y-1 mt-1">
+                {(signal.deepAnalysis.wouldDo ?? []).map((w: string, i: number) => (
+                  <p key={i} className="text-xs text-foreground">- {w}</p>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-md bg-red-500/5 border border-red-500/30 p-3">
+              <span className="text-[10px] text-red-400 uppercase tracking-wider font-medium">Lo que NO haria</span>
+              <div className="space-y-1 mt-1">
+                {(signal.deepAnalysis.wouldNotDo ?? []).map((w: string, i: number) => (
+                  <p key={i} className="text-xs text-foreground">- {w}</p>
+                ))}
+              </div>
+            </div>
+          </div>
+          <span className="text-[8px] text-muted-foreground/40">Analisis generado por {signal.deepAnalysis.generatedBy}</span>
+        </div>
       )}
 
       {/* Transactions */}

@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { reportOk, reportError } from './service-health.js';
 
 let client: OpenAI | null = null;
 
@@ -73,8 +74,14 @@ export async function isLMStudioAvailable(): Promise<boolean> {
       `${process.env.LMSTUDIO_BASE_URL || DEFAULT_BASE_URL}/models`,
       { signal: AbortSignal.timeout(3000) },
     );
+    if (res.ok) {
+      reportOk('LM Studio');
+    } else {
+      reportError('LM Studio', `HTTP ${res.status} — LM Studio no responde`);
+    }
     return res.ok;
   } catch {
+    reportError('LM Studio', 'LM Studio no disponible (no se pudo conectar)');
     return false;
   }
 }

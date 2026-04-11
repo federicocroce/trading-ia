@@ -8,7 +8,7 @@ export const symbols = sqliteTable('symbols', {
   type: text('type', { enum: ['adr', 'us', 'crypto'] }).notNull(),
   flag: text('flag').notNull().default('🌐'),
   plaza: text('plaza', {
-    enum: ['argentina-energy', 'argentina-finance', 'argentina-cedears', 'us-energy', 'us-tech', 'crypto', 'bonds', 'global'],
+    enum: ['argentina-energy', 'argentina-finance', 'argentina-cedears', 'us-energy', 'us-tech', 'crypto', 'bonds', 'etfs-sectors', 'commodities', 'emerging-markets', 'global'],
   }).notNull().default('global'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
@@ -69,6 +69,158 @@ export const newsArticles = sqliteTable('news_articles', {
   impact: text('impact'),
   storyClusterId: text('story_cluster_id'),      // triangulation
   triangulationConfidence: text('triangulation_confidence'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Daily intelligence reports ---
+export const dailyReports = sqliteTable('daily_reports', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  reportDate: text('report_date').notNull(),
+  reportType: text('report_type').notNull(),       // 'morning' | 'on-demand'
+  scanId: integer('scan_id').references(() => opportunityScans.id),
+  newsSourceStats: text('news_source_stats').notNull(),      // JSON
+  totalNewsCount: integer('total_news_count').notNull(),
+  triangulationStats: text('triangulation_stats').notNull(),  // JSON
+  secondOrderEffects: text('second_order_effects').notNull(), // JSON
+  antiHypeResults: text('anti_hype_results').notNull(),       // JSON
+  topRecommendations: text('top_recommendations').notNull(),  // JSON
+  sectorSummary: text('sector_summary').notNull(),            // JSON
+  totalSymbolsScanned: integer('total_symbols_scanned').notNull(),
+  analysisEngine: text('analysis_engine').notNull(),
+  analysisDetail: text('analysis_detail').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Second-order sector effects log (NOTA: tabla sin uso, los effects se calculan in-memory) ---
+export const sectorEffects = sqliteTable('sector_effects', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  scanId: integer('scan_id').references(() => opportunityScans.id),
+  triggerEvent: text('trigger_event').notNull(),
+  causalChain: text('causal_chain').notNull(),       // JSON array of strings
+  affectedTickers: text('affected_tickers').notNull(), // JSON array
+  impactDirection: text('impact_direction').notNull(),
+  confidence: text('confidence').notNull(),
+  reasoning: text('reasoning').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Swing alerts (mean-reversion / volatile plays) ---
+export const swingAlerts = sqliteTable('swing_alerts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  symbol: text('symbol').notNull(),
+  alertType: text('alert_type').notNull(),           // 'drop-1d' | 'surge-1d' | 'drop-2d'
+  direction: text('direction').notNull(),             // 'BUY' | 'SELL'
+  triggerDescription: text('trigger_description').notNull(),
+  triggerPercent: real('trigger_percent').notNull(),
+  triggerPrice: real('trigger_price').notNull(),
+  entryPrice: real('entry_price').notNull(),
+  targetPrice: real('target_price'),
+  stopLoss: real('stop_loss'),
+  historicalWinRate: real('historical_win_rate').notNull(),
+  historicalAvgReturn: real('historical_avg_return').notNull(),
+  historicalSampleSize: integer('historical_sample_size').notNull(),
+  status: text('status').notNull().default('active'), // active | resolved-win | resolved-loss | expired
+  nextDayClose: real('next_day_close'),
+  nextDayChange: real('next_day_change'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  resolvedAt: text('resolved_at'),
+});
+
+// --- Discovered symbols (dynamic universe) ---
+export const discoveredSymbols = sqliteTable('discovered_symbols', {
+  symbol: text('symbol').primaryKey(),
+  name: text('name').notNull(),
+  instrumentType: text('instrument_type').notNull(),
+  sector: text('sector').notNull(),
+  industry: text('industry'),
+  market: text('market').notNull(),
+  exchange: text('exchange'),
+  discoveredFrom: text('discovered_from').notNull(),
+  relevanceScore: integer('relevance_score').notNull().default(0),
+  newsCount: integer('news_count').notNull().default(1),
+  firstSeen: text('first_seen').notNull().default(sql`(datetime('now'))`),
+  lastSeen: text('last_seen').notNull().default(sql`(datetime('now'))`),
+  expiresAt: text('expires_at').notNull(),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+});
+
+// --- Signal tracking (accuracy measurement) ---
+export const signalTracking = sqliteTable('signal_tracking', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  symbol: text('symbol').notNull(),
+  signalDate: text('signal_date').notNull(),          // fecha en que se emitio la senal
+  action: text('action').notNull(),                    // BUY | SELL | HOLD | WATCH
+  entryPrice: real('entry_price').notNull(),           // precio al momento de la senal
+  targetPrice: real('target_price'),
+  stopLoss: real('stop_loss'),
+  confidence: integer('confidence').notNull(),
+  opportunityScore: integer('opportunity_score').notNull(),
+  // Dimension scores para analisis de accuracy por componente
+  sector: text('sector'),
+  techScore: integer('tech_score'),
+  fundScore: integer('fund_score'),
+  sentScore: real('sent_score'),
+  hadDivergences: integer('had_divergences', { mode: 'boolean' }),
+  enrichedByLlm: integer('enriched_by_llm', { mode: 'boolean' }),
+  shortTermScore: integer('short_term_score'),
+  mediumTermScore: integer('medium_term_score'),
+  rsiAtSignal: real('rsi_at_signal'),
+  predictedReturnMid: real('predicted_return_mid'),
+  // Resultado (se llena despues)
+  priceAfter7d: real('price_after_7d'),
+  priceAfter30d: real('price_after_30d'),
+  returnAfter7d: real('return_after_7d'),              // % de cambio a 7 dias
+  returnAfter30d: real('return_after_30d'),             // % de cambio a 30 dias
+  hitTarget: integer('hit_target', { mode: 'boolean' }),
+  hitStop: integer('hit_stop', { mode: 'boolean' }),
+  outcome: text('outcome'),                            // 'win' | 'loss' | 'neutral' | 'pending'
+  resolvedAt: text('resolved_at'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Historical price cache (1 day TTL daily, 1 week TTL weekly) ---
+export const historicalCache = sqliteTable('historical_cache', {
+  id: text('id').primaryKey(),              // "VIST:daily" or "VIST:weekly"
+  symbol: text('symbol').notNull(),
+  interval: text('interval').notNull(),     // 'daily' | 'weekly'
+  data: text('data').notNull(),             // JSON array of OHLC
+  fetchedAt: text('fetched_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+});
+
+// --- Fundamental cache (7 day TTL per symbol) ---
+export const fundamentalCache = sqliteTable('fundamental_cache', {
+  symbol: text('symbol').primaryKey(),
+  data: text('data').notNull(),                 // JSON with all FundamentalData fields
+  fetchedAt: text('fetched_at').notNull(),
+  expiresAt: text('expires_at').notNull(),      // fetched_at + 7 days
+});
+
+// --- Sector impacts (from news analysis, 1 day TTL) ---
+export const sectorImpacts = sqliteTable('sector_impacts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  reportDate: text('report_date').notNull(),
+  sector: text('sector').notNull(),
+  impact: text('impact').notNull(),              // 'positive' | 'negative' | 'mixed'
+  event: text('event').notNull(),
+  summary: text('summary').notNull(),
+  keyNews: text('key_news').notNull(),           // JSON array
+  suggestedTickers: text('suggested_tickers').notNull(), // JSON array
+  riskFactors: text('risk_factors').notNull(),   // JSON array
+  confidence: text('confidence').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Missed opportunities (WATCH/HOLD that surged) ---
+export const missedOpportunities = sqliteTable('missed_opportunities', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  symbol: text('symbol').notNull(),
+  scanDate: text('scan_date').notNull(),
+  actionGiven: text('action_given').notNull(),        // WATCH or HOLD
+  opportunityScore: integer('opportunity_score'),
+  actualReturn7d: real('actual_return_7d'),
+  actualReturn30d: real('actual_return_30d'),
+  wouldHaveBeen: text('would_have_been'),             // BUY if return > 5%, STRONG_BUY if > 10%
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 

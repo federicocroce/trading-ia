@@ -1,6 +1,7 @@
-import type { PlazaSummary, SecondOrderEffect } from '@trading/shared';
-import { SECOND_ORDER_ANALYSIS_PROMPT, SECTOR_CORRELATIONS } from '@trading/shared';
-import { askLMStudio } from '../shared/lmstudio.js';
+import type { PlazaSummary, SecondOrderEffect, MarketPlaza } from '@trading/shared';
+import { buildSecondOrderAnalysisPrompt, SECTOR_CORRELATIONS } from '@trading/shared';
+import { callAI } from '../shared/ai-router.js';
+import { getFullSymbolUniverse } from '../discovery/discovery-registry.js';
 
 // --- JSON extraction helper ---
 
@@ -53,12 +54,13 @@ function buildStaticEffects(plazas: PlazaSummary[]): SecondOrderEffect[] {
   const plazaMap = new Map(plazas.map((p) => [p.plaza, p]));
 
   for (const corr of SECTOR_CORRELATIONS) {
-    const sourcePlaza = plazaMap.get(corr.from);
+    const sourcePlaza = plazaMap.get(corr.from as MarketPlaza);
     if (!sourcePlaza) continue;
 
-    // Only trigger if the source plaza has strong sentiment
+    // Trigger if the source plaza has any sentiment or has news activity
     const absScore = Math.abs(sourcePlaza.sentimentScore);
-    if (absScore < 0.3) continue;
+    const hasActivity = sourcePlaza.symbolTrends.length > 0;
+    if (absScore < 0.1 && !hasActivity) continue;
 
     const isPositiveSource = sourcePlaza.sentimentScore > 0;
     let impactDirection: SecondOrderEffect['impactDirection'];
@@ -77,7 +79,7 @@ function buildStaticEffects(plazas: PlazaSummary[]): SecondOrderEffect[] {
     // Collect affected tickers from target plazas
     const affectedTickers: string[] = [];
     for (const target of corr.to) {
-      const targetPlaza = plazaMap.get(target);
+      const targetPlaza = plazaMap.get(target as MarketPlaza);
       if (targetPlaza) {
         affectedTickers.push(...targetPlaza.symbolTrends.slice(0, 2).map((t) => t.symbol));
       }
@@ -115,20 +117,28 @@ export async function analyzeSecondOrderEffects(
     const contextMessage = buildContextMessage(plazas, topHeadlines);
     console.log(`[second-order] Analizando efectos de segundo orden (${contextMessage.length} chars de contexto)`);
 
-    const raw = await askLMStudio(contextMessage, SECOND_ORDER_ANALYSIS_PROMPT, 2048);
+    const secondOrderPrompt = buildSecondOrderAnalysisPrompt(getFullSymbolUniverse());
+    const raw = await callAI('reasoning', contextMessage, secondOrderPrompt, 2048);
     const jsonStr = extractJSON(raw);
     const parsed = JSON.parse(jsonStr);
 
-    if (parsed.effects && Array.isArray(parsed.effects)) {
-      const effects: SecondOrderEffect[] = parsed.effects
+    // Flexible parsing: {effects:[...]}, {results:[...]}, o directamente [...]
+    const rawEffects = parsed.effects ?? parsed.results ?? parsed.data ?? (Array.isArray(parsed) ? parsed : null);
+
+    if (rawEffects && Array.isArray(rawEffects) && rawEffects.length > 0) {
+      const effects: SecondOrderEffect[] = rawEffects
         .filter((e: Record<string, unknown>) =>
           e.triggerEvent && e.causalChain && e.affectedTickers && e.reasoning,
         )
         .slice(0, 5);
 
-      console.log(`[second-order] LLM identificó ${effects.length} efectos de segundo orden`);
-      return effects;
+      if (effects.length > 0) {
+        console.log(`[second-order] LLM identificó ${effects.length} efectos de segundo orden`);
+        return effects;
+      }
     }
+
+    console.warn(`[second-order] LLM respondió pero sin efectos validos. Keys: ${Object.keys(parsed).join(', ')}. Raw: ${raw.slice(0, 200)}`);
   } catch (err) {
     console.warn(`[second-order] LLM failed: ${(err as Error).message.slice(0, 120)}`);
   }

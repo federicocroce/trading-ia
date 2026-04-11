@@ -12,6 +12,17 @@ export interface FundamentalData {
   priceVs52wLow: number | null;
   avgVolume: number | null;
   beta: number | null;
+  // Ampliados (datos trimestrales, cache 7 días)
+  revenueGrowth: number | null;     // % crecimiento revenue YoY
+  grossMargin: number | null;       // margen bruto %
+  operatingMargin: number | null;   // margen operativo %
+  netMargin: number | null;         // margen neto %
+  debtToEquity: number | null;      // ratio deuda/equity
+  freeCashFlow: number | null;      // free cash flow absoluto
+  returnOnEquity: number | null;    // ROE %
+  returnOnAssets: number | null;    // ROA %
+  earningsSurprise: number | null;  // último earnings surprise %
+  nextEarningsDate: string | null;  // fecha próximo earnings
 }
 
 export type FASignal = 'undervalued' | 'overvalued' | 'fair';

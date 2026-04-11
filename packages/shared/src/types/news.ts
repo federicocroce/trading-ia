@@ -2,7 +2,7 @@ import type { NewsSourceType, TriangulationResult } from './news-source.js';
 
 export type SentimentType = 'positive' | 'negative' | 'neutral';
 export type ImpactLevel = 'high' | 'medium' | 'low';
-export type MarketPlaza = 'argentina-energy' | 'argentina-finance' | 'argentina-cedears' | 'us-energy' | 'us-tech' | 'crypto' | 'bonds' | 'global';
+export type MarketPlaza = 'argentina-energy' | 'argentina-finance' | 'argentina-cedears' | 'us-energy' | 'us-tech' | 'crypto' | 'bonds' | 'etfs-sectors' | 'commodities' | 'emerging-markets' | 'global';
 
 export interface NewsItem {
   id: string;

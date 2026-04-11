@@ -1,0 +1,44 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - heading "Trading Dashboard" [level=1] [ref=e7]
+        - generic [ref=e8]: Argentina & Global
+      - generic [ref=e9]:
+        - generic [ref=e10]:
+          - button "Analizar" [ref=e11]
+          - generic [ref=e12]:
+            - button "N" [ref=e13]
+            - button "F" [ref=e14]
+            - button "A" [ref=e15]
+        - generic [ref=e16]:
+          - generic [ref=e17]: "N: nunca"
+          - generic [ref=e18]: "F: nunca"
+  - generic [ref=e19]:
+    - complementary [ref=e20]:
+      - generic [ref=e21]:
+        - heading "Watchlist" [level=2] [ref=e22]
+        - button "+" [ref=e23]
+    - generic [ref=e25]:
+      - tablist [ref=e26]:
+        - tab "Resumen" [ref=e27]
+        - tab "Portfolio" [selected] [ref=e28]
+        - tab "Operaciones" [ref=e29]
+        - tab "Noticias" [ref=e30]
+        - tab "Oportunidades" [ref=e31]
+      - tabpanel "Portfolio" [ref=e32]:
+        - generic [ref=e33]: Cargando portfolio...
+    - complementary [ref=e34]:
+      - generic [ref=e35]:
+        - heading "Chat con Claude" [level=2] [ref=e36]
+        - paragraph [ref=e37]: Analista financiero IA
+      - generic [ref=e42]:
+        - paragraph [ref=e43]: "Acciones rapidas:"
+        - button "Resumen del portfolio hoy" [ref=e44]
+        - button "Que impacto tiene la guerra en mis acciones?" [ref=e45]
+        - button "Deberia vender VIST ahora?" [ref=e46]
+        - button "Analiza GGAL" [ref=e47]
+        - button "Como esta el petroleo?" [ref=e48]
+      - generic [ref=e50]:
+        - textbox "Pregunta sobre tu portfolio..." [ref=e51]
+        - button "Enviar" [disabled]

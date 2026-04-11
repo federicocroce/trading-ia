@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/shared/trpc';
 import { OpportunityCard } from './OpportunityCard';
 import { SectorFilter } from './SectorFilter';
+import { IntelligenceReportSheet } from '@/intelligence/IntelligenceReportSheet';
+import { ServiceHealthBar } from '@/components/ServiceHealthBar';
 
 type OpportunitySector = 'argentina-energy' | 'argentina-finance' | 'us-energy' | 'us-tech' | 'crypto';
 
@@ -66,13 +67,9 @@ export function OpportunityDashboard() {
   const [selectedSectors, setSelectedSectors] = useState<OpportunitySector[]>([]);
   const [actionFilter, setActionFilter] = useState<'BUY' | 'SELL' | 'WATCH' | null>(null);
   const utils = trpc.useUtils();
-
   const { data, isLoading } = trpc.opportunities.scan.useQuery(undefined);
-
   const refresh = trpc.opportunities.refresh.useMutation({
-    onSuccess: () => {
-      utils.opportunities.scan.invalidate();
-    },
+    onSuccess: () => utils.opportunities.scan.invalidate(),
   });
 
   if (isLoading) {
@@ -103,6 +100,9 @@ export function OpportunityDashboard() {
     currentPrice: number;
     opportunityScore: number;
     action: 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
+    technicalAction?: 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
+    fundamentalAction?: 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
+    sentimentAction?: 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
     confidence: number;
     shortTerm: { lowPercent: number; midPercent: number; highPercent: number; confidence: number; keyDrivers: string[] };
     mediumTerm: { lowPercent: number; midPercent: number; highPercent: number; confidence: number; keyDrivers: string[] };
@@ -146,19 +146,6 @@ export function OpportunityDashboard() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold">Oportunidades</h2>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => refresh.mutate()}
-                disabled={refresh.isPending}
-              >
-                {refresh.isPending ? 'Escaneando...' : 'Actualizar'}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Forzar re-escaneo con IA (ejecuta analisis nuevo, consume tokens).</TooltipContent>
-          </Tooltip>
           {/* Engine indicator */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -196,6 +183,21 @@ export function OpportunityDashboard() {
           <span className="text-[10px] text-muted-foreground">
             {new Date(data.scannedAt).toLocaleString('es-AR', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
           </span>
+          {/* Recalcular button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => refresh.mutate({})}
+                disabled={refresh.isPending}
+                className="text-[10px] px-2 py-0.5 rounded border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-40"
+              >
+                {refresh.isPending ? 'Recalculando...' : 'Recalcular'}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Fuerza un nuevo escaneo completo con los datos actuales. Tarda ~30 segundos.</TooltipContent>
+          </Tooltip>
+          {/* Intelligence Report Sheet */}
+          <IntelligenceReportSheet />
         </div>
         <div className="flex items-center gap-2">
           {buyCount > 0 && (
@@ -243,6 +245,9 @@ export function OpportunityDashboard() {
         </div>
       )}
 
+      {/* Service health */}
+      <ServiceHealthBar />
+
       {/* Sector filter */}
       <SectorFilter selected={selectedSectors} onChange={setSelectedSectors} />
 
@@ -266,11 +271,11 @@ export function OpportunityDashboard() {
 
         // Action filter
         if (actionFilter) {
-          filtered = filtered.filter((o) =>
-            actionFilter === 'WATCH'
+          filtered = filtered.filter((o) => {
+            return actionFilter === 'WATCH'
               ? o.action === 'WATCH' || o.action === 'HOLD'
-              : o.action === actionFilter,
-          );
+              : o.action === actionFilter;
+          });
         }
 
         return filtered.length === 0 ? (

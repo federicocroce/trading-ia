@@ -9,8 +9,8 @@ import type {
   SentimentType,
   SymbolTrend,
 } from '@trading/shared';
-import { INTEGRATED_SIGNAL_PROMPT, getPlazaForSymbol, PLAZA_CONFIG } from '@trading/shared';
-import { getActiveSymbolList } from '../db/repository.js';
+import { buildIntegratedSignalPrompt, getPlazaForSymbol, PLAZA_CONFIG } from '@trading/shared';
+import { getActiveSymbolList, getPortfolioPositions } from '../db/repository.js';
 import { askLMStudio } from '../shared/lmstudio.js';
 import { askGroq } from '../shared/groq.js';
 import { askOpenRouter } from '../shared/openrouter.js';
@@ -245,7 +245,9 @@ export async function getAllIntegratedSignals(): Promise<IntegratedSignal[]> {
 
     // 1. LM Studio (local, no API key needed)
     try {
-      raw = await askLMStudio(userMessage, INTEGRATED_SIGNAL_PROMPT, 2048);
+      const positions = getPortfolioPositions();
+      const signalPrompt = buildIntegratedSignalPrompt(positions);
+      raw = await askLMStudio(userMessage, signalPrompt, 2048);
       usedEngine = 'lmstudio';
       console.log(`[signals] LM Studio: ${raw.length} chars`);
     } catch (lmErr) {

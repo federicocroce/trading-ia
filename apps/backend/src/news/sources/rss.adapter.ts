@@ -1,11 +1,13 @@
 import type { RawNewsArticle } from '@trading/shared';
 import type { NewsSourceAdapter } from './adapter.js';
+import { reportOk, reportError } from '../../shared/service-health.js';
 
 // Default financial RSS feeds (free, no API key needed)
 const DEFAULT_RSS_FEEDS = [
-  'https://feeds.reuters.com/reuters/businessNews',
-  'https://www.cnbc.com/id/100003114/device/rss/rss.html',
-  'https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US',
+  'https://www.cnbc.com/id/100003114/device/rss/rss.html',        // CNBC Top News
+  'https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US', // Yahoo Finance S&P
+  'https://feeds.marketwatch.com/marketwatch/topstories/',          // MarketWatch
+  'https://www.investing.com/rss/news.rss',                         // Investing.com
 ];
 
 interface RSSItem {
@@ -126,10 +128,19 @@ export const rssAdapter: NewsSourceAdapter = {
     );
 
     const articles: RawNewsArticle[] = [];
+    let failedFeeds = 0;
     for (const r of results) {
       if (r.status === 'fulfilled') {
         articles.push(...r.value);
+      } else {
+        failedFeeds++;
       }
+    }
+
+    if (articles.length > 0) {
+      reportOk('RSS Noticias');
+    } else if (failedFeeds > 0) {
+      reportError('RSS Noticias', `${failedFeeds}/${feeds.length} feeds fallaron, sin articulos`);
     }
 
     // Filtrar articulos muy viejos (> 3 dias)

@@ -1,4 +1,4 @@
-import { NEWS_ANALYSIS_PROMPT, SIGNAL_GENERATION_PROMPT } from '@trading/shared';
+import { ANALYST_SYSTEM_PROMPT } from '@trading/shared';
 // import { askClaude } from '../shared/claude.js';
 import { askLMStudio } from '../shared/lmstudio.js';
 import { getPortfolio } from '../portfolio/portfolio.service.js';
@@ -15,7 +15,7 @@ ${portfolioContext}
 Noticia: ${title}
 ${content ? `Detalle: ${content}` : ''}`;
 
-  const analysis = await askLMStudio(prompt, NEWS_ANALYSIS_PROMPT);
+  const analysis = await askLMStudio(prompt, ANALYST_SYSTEM_PROMPT);
   return { title, analysis };
 }
 
@@ -28,6 +28,6 @@ ${position ? `Posición actual: ${position.quantity} acciones, avg cost $${posit
 
 Portfolio total: $${portfolio.totalValue.toFixed(0)}, P&L total: ${portfolio.totalPnlPercent.toFixed(1)}%`;
 
-  const analysis = await askLMStudio(prompt, SIGNAL_GENERATION_PROMPT);
+  const analysis = await askLMStudio(prompt, ANALYST_SYSTEM_PROMPT);
   return { symbol, analysis };
 }

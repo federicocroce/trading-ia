@@ -19,6 +19,7 @@ export interface AntiHypeFilterResult {
   passedAll: number;
   filtered: string[];
   rejected: Array<{ symbol: string; reasons: string[] }>;
+  mode: 'strict' | 'relaxed';
 }
 
 // --- Daily report ---
@@ -35,6 +36,106 @@ export interface DailyReport {
   antiHypeResults: AntiHypeFilterResult;
   scanId?: number;
   createdAt: string;
+}
+
+// --- Market Digest ---
+
+export interface MarketDigest {
+  generatedAt: number;
+  overnightSummary: string;
+  portfolioImpact: string;
+  topOpportunities: Array<{
+    symbol: string;
+    action: 'BUY' | 'SELL';
+    narrative: string;
+  }>;
+  warnings: string[];
+  marketMood: 'risk-on' | 'risk-off' | 'mixed';
+  wouldDo: string[];      // "Cosas que SÍ haría"
+  wouldNotDo: string[];   // "Cosas que NO haría"
+}
+
+// --- Market Report (full investment report) ---
+
+export interface MarketReportRecommendation {
+  symbol: string;
+  name: string;
+  instrumentType: string;
+  sector: string;
+  thesis: string;
+  catalysts: string[];
+  risks: string[];
+  suggestedWeight: number;
+}
+
+export interface MarketReportAlternative {
+  tier: 'A' | 'B';
+  symbol: string;
+  name: string;
+  sector: string;
+  thesis: string;
+}
+
+export interface MarketReportScenario {
+  name: string;
+  probability: number;
+  distribution: Array<{ symbol: string; weight: number; reason: string }>;
+}
+
+export interface MarketReportTheme {
+  theme: string;
+  relevance: 'high' | 'medium' | 'low';
+  summary: string;
+  sectors: string[];
+  recommendations: MarketReportRecommendation[];
+}
+
+export interface MarketReport {
+  generatedAt: number;
+  macroContext: string;
+  portfolioImpact: string;
+  themes: MarketReportTheme[];
+  topRecommendations: MarketReportRecommendation[];
+  alternatives: MarketReportAlternative[];
+  scenarios: MarketReportScenario[];
+  avoidList: string[];
+  engine: string;
+}
+
+// --- Sector Impact & Reports (news-first pipeline) ---
+
+export interface SectorImpact {
+  sector: string;
+  impact: 'positive' | 'negative' | 'mixed';
+  event: string;
+  confidence: 'high' | 'medium';
+  affectedPlazas: string[];
+}
+
+export interface SectorReport {
+  sector: string;
+  impact: 'positive' | 'negative' | 'mixed';
+  summary: string;
+  keyNews: string[];
+  suggestedTickers: string[];
+  riskFactors: string[];
+  generatedAt: number;
+}
+
+// --- Process Status (for 3 independent buttons) ---
+
+export interface ProcessStatus {
+  isRunning: boolean;
+  lastRun: number | null;
+  currentStep?: string;
+  percentComplete?: number;
+  error?: string;
+}
+
+export interface AllProcessStatus {
+  news: ProcessStatus;
+  fundamentals: ProcessStatus;
+  analysis: ProcessStatus;
 }
 
 // --- Sector correlation ---
