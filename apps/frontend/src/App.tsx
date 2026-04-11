@@ -9,6 +9,7 @@ import { PortfolioTable } from '@/portfolio/PortfolioTable';
 import { TransactionHistory } from '@/portfolio/TransactionHistory';
 import { NewsAndIntelligence } from '@/news/NewsAndIntelligence';
 import { ChatPanel } from '@/chat/ChatPanel';
+import { ChatToggle } from '@/layout/ChatToggle';
 import { SymbolDetailPage } from '@/symbol/SymbolDetailPage';
 import { OpportunityDashboard } from '@/opportunities/OpportunityDashboard';
 import { DailySummary } from '@/daily/DailySummary';
@@ -103,7 +104,9 @@ export function App() {
               </Tabs>
             )}
 
-            <ChatPanel />
+            <ChatToggle>
+              <ChatPanel />
+            </ChatToggle>
           </div>
         </div>
       </NavigationContext>
