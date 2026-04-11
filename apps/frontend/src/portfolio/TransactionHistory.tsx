@@ -14,6 +14,7 @@ import { TransactionDialog } from './TransactionDialog';
 
 export function TransactionHistory() {
   const [txDialogOpen, setTxDialogOpen] = useState(false);
+  const [symbolFilter, setSymbolFilter] = useState('');
 
   const utils = trpc.useUtils();
   const { data: transactions, isLoading } = trpc.portfolio.transactions.list.useQuery();
@@ -27,19 +28,38 @@ export function TransactionHistory() {
     return <div className="p-6 text-muted-foreground">Cargando transacciones...</div>;
   }
 
+  const filteredTransactions = (transactions ?? []).filter((tx) =>
+    !symbolFilter || tx.symbol.includes(symbolFilter)
+  );
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Historial de Operaciones</h2>
-        <Button size="sm" onClick={() => setTxDialogOpen(true)}>
-          + Operacion
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Buscar símbolo..."
+            value={symbolFilter}
+            onChange={(e) => setSymbolFilter(e.target.value.toUpperCase())}
+            className="h-7 px-2 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-36"
+          />
+          <Button size="sm" onClick={() => setTxDialogOpen(true)}>
+            + Operacion
+          </Button>
+        </div>
       </div>
 
-      {!transactions || transactions.length === 0 ? (
+      {!filteredTransactions || filteredTransactions.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
-          <p className="text-sm">No hay operaciones registradas.</p>
-          <p className="text-xs mt-1">Usa el boton "+ Operacion" para registrar compras y ventas.</p>
+          {symbolFilter ? (
+            <p className="text-sm">No hay operaciones para '{symbolFilter}'</p>
+          ) : (
+            <>
+              <p className="text-sm">No hay operaciones registradas.</p>
+              <p className="text-xs mt-1">Usa el boton "+ Operacion" para registrar compras y ventas.</p>
+            </>
+          )}
         </div>
       ) : (
         <Table>
@@ -58,7 +78,7 @@ export function TransactionHistory() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {transactions.map((tx) => {
+            {filteredTransactions.map((tx) => {
               const cur = tx.currency ?? 'USD';
               const total = tx.totalAmount ?? tx.quantity * tx.price;
               return (
