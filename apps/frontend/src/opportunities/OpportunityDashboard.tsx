@@ -65,6 +65,7 @@ function SectorSummaryCard({ summary }: { summary: SectorSummary }) {
 export function OpportunityDashboard() {
   const [selectedSectors, setSelectedSectors] = useState<OpportunitySector[]>([]);
   const [actionFilter, setActionFilter] = useState<'BUY' | 'SELL' | 'WATCH' | null>(null);
+  const [portfolioFilter, setPortfolioFilter] = useState(false);
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.opportunities.scan.useQuery(undefined);
   const refresh = trpc.opportunities.refresh.useMutation({
@@ -227,7 +228,17 @@ export function OpportunityDashboard() {
             {opportunities.length} total
           </Badge>
           {inPortfolioCount > 0 && (
-            <Badge variant="outline" className="text-[10px]">{inPortfolioCount} en portfolio</Badge>
+            <Badge
+              variant="outline"
+              className={`text-[10px] cursor-pointer transition-all ${
+                portfolioFilter
+                  ? 'bg-blue-500/40 text-blue-300 ring-1 ring-blue-500'
+                  : 'hover:bg-blue-500/20 text-muted-foreground'
+              }`}
+              onClick={() => setPortfolioFilter(!portfolioFilter)}
+            >
+              {inPortfolioCount} en portfolio
+            </Badge>
           )}
         </div>
       </div>
@@ -272,6 +283,11 @@ export function OpportunityDashboard() {
               ? o.action === 'WATCH' || o.action === 'HOLD'
               : o.action === actionFilter;
           });
+        }
+
+        // Portfolio filter
+        if (portfolioFilter) {
+          filtered = filtered.filter((o) => o.inPortfolio);
         }
 
         return filtered.length === 0 ? (

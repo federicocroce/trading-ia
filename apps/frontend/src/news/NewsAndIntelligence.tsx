@@ -248,6 +248,7 @@ export function NewsAndIntelligence() {
   const analyzeNews = trpc.analysis.news.useMutation();
   const [analysisResults, setAnalysisResults] = useState<Map<string, string>>(new Map());
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>('all');
+  const [symbolFilter, setSymbolFilter] = useState('');
 
   const handleAnalyze = async (id: string, title: string) => {
     const result = await analyzeNews.mutateAsync({ title });
@@ -255,9 +256,20 @@ export function NewsAndIntelligence() {
   };
 
   const filteredNews = (news ?? []).filter((item) => {
-    if (confidenceFilter === 'all') return true;
-    const conf = (item as Record<string, unknown>).triangulation as { confidence?: string } | undefined;
-    return conf?.confidence === confidenceFilter;
+    // confidence filter (existing)
+    if (confidenceFilter !== 'all') {
+      const conf = (item as Record<string, unknown>).triangulation as { confidence?: string } | undefined;
+      if (conf?.confidence !== confidenceFilter) return false;
+    }
+    // symbol filter (new)
+    if (symbolFilter) {
+      const tickers = (item as Record<string, unknown>).relatedTickers as string[] | undefined;
+      const titleStr = String((item as Record<string, unknown>).title ?? '');
+      const tickerMatch = tickers?.some((t) => t.toUpperCase().includes(symbolFilter));
+      const titleMatch = titleStr.toUpperCase().includes(symbolFilter);
+      if (!tickerMatch && !titleMatch) return false;
+    }
+    return true;
   });
 
   const isLoading = intelLoading && newsLoading;
@@ -321,6 +333,13 @@ export function NewsAndIntelligence() {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-medium text-muted-foreground">Noticias recientes</h3>
           <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Buscar símbolo..."
+              value={symbolFilter}
+              onChange={(e) => setSymbolFilter(e.target.value.toUpperCase())}
+              className="h-7 px-2 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-36"
+            />
             <div className="flex gap-1">
               {(['all', 'high', 'medium', 'low'] as const).map((filter) => (
                 <Button
