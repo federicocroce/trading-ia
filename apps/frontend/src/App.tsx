@@ -15,10 +15,22 @@ import { SymbolDetailPage } from '@/symbol/SymbolDetailPage';
 import { OpportunityDashboard } from '@/opportunities/OpportunityDashboard';
 import { DailySummary } from '@/daily/DailySummary';
 import { NavigationContext } from '@/shared/navigation';
+import { trpc } from '@/shared/trpc';
 
 function getSymbolFromURL(): string | null {
   const params = new URLSearchParams(window.location.search);
   return params.get('symbol');
+}
+
+function BuyBadge() {
+  const { data } = trpc.opportunities.scan.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const buyCount = data?.opportunities?.filter((o: { action: string }) => o.action === 'BUY').length ?? 0;
+  if (buyCount === 0) return null;
+  return (
+    <span className="absolute -top-0.5 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-green-500 text-[8px] font-bold text-white">
+      {buyCount > 9 ? '9+' : buyCount}
+    </span>
+  );
 }
 
 export function App() {
@@ -78,13 +90,16 @@ export function App() {
                 <SymbolDetailPage symbol={selectedSymbol} onBack={goHome} />
               </div>
             ) : (
-              <Tabs defaultValue="portfolio" className="flex-1 flex flex-col overflow-hidden gap-0">
+              <Tabs defaultValue="daily" className="flex-1 flex flex-col overflow-hidden gap-0">
                 <TabsList variant="line" className="w-full justify-start rounded-none border-b border-border bg-card px-2">
                   <TabsTrigger value="daily">Resumen</TabsTrigger>
+                  <TabsTrigger value="opportunities" className="relative">
+                    Oportunidades
+                    <BuyBadge />
+                  </TabsTrigger>
                   <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
-                  <TabsTrigger value="transactions">Operaciones</TabsTrigger>
                   <TabsTrigger value="news">Noticias</TabsTrigger>
-                  <TabsTrigger value="opportunities">Oportunidades</TabsTrigger>
+                  <TabsTrigger value="transactions">Operaciones</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="daily" className="flex-1 overflow-y-auto">

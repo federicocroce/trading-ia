@@ -6,7 +6,6 @@ import { trpc } from '@/shared/trpc';
 import { OpportunityCard } from './OpportunityCard';
 import { SectorFilter } from './SectorFilter';
 import { IntelligenceReportSheet } from '@/intelligence/IntelligenceReportSheet';
-import { ServiceHealthBar } from '@/components/ServiceHealthBar';
 
 type OpportunitySector = 'argentina-energy' | 'argentina-finance' | 'us-energy' | 'us-tech' | 'crypto';
 
@@ -244,9 +243,6 @@ export function OpportunityDashboard() {
           </div>
         </div>
       )}
-
-      {/* Service health */}
-      <ServiceHealthBar />
 
       {/* Sector filter */}
       <SectorFilter selected={selectedSectors} onChange={setSelectedSectors} />

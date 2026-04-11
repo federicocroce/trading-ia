@@ -29,3 +29,13 @@ test('chat panel existe', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('text=Chat con Claude')).toBeVisible();
 });
+
+test('tab Resumen es el default al cargar', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('tab', { name: 'Resumen' })).toHaveAttribute('data-state', 'active');
+});
+
+test('InfraBar es visible', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('[role="status"][aria-label="Estado de servicios"]')).toBeVisible();
+});
