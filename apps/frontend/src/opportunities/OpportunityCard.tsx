@@ -1,9 +1,7 @@
 import { useState } from 'react';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { trpc } from '@/shared/trpc';
 import { ReturnEstimateBar } from './ReturnEstimateBar';
 
 type TASignal = 'bullish' | 'bearish' | 'neutral';
@@ -255,505 +253,254 @@ function SignalBadge({ action, label, tooltip }: { action: SignalAction; label: 
 }
 
 export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
-  const [showDetail, setShowDetail] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const o = opportunity;
-  const bd = o.breakdown;
-  const mainAction = o.action;
-  const mainAct = actionConfig[mainAction] ?? actionConfig['WATCH'];
+  const cfg = actionConfig[opportunity.action] ?? actionConfig['WATCH'];
+  const tl = opportunity.tradeLevels;
 
-  const utils = trpc.useUtils();
-  const addToWatchlist = trpc.opportunities.addToWatchlist.useMutation({
-    onSuccess: () => {
-      utils.opportunities.scan.invalidate();
-    },
-  });
+  const scoreColor =
+    opportunity.opportunityScore >= 65 ? 'text-green-400' :
+    opportunity.opportunityScore >= 45 ? 'text-yellow-400' :
+    'text-muted-foreground';
 
   return (
-    <Card size="sm" className={`border-l-4 ${mainAct.borderColor}`}>
-      <CardHeader>
-        {/* === HEADER: Símbolo + Señal general + Precio === */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-mono font-semibold">{o.symbol}</span>
-            <Badge className={`text-[11px] font-bold px-2 py-0.5 ${mainAct.bgClass} ${mainAct.textClass}`}>
-              {mainAct.emoji} {mainAct.label}
-            </Badge>
-            {o.inPortfolio && (
-              <Badge variant="default" className="text-[9px] h-4">
-                En portfolio{o.portfolioQuantity ? ` (${o.portfolioQuantity})` : ''}
-              </Badge>
-            )}
-            {o.action === 'BUY' && o.convictionTier === 'strong' && (
-              <Badge variant="outline" className="border-trading-green text-trading-green text-xs">
-                STRONG
-              </Badge>
-            )}
-            {o.action === 'BUY' && o.convictionTier === 'speculative' && (
-              <Badge variant="outline" className="border-yellow-500 text-yellow-500 text-xs">
-                SPECULATIVE
-              </Badge>
-            )}
-            {o.passedAntiHype && (
+    <Card className={`border-l-4 ${cfg.borderColor} transition-all`}>
+      <CardContent className="py-3 px-3 space-y-2">
+
+        {/* ── HERO ROW — always visible ── */}
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Symbol + price */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {opportunity.inPortfolio && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="outline" className="border-blue-500 text-blue-500 text-xs cursor-help">
-                    Verificado
-                  </Badge>
+                  <span className="text-[9px] font-bold text-blue-400 bg-blue-500/10 rounded px-1 cursor-help">P</span>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-xs text-xs">
-                  Pasó los filtros anti-hype (al menos 2 de 3): precio sobre SMA200, RSI sin sobrecompra extrema, y volumen sobre el promedio de 20 días.
-                </TooltipContent>
+                <TooltipContent>En tu portfolio ({opportunity.portfolioQuantity} unidades)</TooltipContent>
               </Tooltip>
             )}
-            {!o.inPortfolio && o.classification && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-5 text-[8px] px-1.5"
-                    onClick={() => addToWatchlist.mutate({ symbol: o.symbol })}
-                    disabled={addToWatchlist.isPending}
-                  >
-                    {addToWatchlist.isPending ? '...' : '+ Watchlist'}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Agregar {o.symbol} a tu watchlist permanente</TooltipContent>
-              </Tooltip>
-            )}
+            <span className="font-bold text-sm">{opportunity.symbol}</span>
+            <span className="text-xs text-muted-foreground font-mono">
+              ${opportunity.currentPrice.toFixed(2)}
+            </span>
           </div>
-          <span className="text-[11px] font-mono text-foreground">${o.currentPrice.toFixed(2)}</span>
-        </div>
-        <span className="text-[9px] text-muted-foreground">
-          {o.classification
-            ? `${o.classification.instrumentType === 'cedear' ? 'CEDEAR' : o.classification.instrumentType === 'etf' ? 'ETF' : o.classification.instrumentType === 'crypto' ? 'Crypto' : o.classification.instrumentType === 'bono' ? 'Bono' : o.classification.instrumentType === 'commodity' ? 'Commodity' : 'Acción'} · ${o.classification.sector}`
-            : o.sectorLabel}
-          {o.classification?.name && o.classification.name !== o.symbol && (
-            <span className="text-muted-foreground/50"> — {o.classification.name}</span>
-          )}
-        </span>
-        <div className="flex items-center gap-2">
-          {o.timestamp && (
-            <span className="text-xs text-muted-foreground">
-              {(() => {
-                const hours = Math.floor((Date.now() - o.timestamp) / (1000 * 60 * 60));
-                return hours < 1 ? 'Analizado hace menos de 1h'
-                  : hours < 24 ? `Analizado hace ${hours}h`
-                  : `Analizado hace ${Math.floor(hours / 24)}d`;
-              })()}
-            </span>
-          )}
-          {o.scoringMethod && (
-            <span className="text-xs text-muted-foreground">
-              {o.scoringMethod === 'hybrid' ? 'IA + Algo' : o.scoringMethod === 'algorithmic' ? 'Algoritmico' : o.scoringMethod}
-            </span>
-          )}
-        </div>
-      </CardHeader>
 
-      <CardContent className="space-y-3">
-        {/* === 3 SEÑALES SEPARADAS === */}
-        <div className="flex items-center justify-around py-1 rounded-md bg-muted/30">
-          <SignalBadge
-            action={o.technicalAction ?? o.action}
-            label="Tecnico"
-            tooltip="Basado en graficos: RSI, MACD, medias moviles, volumen, soportes y resistencias."
-          />
-          <div className="w-px h-8 bg-border/50" />
-          <SignalBadge
-            action={o.fundamentalAction ?? 'WATCH'}
-            label="Fundamental"
-            tooltip="Basado en la empresa: valuacion (P/E), ganancias, dividendos, posicion vs maximo/minimo del ano."
-          />
-          <div className="w-px h-8 bg-border/50" />
-          <SignalBadge
-            action={o.sentimentAction ?? 'WATCH'}
-            label="Noticias"
-            tooltip="Basado en noticias recientes: cantidad, tono positivo/negativo, y consenso entre fuentes."
-          />
-        </div>
-
-        {/* === NARRATIVA / RAZON === */}
-        <p className={`text-xs leading-relaxed ${o.narrativeDigest ? 'text-foreground' : 'text-foreground'}`}>
-          {o.narrativeDigest ?? o.simpleReasoning ?? o.reasoning}
-        </p>
-
-        {/* === CONFLICTOS DE SENALES === */}
-        {o.signalConflicts && o.signalConflicts.length > 0 && (
-          <div className="rounded-md bg-amber-500/10 border border-amber-500/20 p-2 space-y-1.5">
-            <span className="text-[9px] text-amber-400 uppercase tracking-wider font-medium">Senales en conflicto</span>
-            {o.signalConflicts.map((c, i) => (
-              <div key={i} className="space-y-0.5">
-                <div className="flex items-center gap-1.5">
-                  <Badge className="text-[8px] h-4 bg-green-500/20 text-green-400">{c.signalA}</Badge>
-                  <span className="text-[9px] text-amber-400">vs</span>
-                  <Badge className="text-[8px] h-4 bg-red-500/20 text-red-400">{c.signalB}</Badge>
-                  <Badge className={`text-[7px] h-3.5 ${
-                    c.implication === 'wait' ? 'bg-amber-500/20 text-amber-400'
-                      : c.implication === 'caution' ? 'bg-yellow-500/20 text-yellow-400'
-                      : 'bg-blue-500/20 text-blue-400'
-                  }`}>
-                    {c.implication === 'wait' ? 'ESPERAR' : c.implication === 'caution' ? 'PRECAUCION' : 'CONFIRMAR'}
-                  </Badge>
-                </div>
-                <p className="text-[9px] text-amber-300/80 leading-snug">{c.explanation}</p>
+          {/* Score */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-1 cursor-help shrink-0">
+                <span className="text-[9px] text-muted-foreground uppercase">Score</span>
+                <span className={`text-sm font-bold font-mono ${scoreColor}`}>
+                  {opportunity.opportunityScore}
+                </span>
               </div>
-            ))}
-          </div>
-        )}
+            </TooltipTrigger>
+            <TooltipContent>Score 0-100: combina técnico, fundamental y sentimiento.</TooltipContent>
+          </Tooltip>
 
-        {/* === CONFIANZA === */}
-        <ConfidenceBar percent={o.confidence} />
+          {/* Action badge */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded cursor-help shrink-0 ${cfg.bgClass} ${cfg.textClass}`}>
+                {cfg.emoji} {cfg.label}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{cfg.description}</TooltipContent>
+          </Tooltip>
 
-        {/* === RENDIMIENTOS SIMPLIFICADOS === */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider">Corto plazo</span>
-            <div className="flex items-baseline gap-1 mt-0.5">
-              <span className={`text-sm font-mono font-bold ${o.shortTerm.midPercent > 0 ? 'text-green-400' : o.shortTerm.midPercent < 0 ? 'text-red-400' : 'text-muted-foreground'}`}>
-                {o.shortTerm.midPercent > 0 ? '+' : ''}{o.shortTerm.midPercent}%
-              </span>
-              <span className="text-[9px] text-muted-foreground">estimado</span>
-            </div>
-            <span className="text-[9px] text-muted-foreground/60">
-              (entre {o.shortTerm.lowPercent > 0 ? '+' : ''}{o.shortTerm.lowPercent}% y {o.shortTerm.highPercent > 0 ? '+' : ''}{o.shortTerm.highPercent}%)
-            </span>
-          </div>
-          <div>
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider">Mediano plazo</span>
-            <div className="flex items-baseline gap-1 mt-0.5">
-              <span className={`text-sm font-mono font-bold ${o.mediumTerm.midPercent > 0 ? 'text-green-400' : o.mediumTerm.midPercent < 0 ? 'text-red-400' : 'text-muted-foreground'}`}>
-                {o.mediumTerm.midPercent > 0 ? '+' : ''}{o.mediumTerm.midPercent}%
-              </span>
-              <span className="text-[9px] text-muted-foreground">estimado</span>
-            </div>
-            <span className="text-[9px] text-muted-foreground/60">
-              (entre {o.mediumTerm.lowPercent > 0 ? '+' : ''}{o.mediumTerm.lowPercent}% y {o.mediumTerm.highPercent > 0 ? '+' : ''}{o.mediumTerm.highPercent}%)
-            </span>
-          </div>
+          {/* Confidence */}
+          <ConfidenceBar percent={opportunity.confidence} />
+
+          {/* Conviction tier */}
+          {opportunity.convictionTier && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded border cursor-help shrink-0 ${
+                  opportunity.convictionTier === 'strong' ? 'border-green-500/40 text-green-400' :
+                  opportunity.convictionTier === 'speculative' ? 'border-yellow-500/40 text-yellow-400' :
+                  'border-border text-muted-foreground'
+                }`}>
+                  {opportunity.convictionTier === 'strong' ? 'Alta convicción' :
+                   opportunity.convictionTier === 'speculative' ? 'Especulativo' : 'Estándar'}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {opportunity.convictionTier === 'strong' ? 'Múltiples señales confluyen fuertemente.' :
+                 opportunity.convictionTier === 'speculative' ? 'Señales débiles o contradictorias, mayor riesgo.' :
+                 'Señales moderadas, riesgo estándar.'}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
 
-        {/* === EXPANDABLE DETAILS === */}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setExpanded(!expanded)}
-          className="w-full text-xs text-muted-foreground h-7"
-        >
-          {expanded ? 'Ver menos' : 'Ver mas detalles'}
-        </Button>
-
-        {expanded && <>
-        {/* === TRADE LEVELS (entry / stop / target) === */}
-        {o.tradeLevels && (
-          <div className="rounded-md bg-muted/30 p-2 space-y-1.5">
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Niveles de operacion</span>
-            <div className="grid grid-cols-3 gap-2 text-center">
+        {/* ── TRADE LEVELS — always visible if present ── */}
+        {tl && (
+          <div className="flex items-center gap-3 flex-wrap text-xs font-mono border-t border-border pt-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-help">
+                  <span className="text-muted-foreground text-[9px] mr-1">Entry</span>
+                  <span className="text-foreground font-semibold">${tl.entryPrice.toFixed(2)}</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{tl.entryReason}</TooltipContent>
+            </Tooltip>
+            <span className="text-border">·</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-help">
+                  <span className="text-muted-foreground text-[9px] mr-1">Stop</span>
+                  <span className="text-trading-red font-semibold">${tl.stopLoss.toFixed(2)}</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{tl.stopReason}</TooltipContent>
+            </Tooltip>
+            <span className="text-border">·</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-help">
+                  <span className="text-muted-foreground text-[9px] mr-1">Target</span>
+                  <span className="text-trading-green font-semibold">${tl.takeProfit.toFixed(2)}</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{tl.targetReason}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-help text-muted-foreground">
+                  R/R <span className="text-foreground">{tl.riskRewardRatio.toFixed(1)}x</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Risk/Reward ratio. Mayor a 2x es favorable.</TooltipContent>
+            </Tooltip>
+            {tl.suggestedAmount && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="cursor-help">
-                    <span className="text-[8px] text-muted-foreground block">Entrada</span>
-                    <span className="text-[11px] font-mono font-semibold text-blue-400">${o.tradeLevels.entryPrice.toFixed(2)}</span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">{o.tradeLevels.entryReason}</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="cursor-help">
-                    <span className="text-[8px] text-muted-foreground block">Stop Loss</span>
-                    <span className="text-[11px] font-mono font-semibold text-red-400">${o.tradeLevels.stopLoss.toFixed(2)}</span>
-                    <span className="text-[8px] text-red-400/60 block">
-                      ({(((o.tradeLevels.stopLoss - o.tradeLevels.entryPrice) / o.tradeLevels.entryPrice) * 100).toFixed(1)}%)
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">{o.tradeLevels.stopReason}</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="cursor-help">
-                    <span className="text-[8px] text-muted-foreground block">Take Profit</span>
-                    <span className="text-[11px] font-mono font-semibold text-green-400">${o.tradeLevels.takeProfit.toFixed(2)}</span>
-                    <span className="text-[8px] text-green-400/60 block">
-                      ({(((o.tradeLevels.takeProfit - o.tradeLevels.entryPrice) / o.tradeLevels.entryPrice) * 100).toFixed(1)}%)
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">{o.tradeLevels.targetReason}</TooltipContent>
-              </Tooltip>
-            </div>
-            <div className="flex items-center justify-center gap-2">
-              <span className="text-[8px] text-muted-foreground">R/B:</span>
-              <span className={`text-[9px] font-mono font-semibold ${o.tradeLevels.riskRewardRatio >= 2 ? 'text-green-400' : o.tradeLevels.riskRewardRatio >= 1 ? 'text-yellow-400' : 'text-red-400'}`}>
-                1:{o.tradeLevels.riskRewardRatio.toFixed(1)}
-              </span>
-              {o.tradeLevels.suggestedQuantity && o.tradeLevels.suggestedQuantity > 0 && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="text-[9px] font-mono text-blue-400 cursor-help">
-                      {o.tradeLevels.suggestedQuantity} acc. (~${o.tradeLevels.suggestedAmount?.toLocaleString()})
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">{o.tradeLevels.sizingReason}</TooltipContent>
-                </Tooltip>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* === DIVERGENCES (highlighted separately from timing) === */}
-        {o.divergences && o.divergences.length > 0 && (
-          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 space-y-1">
-            <span className="text-[9px] text-amber-400 uppercase tracking-wider font-medium">
-              Divergencias detectadas
-            </span>
-            {o.divergences.map((d, i) => (
-              <div key={i} className="flex items-start gap-1.5">
-                <span className={`text-[9px] font-mono font-bold mt-0.5 ${d.type === 'bullish' ? 'text-green-400' : 'text-red-400'}`}>
-                  {d.type === 'bullish' ? '+' : '-'}
-                </span>
-                <div className="flex-1">
-                  <span className="text-[10px] text-foreground leading-tight">{d.description}</span>
-                  <div className="flex gap-1 mt-0.5">
-                    <Badge className={`text-[7px] h-3 ${d.timeframe === 'weekly' ? 'bg-blue-500/20 text-blue-400' : 'bg-muted text-muted-foreground'}`}>
-                      {d.timeframe === 'weekly' ? 'Semanal' : 'Diario'}
-                    </Badge>
-                    <Badge className={`text-[7px] h-3 ${d.indicator === 'rsi' ? 'bg-purple-500/20 text-purple-400' : d.indicator === 'macd' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-muted text-muted-foreground'}`}>
-                      {d.indicator.toUpperCase()}
-                    </Badge>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* === WEEKLY ANALYSIS (compact) === */}
-        {o.weekly && (
-          <div className="rounded-md bg-muted/30 p-2 space-y-1">
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Analisis semanal</span>
-            <div className="flex items-center gap-3 text-[10px]">
-              <span className={`font-medium ${o.weekly.trend === 'up' ? 'text-green-400' : o.weekly.trend === 'down' ? 'text-red-400' : 'text-muted-foreground'}`}>
-                Tendencia: {o.weekly.trend === 'up' ? 'Alcista' : o.weekly.trend === 'down' ? 'Bajista' : 'Lateral'}
-              </span>
-              {o.weekly.rsi14 != null && (
-                <span className={`font-mono ${o.weekly.rsi14 < 30 ? 'text-green-400' : o.weekly.rsi14 > 70 ? 'text-red-400' : 'text-muted-foreground'}`}>
-                  RSI: {o.weekly.rsi14.toFixed(0)}
-                </span>
-              )}
-              {o.weekly.macd && (
-                <span className={`font-mono ${o.weekly.macd.histogram > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  MACD: {o.weekly.macd.histogram > 0 ? '+' : ''}{o.weekly.macd.histogram.toFixed(2)}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* === TIMING TRIGGERS === */}
-        {o.timingView && o.timingView.triggers.length > 0 && (
-          <div className="rounded-md bg-muted/30 p-2 space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Timing</span>
-              <Badge className={`text-[8px] h-4 ${
-                o.timingView.timing === 'now' ? 'bg-green-500/20 text-green-400'
-                  : o.timingView.timing === 'soon' ? 'bg-yellow-500/20 text-yellow-400'
-                  : 'bg-blue-500/20 text-blue-400'
-              }`}>
-                {o.timingView.timing === 'now' ? 'Ahora' : o.timingView.timing === 'soon' ? 'Pronto' : 'Acercandose'}
-              </Badge>
-            </div>
-            <div className="space-y-1">
-              {o.timingView.triggers.slice(0, 3).map((t, i) => (
-                <div key={i} className="flex items-start gap-1.5">
-                  <span className={`text-[8px] mt-0.5 ${t.impact === 'high' ? 'text-yellow-400' : 'text-muted-foreground/60'}`}>
-                    {t.impact === 'high' ? '!' : '-'}
+                  <span className="cursor-help text-muted-foreground">
+                    Tamaño <span className="text-foreground">${tl.suggestedAmount.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
                   </span>
-                  <span className="text-[10px] text-muted-foreground leading-tight">
-                    {t.description}
-                    {t.estimatedDays != null && (
-                      <span className="text-[9px] text-blue-400 ml-1">(~{t.estimatedDays}d)</span>
-                    )}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* === ACTION CONDITION (hasta cuándo, qué esperar) === */}
-        {o.actionCondition && (
-          <div className="rounded-md bg-muted/30 p-2 space-y-1">
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Condiciones</span>
-            <p className="text-[10px] text-foreground">{o.actionCondition.holdUntil}</p>
-            {o.actionCondition.reEvaluateReason && (
-              <p className="text-[10px] text-blue-400">{o.actionCondition.reEvaluateReason}</p>
-            )}
-            <p className="text-[10px] text-red-400">{o.actionCondition.exitReason}</p>
-            {o.actionCondition.estimatedDays != null && (
-              <span className="text-[9px] text-muted-foreground">Estimado: ~{o.actionCondition.estimatedDays} dias</span>
+                </TooltipTrigger>
+                <TooltipContent>{tl.sizingReason ?? 'Tamaño sugerido de posición'}</TooltipContent>
+              </Tooltip>
             )}
           </div>
         )}
 
-        {/* === A FAVOR / EN CONTRA (simple) === */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-0.5">
-            <span className="text-[9px] text-green-500 uppercase tracking-wider font-medium">A favor</span>
-            {o.catalysts.map((c, i) => (
-              <p key={i} className="text-[10px] text-muted-foreground">{c}</p>
-            ))}
-          </div>
-          <div className="space-y-0.5">
-            <span className="text-[9px] text-red-500 uppercase tracking-wider font-medium">En contra</span>
-            {o.risks.map((r, i) => (
-              <p key={i} className="text-[10px] text-muted-foreground">{r}</p>
-            ))}
-          </div>
-        </div>
-
-        {/* === DETALLE TECNICO (colapsado) === */}
-        {/* === DEEP ANALYSIS (expandible) === */}
-        {o.deepAnalysis && (
-          <div className="space-y-2 border-t border-border/50 pt-2">
-            <div className="grid grid-cols-2 gap-2">
-              {/* Lo bueno */}
-              <div className="rounded-md bg-green-500/5 border border-green-500/20 p-2">
-                <span className="text-[8px] text-green-400 uppercase tracking-wider font-medium">Lo bueno</span>
-                <div className="space-y-0.5 mt-1">
-                  {o.deepAnalysis.positives.map((p, i) => (
-                    <p key={i} className="text-[9px] text-foreground leading-snug">- {p}</p>
-                  ))}
-                </div>
+        {/* ── RETURN ESTIMATES ── */}
+        {(opportunity.shortTerm || opportunity.mediumTerm) && (
+          <div className="flex items-center gap-4">
+            {opportunity.shortTerm && (
+              <div className="flex-1">
+                <ReturnEstimateBar estimate={opportunity.shortTerm} label="Corto plazo" />
               </div>
-              {/* Lo preocupante */}
-              <div className="rounded-md bg-red-500/5 border border-red-500/20 p-2">
-                <span className="text-[8px] text-red-400 uppercase tracking-wider font-medium">Lo preocupante</span>
-                <div className="space-y-0.5 mt-1">
-                  {o.deepAnalysis.concerns.map((c, i) => (
-                    <p key={i} className="text-[9px] text-foreground leading-snug">- {c}</p>
-                  ))}
-                </div>
+            )}
+            {opportunity.mediumTerm && (
+              <div className="flex-1">
+                <ReturnEstimateBar estimate={opportunity.mediumTerm} label="Mediano plazo" />
               </div>
-            </div>
-            {/* Recomendación */}
-            <div className="rounded-md bg-blue-500/5 border border-blue-500/20 p-2">
-              <span className="text-[8px] text-blue-400 uppercase tracking-wider font-medium">Recomendacion</span>
-              <p className="text-[10px] text-foreground leading-relaxed mt-0.5">{o.deepAnalysis.recommendation}</p>
-            </div>
-            {/* Lo que haría / no haría */}
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <span className="text-[8px] text-green-400 uppercase tracking-wider font-medium">Lo que haria</span>
-                {o.deepAnalysis.wouldDo.map((w, i) => (
-                  <p key={i} className="text-[9px] text-muted-foreground mt-0.5">- {w}</p>
-                ))}
-              </div>
-              <div>
-                <span className="text-[8px] text-red-400 uppercase tracking-wider font-medium">Lo que NO haria</span>
-                {o.deepAnalysis.wouldNotDo.map((w, i) => (
-                  <p key={i} className="text-[9px] text-muted-foreground mt-0.5">- {w}</p>
-                ))}
-              </div>
-            </div>
-            <span className="text-[7px] text-muted-foreground/40">Generado por {o.deepAnalysis.generatedBy}</span>
+            )}
           </div>
         )}
 
-        {/* === DETALLE TECNICO (colapsado) === */}
+        {/* ── REASONING ── */}
+        {(opportunity.simpleReasoning ?? opportunity.reasoning) && (
+          <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
+            {opportunity.simpleReasoning ?? opportunity.reasoning}
+          </p>
+        )}
+
+        {/* ── EXPAND TOGGLE ── */}
         <button
-          className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-          onClick={() => setShowDetail(!showDetail)}
+          onClick={() => setExpanded(!expanded)}
+          className="text-[10px] text-muted-foreground hover:text-foreground transition-colors border-t border-border pt-2 w-full text-left"
         >
-          {showDetail ? '- Ocultar detalle tecnico' : '+ Ver detalle tecnico'}
+          {expanded ? '▲ Menos detalle' : '▼ Más detalle — catalizadores, riesgos, breakdown TA/FA'}
         </button>
 
-        {showDetail && (
-          <div className="space-y-2 border-t border-border/50 pt-2 text-[9px]">
-            {/* Score general */}
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span>Score general: {o.opportunityScore}/100</span>
-              {o.confluenceDetail && (
-                <span>Confluencia: {o.confluenceDetail.confluencePercent}% ({o.confluenceDetail.direction === 'bullish' ? 'alcista' : o.confluenceDetail.direction === 'bearish' ? 'bajista' : 'mixta'})</span>
-              )}
-            </div>
-
-            {/* Technical */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground uppercase tracking-wider">Tecnico</span>
-                <Badge variant="outline" className="text-[8px] h-3.5">{taSignalLabel[bd.technical.signal]}</Badge>
-              </div>
-              <ScoreBar score={bd.technical.score} tooltip={`Score tecnico: ${bd.technical.score > 0 ? '+' : ''}${bd.technical.score}/100`} />
-              <div className="flex flex-wrap gap-1">
-                {bd.technical.keyFactors.map((f, i) => (
-                  <span key={i} className="text-muted-foreground">{f}{i < bd.technical.keyFactors.length - 1 ? ' · ' : ''}</span>
+        {/* ── EXPANDED DETAIL ── */}
+        {expanded && (
+          <div className="space-y-3">
+            {/* Breakdown */}
+            {opportunity.breakdown && (
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: 'Técnico', data: opportunity.breakdown.technical, sig: taSignalLabel[opportunity.breakdown.technical.signal] },
+                  { label: 'Fundamental', data: opportunity.breakdown.fundamental, sig: faSignalLabel[opportunity.breakdown.fundamental.signal] },
+                  { label: 'Sentimiento', data: opportunity.breakdown.sentiment, sig: sentimentLabel[opportunity.breakdown.sentiment.signal] },
+                ].map(({ label, data, sig }) => (
+                  <div key={label} className="space-y-1">
+                    <p className="text-[9px] text-muted-foreground uppercase tracking-wider">{label}</p>
+                    <p className="text-[10px] font-medium">{sig}</p>
+                    <ScoreBar score={data.score} tooltip={`${label}: ${data.keyFactors.join(', ')}`} />
+                    <ul className="space-y-0.5">
+                      {data.keyFactors.slice(0, 2).map((f, i) => (
+                        <li key={i} className="text-[9px] text-muted-foreground truncate">{f}</li>
+                      ))}
+                    </ul>
+                  </div>
                 ))}
-              </div>
-            </div>
-
-            {/* Fundamental */}
-            {!(bd.fundamental.keyFactors.length === 1 && bd.fundamental.keyFactors[0].includes('crypto')) && (
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground uppercase tracking-wider">Fundamental</span>
-                  <Badge variant="outline" className="text-[8px] h-3.5">{faSignalLabel[bd.fundamental.signal]}</Badge>
-                </div>
-                <ScoreBar score={bd.fundamental.score} tooltip={`Score fundamental: ${bd.fundamental.score > 0 ? '+' : ''}${bd.fundamental.score}/100`} />
-                <div className="flex flex-wrap gap-1">
-                  {bd.fundamental.keyFactors.map((f, i) => (
-                    <span key={i} className="text-muted-foreground">{f}{i < bd.fundamental.keyFactors.length - 1 ? ' · ' : ''}</span>
-                  ))}
-                </div>
               </div>
             )}
 
-            {/* Sentiment */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground uppercase tracking-wider">Sentimiento</span>
-                <Badge variant="outline" className="text-[8px] h-3.5">{sentimentLabel[bd.sentiment.signal]}</Badge>
+            {/* Catalysts & Risks */}
+            {(opportunity.catalysts?.length || opportunity.risks?.length) ? (
+              <div className="grid grid-cols-2 gap-2">
+                {opportunity.catalysts?.length ? (
+                  <div>
+                    <p className="text-[9px] text-muted-foreground uppercase mb-1">Catalizadores</p>
+                    <ul className="space-y-0.5">
+                      {opportunity.catalysts.slice(0, 3).map((c, i) => (
+                        <li key={i} className="text-[9px] text-green-400">↑ {c}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+                {opportunity.risks?.length ? (
+                  <div>
+                    <p className="text-[9px] text-muted-foreground uppercase mb-1">Riesgos</p>
+                    <ul className="space-y-0.5">
+                      {opportunity.risks.slice(0, 3).map((r, i) => (
+                        <li key={i} className="text-[9px] text-red-400">↓ {r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
-              <ScoreBar score={bd.sentiment.score} tooltip={`Score sentimiento: ${bd.sentiment.score > 0 ? '+' : ''}${bd.sentiment.score}/100`} />
-              <div className="space-y-0.5">
-                {bd.sentiment.keyFactors.slice(0, 2).map((f, i) => (
-                  <p key={i} className="text-muted-foreground truncate">{f}</p>
-                ))}
-              </div>
-            </div>
+            ) : null}
 
-            {/* Confluence detail */}
-            {o.confluenceDetail && (
-              <div className="space-y-1 border-t border-border/30 pt-1.5">
-                <span className="text-muted-foreground uppercase tracking-wider">Senales de confluencia</span>
-                <div className="grid grid-cols-2 gap-2">
-                  {o.confluenceDetail.bullishSignals.length > 0 && (
-                    <div className="space-y-0.5">
-                      <span className="text-[8px] text-green-500 font-medium">A favor ({o.confluenceDetail.bullishSignals.length})</span>
-                      {o.confluenceDetail.bullishSignals.map((s, i) => (
-                        <p key={i} className="text-muted-foreground">{s}</p>
+            {/* Deep analysis */}
+            {opportunity.deepAnalysis && (
+              <div className="space-y-2 border-t border-border pt-2">
+                <p className="text-[9px] text-muted-foreground uppercase font-semibold">Deep Analysis IA</p>
+                {opportunity.deepAnalysis.positives?.length ? (
+                  <div>
+                    <p className="text-[9px] text-green-400 font-medium mb-0.5">Lo bueno</p>
+                    <ul className="space-y-0.5">
+                      {opportunity.deepAnalysis.positives.map((p, i) => (
+                        <li key={i} className="text-[10px] text-muted-foreground">· {p}</li>
                       ))}
-                    </div>
-                  )}
-                  {o.confluenceDetail.bearishSignals.length > 0 && (
-                    <div className="space-y-0.5">
-                      <span className="text-[8px] text-red-500 font-medium">En contra ({o.confluenceDetail.bearishSignals.length})</span>
-                      {o.confluenceDetail.bearishSignals.map((s, i) => (
-                        <p key={i} className="text-muted-foreground">{s}</p>
+                    </ul>
+                  </div>
+                ) : null}
+                {opportunity.deepAnalysis.concerns?.length ? (
+                  <div>
+                    <p className="text-[9px] text-red-400 font-medium mb-0.5">Lo preocupante</p>
+                    <ul className="space-y-0.5">
+                      {opportunity.deepAnalysis.concerns.map((c, i) => (
+                        <li key={i} className="text-[10px] text-muted-foreground">· {c}</li>
                       ))}
-                    </div>
-                  )}
-                </div>
+                    </ul>
+                  </div>
+                ) : null}
+                {opportunity.deepAnalysis.recommendation && (
+                  <div>
+                    <p className="text-[9px] text-blue-400 font-medium mb-0.5">Recomendación</p>
+                    <p className="text-[10px] text-muted-foreground">{opportunity.deepAnalysis.recommendation}</p>
+                  </div>
+                )}
               </div>
             )}
-
-            {/* Reasoning técnico original */}
-            <p className="text-muted-foreground/60 italic pt-1">{o.reasoning}</p>
           </div>
         )}
-        </>}
       </CardContent>
     </Card>
   );
