@@ -107,6 +107,7 @@ export interface Opportunity {
   weekly?: import('./technical.js').WeeklyAnalysis;
   deepAnalysis?: DeepAnalysis;
   convictionTier?: ConvictionTier;
+  unifiedAnalysis?: UnifiedAssetAnalysis;
 }
 
 export type ConvictionTier = 'strong' | 'standard' | 'speculative';
@@ -118,6 +119,18 @@ export interface DeepAnalysis {
   wouldDo: string[];
   wouldNotDo: string[];
   generatedBy: 'deepseek' | 'groq' | 'qwen' | 'algorithmic';
+}
+
+export interface UnifiedAssetAnalysis {
+  action: 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
+  thesis: string;                // 2-3 oraciones con datos concretos
+  catalysts: string[];           // 2-3 items
+  risks: string[];               // 1-2 items
+  wouldDo: string[];             // 1-2 acciones con precio
+  wouldNotDo: string[];          // 1 acción a evitar
+  narrative: string;             // 2-3 oraciones para UI (reemplaza narrativeDigest)
+  macroTheme: string | null;     // tema macro asignado (ej: "Semiconductores / IA")
+  generatedBy: 'deepseek' | 'groq' | 'qwen';
 }
 
 export interface SectorSummary {
