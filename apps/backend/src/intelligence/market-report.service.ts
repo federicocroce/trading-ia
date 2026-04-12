@@ -1,16 +1,42 @@
 import type { MarketReport, MarketReportRecommendation, FundamentalData } from '@trading/shared';
 import { MARKET_REPORT_PROMPT } from '@trading/shared';
 import { callAI } from '../shared/ai-router.js';
-import { getNewsArticlesSince } from '../db/repository.js';
+import {
+  getNewsArticlesSince,
+  getNewsArticlesForToday,
+  getActiveMarketThemes,
+  getSectorImpactsForToday,
+  getOpportunitySnapshotsForLatestScan,
+  getSymbolsByType,
+  getFundamentalFromCache,
+  upsertFundamentalCache,
+} from '../db/repository.js';
 import { getPortfolioPositions, getActiveSymbolList } from '../db/repository.js';
 import { getQuotes, getFundamentals } from '../shared/yahoo.js';
 import { registerNovelTickers } from '../discovery/discovery-registry.js';
 import { classifyAsset } from '../discovery/asset-classifier.js';
-
-let cachedReport: MarketReport | null = null;
+import {
+  getTodayMarketReport,
+  getLatestMarketReport,
+  saveMarketReport,
+} from './pipeline.repository.js';
 
 export function getCachedMarketReport(): MarketReport | null {
-  return cachedReport;
+  const row = getTodayMarketReport();
+  if (!row) return null;
+  return {
+    generatedAt: row.generatedAt ? new Date(row.generatedAt).getTime() : Date.now(),
+    macroContext: row.macroContext ?? '',
+    portfolioImpact: row.portfolioImpact ?? '',
+    themes: (row.themes as MarketReport['themes']) ?? [],
+    topRecommendations: (row.topRecommendations as MarketReport['topRecommendations']) ?? [],
+    alternatives: (row.alternatives as MarketReport['alternatives']) ?? [],
+    scenarios: (row.scenarios as MarketReport['scenarios']) ?? [],
+    avoidList: (row.avoidList as string[]) ?? [],
+    engine: row.engine ?? 'groq-pipeline-thematic',
+    status: (row.status as MarketReport['status']) ?? 'ok',
+    errors: (row.errors as string[]) ?? [],
+  };
 }
 
 // ============================================================
@@ -30,8 +56,8 @@ const THEMATIC_QUERIES = [
   { theme: 'M&A y earnings', query: 'merger acquisition earnings report revenue guidance IPO' },
 ];
 
-async function fetchThematicNews(): Promise<Array<{ theme: string; headlines: string[] }>> {
-  console.log('[MarketReport] Pasada 0: Buscando noticias por temática...');
+async function fetchThematicNewsFromAPI(): Promise<Array<{ theme: string; headlines: string[] }>> {
+  console.log('[MarketReport] Pasada 0 (API fallback): Buscando noticias por temática...');
   const newsapiKey = process.env.NEWSAPI_API_KEY;
   const results: Array<{ theme: string; headlines: string[] }> = [];
 
@@ -70,8 +96,56 @@ async function fetchThematicNews(): Promise<Array<{ theme: string; headlines: st
   }
 
   const total = results.reduce((sum, r) => sum + r.headlines.length, 0);
-  console.log(`[MarketReport] Pasada 0: ${total} noticias en ${results.length} tematicas`);
+  console.log(`[MarketReport] Pasada 0 (API): ${total} noticias en ${results.length} tematicas`);
   return results;
+}
+
+/**
+ * Pasada 0: Build news context from DB first, fall back to NewsAPI if insufficient.
+ */
+async function getNewsContext(): Promise<{ dbHeadlines: string[]; thematicContext: Array<{ theme: string; headlines: string[] }> }> {
+  console.log('[MarketReport] Pasada 0: Construyendo contexto de noticias desde DB...');
+
+  // Read today's articles from DB (medium or high impact)
+  const todayArticles = getNewsArticlesForToday('medium');
+  const dbHeadlines = todayArticles
+    .map(a => `- ${a.title} [${(a as any).sentiment ?? '?'}] (${(a as any).source ?? ''})`)
+    .slice(0, 30);
+
+  console.log(`[MarketReport] Pasada 0: ${dbHeadlines.length} artículos de DB`);
+
+  // Get active market themes from DB for keyword-based classification
+  const activeThemes = getActiveMarketThemes();
+  const thematicContext: Array<{ theme: string; headlines: string[] }> = [];
+
+  if (dbHeadlines.length >= 10 && activeThemes.length > 0) {
+    // Classify DB articles by theme using keyword matching
+    for (const dbTheme of activeThemes) {
+      const keywords: string[] = (dbTheme as any).keywords
+        ? ((dbTheme as any).keywords as string).toLowerCase().split(',').map((k: string) => k.trim()).filter(Boolean)
+        : [(dbTheme.name ?? '').toLowerCase()];
+
+      const matchingHeadlines = todayArticles
+        .filter(a => {
+          const text = `${a.title} ${(a as any).summary ?? ''}`.toLowerCase();
+          return keywords.some(kw => kw && text.includes(kw));
+        })
+        .map(a => a.title)
+        .slice(0, 5);
+
+      if (matchingHeadlines.length > 0) {
+        thematicContext.push({ theme: dbTheme.name, headlines: matchingHeadlines });
+      }
+    }
+    console.log(`[MarketReport] Pasada 0 (DB): clasificados en ${thematicContext.length} temas`);
+  } else {
+    // Fall back to NewsAPI if fewer than 10 articles in DB
+    console.log(`[MarketReport] Pasada 0: DB insuficiente (${dbHeadlines.length} arts), usando NewsAPI fallback`);
+    const apiResults = await fetchThematicNewsFromAPI();
+    thematicContext.push(...apiResults);
+  }
+
+  return { dbHeadlines, thematicContext };
 }
 
 // ============================================================
@@ -100,13 +174,37 @@ async function identifyActiveThemes(
     allContext.push(...dbHeadlines.slice(0, 15));
   }
 
-  // Thematic news (new searches)
+  // Thematic news (new searches or DB-classified)
   for (const { theme, headlines } of thematicNews) {
     if (headlines.length > 0) {
       allContext.push(`\nTEMA "${theme}":`);
       allContext.push(...headlines.map(h => `- ${h}`));
     }
   }
+
+  // Enrich with sector impacts from DB
+  const sectorImpacts = getSectorImpactsForToday();
+  if (sectorImpacts.length > 0) {
+    allContext.push('\nIMPACTOS SECTORIALES IDENTIFICADOS HOY:');
+    for (const si of sectorImpacts) {
+      allContext.push(`- ${si.sector} [${si.impact}]: ${si.event} (confianza: ${si.confidence})`);
+    }
+  }
+
+  // Enrich with opportunity snapshots from DB
+  const snapshots = getOpportunitySnapshotsForLatestScan();
+  if (snapshots.length > 0) {
+    const topSnapshots = snapshots
+      .sort((a, b) => ((b as any).score ?? 0) - ((a as any).score ?? 0))
+      .slice(0, 10);
+    allContext.push('\nOPORTUNIDADES DETECTADAS (último scan):');
+    for (const snap of topSnapshots) {
+      allContext.push(`- ${snap.symbol}: score ${(snap as any).score ?? 'N/A'}, sector ${(snap as any).sector ?? 'N/A'}`);
+    }
+  }
+
+  // Build CEDEAR/ADR list from DB
+  const adrSymbols = getSymbolsByType('adr').map(s => s.symbol).join(', ');
 
   const prompt = `Sos un analista de mercado. Te doy noticias agrupadas por tematica. Tu trabajo:
 
@@ -122,7 +220,7 @@ REGLAS:
 - NO incluyas tematicas sin impacto en inversiones
 - Se especifico: no "tecnologia" sino "semiconductores por restricciones a China" o "AI por earnings de NVDA"
 - Incluye tematicas positivas Y negativas
-- CEDEARs disponibles en Argentina: LMT, RTX, NOC, NVDA, TSM, AAPL, MSFT, GOOGL, AMZN, META, TSLA, XOM, CVX, MELI, NU, BABA, CRWD, PLTR, INTC, AMD, NFLX, DIS, KO, PG, JNJ, PFE, BA, GE, CAT, GOLD, NEM, etc.
+- CEDEARs/ADRs disponibles en Argentina: ${adrSymbols || 'LMT, RTX, NOC, NVDA, TSM, AAPL, MSFT, GOOGL, AMZN, META, TSLA, XOM, CVX, MELI, NU, CRWD, PLTR, INTC, AMD'}
 
 Responde SOLO con JSON:
 {"themes":[{"theme":"...","relevance":"high","summary":"...","sectors":["..."],"suggestedTickers":["LMT","RTX"]}]}`;
@@ -212,11 +310,47 @@ async function enrichWithRealData(tickers: string[]): Promise<Map<string, { pric
 
   const quotes = await getQuotes(tickers);
 
-  for (let i = 0; i < tickers.length; i += 5) {
-    const batch = tickers.slice(i, i + 5);
+  // Separate tickers with cached fundamentals from those needing a Yahoo Finance fetch
+  const tickersNeedingFetch: string[] = [];
+  const cachedFundamentals = new Map<string, FundamentalData>();
+
+  for (const symbol of tickers) {
+    const cached = getFundamentalFromCache(symbol);
+    if (cached) {
+      try {
+        cachedFundamentals.set(symbol, JSON.parse(cached) as FundamentalData);
+      } catch {
+        tickersNeedingFetch.push(symbol);
+      }
+    } else {
+      tickersNeedingFetch.push(symbol);
+    }
+  }
+
+  if (tickersNeedingFetch.length > 0) {
+    console.log(`[MarketReport] Pasada 3: ${tickersNeedingFetch.length} tickers sin cache — fetching Yahoo Finance`);
+  } else {
+    console.log(`[MarketReport] Pasada 3: todos los fundamentales en cache`);
+  }
+
+  // Populate cached tickers first
+  for (const [symbol, fund] of cachedFundamentals) {
+    const classification = await classifyAsset(symbol).catch(() => null);
+    const quote = quotes.find(q => q.symbol === symbol);
+    const price = quote?.current ?? fund.currentPrice ?? 0;
+    if (price > 0) {
+      enriched.set(symbol, { price, fundamentals: fund, name: classification?.name ?? symbol });
+    }
+  }
+
+  // Fetch remaining from Yahoo Finance (batch 5 at a time)
+  for (let i = 0; i < tickersNeedingFetch.length; i += 5) {
+    const batch = tickersNeedingFetch.slice(i, i + 5);
     const results = await Promise.allSettled(batch.map(async (symbol) => {
       const fund = await getFundamentals(symbol);
-      const classification = await classifyAsset(symbol);
+      // Persist to cache for future runs
+      upsertFundamentalCache(symbol, JSON.stringify(fund));
+      const classification = await classifyAsset(symbol).catch(() => null);
       const quote = quotes.find(q => q.symbol === symbol);
       return {
         symbol,
@@ -367,11 +501,6 @@ export async function generateMarketReport(): Promise<MarketReport> {
   console.log('[MarketReport] Starting thematic pipeline...');
   const startTime = Date.now();
 
-  // Gather existing news from DB
-  const since = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-  const newsRows = getNewsArticlesSince(since);
-  const dbHeadlines = newsRows.map(n => `- ${n.title} [${n.sentiment ?? '?'}] (${n.source})`).slice(0, 20);
-
   // Gather portfolio
   const positions = getPortfolioPositions();
   const symbols = getActiveSymbolList();
@@ -389,11 +518,11 @@ export async function generateMarketReport(): Promise<MarketReport> {
     }),
   ].join('\n');
 
-  // === PASADA 0: Búsqueda temática de noticias ===
-  const thematicNews = await fetchThematicNews();
+  // === PASADA 0: Construir contexto de noticias (DB-first, fallback a NewsAPI) ===
+  const { dbHeadlines, thematicContext } = await getNewsContext();
 
   // === PASADA 1: Identificar temáticas activas ===
-  const themes = await identifyActiveThemes(dbHeadlines, thematicNews);
+  const themes = await identifyActiveThemes(dbHeadlines, thematicContext);
   console.log(`[MarketReport] ${themes.length} tematicas identificadas: ${themes.map(t => `${t.theme} (${t.relevance})`).join(', ')}`);
 
   if (themes.length === 0) {
@@ -436,9 +565,22 @@ export async function generateMarketReport(): Promise<MarketReport> {
     }
   } catch { /* non-critical */ }
 
-  cachedReport = report;
+  // Persist report to DB (replaces in-memory cachedReport)
+  const savedReport = saveMarketReport({
+    status: report.status ?? 'ok',
+    macroContext: report.macroContext,
+    portfolioImpact: report.portfolioImpact,
+    themes: report.themes,
+    topRecommendations: report.topRecommendations,
+    alternatives: report.alternatives,
+    scenarios: report.scenarios,
+    avoidList: report.avoidList,
+    engine: report.engine,
+    errors: report.errors ?? [],
+  });
+
   const elapsed = Math.round((Date.now() - startTime) / 1000);
-  console.log(`[MarketReport] Pipeline completo en ${elapsed}s: ${report.topRecommendations.length} recs, ${report.alternatives.length} alts, ${report.scenarios.length} scenarios, ${themes.length} tematicas`);
+  console.log(`[MarketReport] Pipeline completo en ${elapsed}s: ${report.topRecommendations.length} recs, ${report.alternatives.length} alts, ${report.scenarios.length} scenarios, ${themes.length} tematicas (report id: ${savedReport.id})`);
 
   return report;
 }
