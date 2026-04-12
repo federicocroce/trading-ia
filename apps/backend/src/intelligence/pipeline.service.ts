@@ -9,8 +9,8 @@ import {
   getPipelineHistory,
 } from './pipeline.repository.js';
 import { generateMarketReport } from './market-report.service.js';
-import { getNewsArticlesForToday, getTodayOpportunityScan } from '../db/repository.js';
-import { refreshNewsProcess, runAnalysis } from '../opportunities/opportunities.service.js';
+import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAge } from '../db/repository.js';
+import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess } from '../opportunities/opportunities.service.js';
 import type { PipelineRun, StageResult } from '@trading/shared';
 
 export function initPipeline() {
@@ -37,6 +37,16 @@ function isAnalysisStageValid(): boolean {
   const run = getPipelineRunByDate(today);
   if (!run) return false;
   return run.stages.analysis.status === 'ok' || run.stages.analysis.status === 'partial';
+}
+
+function getFundamentalsDaysOld(): number {
+  try {
+    const age = getFundamentalCacheAge?.();
+    if (!age) return 999;
+    return (Date.now() - new Date(age).getTime()) / (1000 * 60 * 60 * 24);
+  } catch {
+    return 999; // treat as stale if unknown
+  }
 }
 
 async function runNewsStage(runId: number): Promise<StageResult> {
@@ -81,11 +91,53 @@ async function runNewsStage(runId: number): Promise<StageResult> {
   }
 }
 
+async function runFundamentalsStage(runId: number): Promise<StageResult> {
+  const startedAt = new Date().toISOString();
+  const daysOld = getFundamentalsDaysOld();
+
+  if (daysOld < 7) {
+    const sr: StageResult = {
+      status: 'skipped',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      detail: `Cache válido (${daysOld.toFixed(1)} días). Próxima actualización en ${(7 - daysOld).toFixed(1)} días.`,
+      errors: [],
+    };
+    updatePipelineStage(runId, 'fundamentals', sr);
+    return sr;
+  }
+
+  updatePipelineStage(runId, 'fundamentals', { status: 'running', startedAt, detail: '', errors: [] });
+  try {
+    const result = await refreshFundamentalsProcess();
+    const sr: StageResult = {
+      status: 'ok',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      detail: `${result.refreshed} fundamentales actualizados.`,
+      errors: [],
+    };
+    updatePipelineStage(runId, 'fundamentals', sr);
+    return sr;
+  } catch (err) {
+    const sr: StageResult = {
+      status: 'failed',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      detail: 'Error actualizando fundamentales.',
+      errors: [],
+      criticalError: (err as Error).message.slice(0, 200),
+    };
+    updatePipelineStage(runId, 'fundamentals', sr);
+    return sr;
+  }
+}
+
 async function runAnalysisStage(runId: number): Promise<StageResult> {
   const startedAt = new Date().toISOString();
   updatePipelineStage(runId, 'analysis', { status: 'running', startedAt });
   try {
-    const result = await runAnalysis();
+    const result = await runAnalysisBlocking();
     const symbolCount = result.totalSymbolsScanned ?? 0;
     const sr: StageResult = {
       status: 'ok',
@@ -152,30 +204,29 @@ export async function checkOrRunPipeline(force = false): Promise<PipelineRun> {
     // Stage 1: News
     if (!force && isNewsStageValid()) {
       updatePipelineStage(runId, 'news', {
-        status: 'skipped',
-        startedAt: new Date().toISOString(),
-        finishedAt: new Date().toISOString(),
-        detail: 'Noticias del día ya disponibles.',
-        errors: [],
+        status: 'skipped', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+        detail: 'Noticias del día ya disponibles.', errors: [],
       });
     } else {
       const newsResult = await runNewsStage(runId);
       if (newsResult.status === 'failed') {
-        updatePipelineStage(runId, 'analysis', { status: 'skipped', detail: 'Saltado: noticias fallaron.', errors: [], startedAt: null, finishedAt: null });
-        updatePipelineStage(runId, 'report', { status: 'skipped', detail: 'Saltado: noticias fallaron.', errors: [], startedAt: null, finishedAt: null });
+        for (const s of ['fundamentals', 'analysis', 'report'] as const) {
+          updatePipelineStage(runId, s, { status: 'skipped', detail: 'Saltado: noticias fallaron.', errors: [], startedAt: null, finishedAt: null });
+        }
         finishPipelineRun(runId, 'failed');
         return getPipelineRunByDate(today)!;
       }
     }
 
-    // Stage 2: Analysis
+    // Stage 2: Fundamentals (skip logic built-in)
+    await runFundamentalsStage(runId);
+    // Note: fundamentals failure is non-fatal — continue to analysis
+
+    // Stage 3: Analysis
     if (!force && isAnalysisStageValid()) {
       updatePipelineStage(runId, 'analysis', {
-        status: 'skipped',
-        startedAt: new Date().toISOString(),
-        finishedAt: new Date().toISOString(),
-        detail: 'Análisis del día ya disponible.',
-        errors: [],
+        status: 'skipped', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+        detail: 'Análisis del día ya disponible.', errors: [],
       });
     } else {
       const analysisResult = await runAnalysisStage(runId);
@@ -186,13 +237,13 @@ export async function checkOrRunPipeline(force = false): Promise<PipelineRun> {
       }
     }
 
-    // Stage 3: Report
+    // Stage 4: Report
     await runReportStage(runId);
 
     const finalRun = getPipelineRunByDate(today)!;
-    const stages = finalRun.stages;
-    const allOk = [stages.news, stages.analysis, stages.report].every(s => s.status === 'ok' || s.status === 'skipped');
-    const anyFailed = [stages.news, stages.analysis, stages.report].some(s => s.status === 'failed');
+    const stageList = [finalRun.stages.news, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
+    const anyFailed = stageList.some(s => s.status === 'failed');
+    const allOk = stageList.every(s => s.status === 'ok' || s.status === 'skipped');
     finishPipelineRun(runId, anyFailed ? 'failed' : allOk ? 'ok' : 'partial');
     return getPipelineRunByDate(today)!;
   } catch (err) {
@@ -201,7 +252,9 @@ export async function checkOrRunPipeline(force = false): Promise<PipelineRun> {
   }
 }
 
-export async function rerunPipelineStage(stage: 'news' | 'analysis' | 'report'): Promise<PipelineRun> {
+export async function rerunPipelineStage(
+  stage: 'news' | 'fundamentals' | 'analysis' | 'report'
+): Promise<PipelineRun> {
   const today = getToday();
   const activeRun = getActivePipelineRun();
   if (activeRun) return activeRun;
@@ -211,9 +264,18 @@ export async function rerunPipelineStage(stage: 'news' | 'analysis' | 'report'):
   const runId = run.id;
 
   if (stage === 'news') {
-    updatePipelineStage(runId, 'analysis', { status: 'pending', detail: 'Pendiente re-run de noticias.', errors: [], startedAt: null, finishedAt: null });
-    updatePipelineStage(runId, 'report', { status: 'pending', detail: 'Pendiente re-run de noticias.', errors: [], startedAt: null, finishedAt: null });
+    for (const s of ['fundamentals', 'analysis', 'report'] as const) {
+      updatePipelineStage(runId, s, { status: 'pending', detail: 'Pendiente re-run de noticias.', errors: [], startedAt: null, finishedAt: null });
+    }
     await runNewsStage(runId);
+    await runFundamentalsStage(runId);
+    await runAnalysisStage(runId);
+    await runReportStage(runId);
+  } else if (stage === 'fundamentals') {
+    for (const s of ['analysis', 'report'] as const) {
+      updatePipelineStage(runId, s, { status: 'pending', detail: 'Pendiente re-run de fundamentales.', errors: [], startedAt: null, finishedAt: null });
+    }
+    await runFundamentalsStage(runId);
     await runAnalysisStage(runId);
     await runReportStage(runId);
   } else if (stage === 'analysis') {
@@ -225,9 +287,9 @@ export async function rerunPipelineStage(stage: 'news' | 'analysis' | 'report'):
   }
 
   const finalRun = getPipelineRunByDate(today)!;
-  const stages = finalRun.stages;
-  const allOk = [stages.news, stages.analysis, stages.report].every(s => s.status === 'ok' || s.status === 'skipped');
-  const anyFailed = [stages.news, stages.analysis, stages.report].some(s => s.status === 'failed');
+  const stageList = [finalRun.stages.news, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
+  const anyFailed = stageList.some(s => s.status === 'failed');
+  const allOk = stageList.every(s => s.status === 'ok' || s.status === 'skipped');
   finishPipelineRun(runId, anyFailed ? 'failed' : allOk ? 'ok' : 'partial');
   return getPipelineRunByDate(today)!;
 }

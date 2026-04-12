@@ -49,7 +49,7 @@ export const intelligenceRouter = router({
 
   // Re-run a specific stage
   rerunStage: publicProcedure
-    .input(z.object({ stage: z.enum(['news', 'analysis', 'report']) }))
+    .input(z.object({ stage: z.enum(['news', 'fundamentals', 'analysis', 'report']) }))
     .mutation(async ({ input }) => {
       return rerunPipelineStage(input.stage);
     }),
