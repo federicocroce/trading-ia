@@ -881,3 +881,111 @@ export function getNewsCacheAge(): string | null {
   const ts = row.createdAt;
   return ts.endsWith('Z') ? ts : ts + 'Z';
 }
+
+// ==================== CONFIG TABLES ====================
+
+export function getActiveMarketThemes() {
+  return db.select().from(schema.marketThemes)
+    .where(eq(schema.marketThemes.active, true))
+    .all();
+}
+
+export function getActiveNewsSources(type?: 'rss' | 'newsapi' | 'finnhub') {
+  if (type) {
+    return db.select().from(schema.newsSources)
+      .where(and(eq(schema.newsSources.active, true), eq(schema.newsSources.type, type)))
+      .orderBy(schema.newsSources.priority)
+      .all();
+  }
+  return db.select().from(schema.newsSources)
+    .where(eq(schema.newsSources.active, true))
+    .orderBy(schema.newsSources.priority)
+    .all();
+}
+
+export function getActiveNewsSearchKeywords() {
+  return db.select().from(schema.newsSearchKeywords)
+    .where(eq(schema.newsSearchKeywords.active, true))
+    .orderBy(schema.newsSearchKeywords.priority)
+    .all();
+}
+
+export function getActiveSentimentKeywords() {
+  return db.select().from(schema.sentimentKeywords)
+    .where(eq(schema.sentimentKeywords.active, true))
+    .all();
+}
+
+export function getSectorTickersBySector(sector: string) {
+  return db.select().from(schema.sectorTickers)
+    .where(eq(schema.sectorTickers.sector, sector))
+    .orderBy(desc(schema.sectorTickers.weight))
+    .all();
+}
+
+export function getAllSectorTickers() {
+  return db.select().from(schema.sectorTickers).all();
+}
+
+export function getSymbolsByType(type: 'adr' | 'us' | 'crypto') {
+  return db.select().from(schema.symbols)
+    .where(and(eq(schema.symbols.type, type), eq(schema.symbols.active, true)))
+    .all();
+}
+
+export function getSymbolsByMarket(market: string) {
+  const argPlazas = ['argentina-energy', 'argentina-finance', 'argentina-cedears'];
+  return db.select().from(schema.symbols)
+    .where(eq(schema.symbols.active, true))
+    .all()
+    .filter(s => market === 'argentina'
+      ? argPlazas.includes(s.plaza)
+      : !argPlazas.includes(s.plaza));
+}
+
+export function getNewsArticlesForToday(minImpact?: 'high' | 'medium') {
+  const today = new Date().toISOString().split('T')[0];
+  const rows = db.select().from(schema.newsArticles)
+    .where(gte(schema.newsArticles.publishedAt, today))
+    .orderBy(desc(schema.newsArticles.publishedAt))
+    .all();
+  if (!minImpact) return rows;
+  const order: Record<string, number> = { high: 2, medium: 1, low: 0 };
+  const minLevel = order[minImpact] ?? 0;
+  return rows.filter(r => {
+    const level = order[(r.impact ?? 'low')] ?? 0;
+    return level >= minLevel;
+  });
+}
+
+export function getSectorImpactsForToday() {
+  const today = new Date().toISOString().split('T')[0];
+  return db.select().from(schema.sectorImpacts)
+    .where(eq(schema.sectorImpacts.reportDate, today))
+    .all();
+}
+
+export function getOpportunitySnapshotsForLatestScan() {
+  const latestScan = db.select().from(schema.opportunityScans)
+    .orderBy(desc(schema.opportunityScans.createdAt))
+    .get();
+  if (!latestScan) return [];
+  return db.select().from(schema.opportunitySnapshots)
+    .where(eq(schema.opportunitySnapshots.scanId, latestScan.id))
+    .all();
+}
+
+export function updateOpportunityScanStatus(scanId: number, status: 'ok' | 'partial' | 'failed') {
+  return db.update(schema.opportunityScans)
+    .set({ status } as any)
+    .where(eq(schema.opportunityScans.id, scanId))
+    .run();
+}
+
+export function getTodayOpportunityScan() {
+  const today = new Date().toISOString().split('T')[0];
+  return db.select().from(schema.opportunityScans)
+    .where(gte(schema.opportunityScans.scannedAt, today))
+    .orderBy(desc(schema.opportunityScans.createdAt))
+    .get();
+}
