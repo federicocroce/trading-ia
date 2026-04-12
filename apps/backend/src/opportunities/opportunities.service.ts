@@ -898,6 +898,37 @@ export async function runAnalysis(): Promise<OpportunityScanResult> {
   };
 }
 
+/**
+ * Blocking variant — used by the unified pipeline.
+ * Awaits runLiveScan() fully before returning.
+ */
+export async function runAnalysisBlocking(): Promise<OpportunityScanResult> {
+  if (scanProgress.isScanning) {
+    return cachedResult ?? {
+      scannedAt: Date.now(), totalSymbolsScanned: 0, opportunities: [],
+      sectorSummary: [], analysisEngine: 'algorithmic',
+      analysisDetail: 'Ya hay un análisis en curso.', source: 'live' as const,
+    };
+  }
+
+  scanProgress.isScanning = true;
+  scanProgress.startedAt = Date.now();
+  scanProgress.stepsCompleted = [];
+  scanProgress.percentComplete = 0;
+  cachedResult = null;
+
+  try {
+    const result = await runLiveScan();
+    cachedResult = result;
+    processTimestamps.analysisLastRun = Date.now();
+    return result;
+  } finally {
+    scanProgress.isScanning = false;
+    scanProgress.percentComplete = 100;
+    scanProgress.currentStep = 'Completado';
+  }
+}
+
 export async function refreshOpportunities(sectors?: OpportunitySector[]): Promise<OpportunityScanResult> {
   if (scanProgress.isScanning) {
     // Already scanning, return current data or empty
@@ -948,78 +979,8 @@ export async function refreshOpportunities(sectors?: OpportunitySector[]): Promi
  * Un solo botón que hace todo. Non-blocking.
  */
 export async function runFullPipeline(): Promise<{ started: boolean; message: string }> {
-  if (scanProgress.isScanning) {
-    return { started: false, message: 'Ya hay un proceso en curso' };
-  }
-
-  scanProgress.isScanning = true;
-  scanProgress.startedAt = Date.now();
-  scanProgress.totalSteps = 10;
-  scanProgress.stepsCompleted = [];
-  scanProgress.percentComplete = 0;
-  scanProgress.estimatedTotalSeconds = 180;
-
-  (async () => {
-    try {
-      // === PASO 1: Noticias (solo fetch nuevas, no re-analizar) ===
-      updateProgress('Obteniendo noticias', 1);
-      // Fetch new articles from APIs (quick, just download)
-      const { forceRefreshNews } = await import('../news/news.service.js');
-      await forceRefreshNews();
-      processTimestamps.newsLastRun = Date.now();
-      // Read intelligence from DB (already analyzed articles)
-      const intelligence = await getIntelligenceFromDB();
-
-      // === PASO 2: Sectores impactados ===
-      updateProgress('Identificando sectores impactados (DeepSeek R1)', 2);
-      const { runSectorAnalysis } = await import('../intelligence/sector-report.service.js');
-      const headlines = intelligence.plazas
-        .flatMap(p => (p.symbolTrends as SymbolTrend[]).flatMap(t => t.topHeadlines))
-        .slice(0, 30);
-      const sectorReports = await runSectorAnalysis(headlines);
-
-      // === PASO 3: Registrar tickers descubiertos ===
-      updateProgress('Registrando activos descubiertos', 3);
-      const suggestedTickers = sectorReports.flatMap(r => r.suggestedTickers);
-      if (suggestedTickers.length > 0) {
-        try {
-          const { registerNovelTickers: regNovel } = await import('../discovery/discovery-registry.js');
-          await regNovel(suggestedTickers, 'llm');
-        } catch { /* non-critical */ }
-      }
-
-      // === PASO 4: Fundamentales (si tienen >7 días) ===
-      const fundAge = getFundamentalCacheAge();
-      const fundDaysOld = fundAge ? (Date.now() - new Date(fundAge).getTime()) / (1000 * 60 * 60 * 24) : 999;
-      if (fundDaysOld > 7) {
-        updateProgress('Actualizando fundamentales (Yahoo Finance)', 4);
-        const { forceRefreshFundamentals } = await import('../fundamental/fundamental-analysis.service.js');
-        const { getTickersFromSectorReports } = await import('../intelligence/sector-report.service.js');
-        const dbSymbols = getActiveSymbolList();
-        const discovered = getDiscoveredTickers().map(t => t.symbol);
-        const sectorTickers = getTickersFromSectorReports();
-        const allFundSymbols = [...new Set([...dbSymbols, ...discovered, ...sectorTickers])];
-        await forceRefreshFundamentals(allFundSymbols);
-        processTimestamps.fundamentalsLastRun = Date.now();
-      } else {
-        updateProgress('Fundamentales al dia (cache valido)', 4);
-      }
-
-      // === PASO 5+: Análisis completo ===
-      updateProgress('Iniciando analisis tecnico y scoring', 5);
-      cachedResult = null;
-      const result = await runLiveScan();
-      cachedResult = result;
-      processTimestamps.analysisLastRun = Date.now();
-
-    } catch (err) {
-      console.error('[FullPipeline] Failed:', err);
-    } finally {
-      scanProgress.isScanning = false;
-      scanProgress.percentComplete = 100;
-      scanProgress.currentStep = 'Pipeline completo';
-    }
-  })();
-
-  return { started: true, message: 'Pipeline completo iniciado (~3 min)' };
+  // Delegate to the unified tracked pipeline (avoids circular import via dynamic import)
+  const { checkOrRunPipeline } = await import('../intelligence/pipeline.service.js');
+  checkOrRunPipeline(false).catch(err => console.error('[runFullPipeline] pipeline error:', err));
+  return { started: true, message: 'Pipeline unificado iniciado' };
 }
