@@ -27,6 +27,7 @@ function rowToPipelineRun(row: typeof schema.pipelineRuns.$inferSelect): Pipelin
     finishedAt: row.finishedAt ?? null,
     stages: {
       news: stageResultFromRow(row.newsStatus, row.newsDetail, row.newsErrors, row.newsStartedAt, row.newsFinishedAt),
+      fundamentals: stageResultFromRow(row.fundamentalsStatus, row.fundamentalsDetail, row.fundamentalsErrors, row.fundamentalsStartedAt, row.fundamentalsFinishedAt),
       analysis: stageResultFromRow(row.analysisStatus, row.analysisDetail, row.analysisErrors, row.analysisStartedAt, row.analysisFinishedAt),
       report: stageResultFromRow(row.reportStatus, row.reportDetail, row.reportErrors, row.reportStartedAt, row.reportFinishedAt),
     },
@@ -39,6 +40,7 @@ export function createPipelineRun(date: string): PipelineRun {
     date,
     status: 'running',
     newsStatus: 'pending',
+    fundamentalsStatus: 'pending',
     analysisStatus: 'pending',
     reportStatus: 'pending',
     startedAt: now,
@@ -72,7 +74,7 @@ export function getPipelineHistory(limit = 7): PipelineRun[] {
 
 export function updatePipelineStage(
   runId: number,
-  stage: 'news' | 'analysis' | 'report',
+  stage: 'news' | 'fundamentals' | 'analysis' | 'report',
   result: Partial<StageResult & { startedAt: string | null; finishedAt: string | null }>,
 ) {
   const updates: Record<string, unknown> = {};
