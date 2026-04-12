@@ -16,12 +16,12 @@ import {
 } from '@trading/shared';
 import { getTechnicalSummary } from '../technical/technical-analysis.service.js';
 import { getFundamentalSummary } from '../fundamental/fundamental-analysis.service.js';
-import { getIntelligence, getIntelligenceFromDB, getAnalyzedNews } from '../news/news-intelligence.service.js';
+import { getIntelligence, getIntelligenceFromDB } from '../news/news-intelligence.service.js';
 import { analyzeSecondOrderEffects } from '../analysis/sector-correlation.service.js';
 import { persistDailyReport } from '../intelligence/daily-report.service.js';
 import { recordSignals, resolveExpiredSignals, recordMissedOpportunities } from './signal-tracking.service.js';
 import { runUnifiedAnalysis } from '../intelligence/unified-analysis.service.js';
-import { getFullSymbolUniverse, getSectorForSymbolDynamic, getSectorLabelDynamic, getDiscoveredTickers, pruneExpiredDiscoveries, getClassificationForSymbol } from '../discovery/discovery-registry.js';
+import { getSectorForSymbolDynamic, getDiscoveredTickers, pruneExpiredDiscoveries } from '../discovery/discovery-registry.js';
 import { classifyAssets } from '../discovery/asset-classifier.js';
 import { getSourceStats } from '../news/news.service.js';
 import { getTriangulationStats } from '../news/triangulation.service.js';
