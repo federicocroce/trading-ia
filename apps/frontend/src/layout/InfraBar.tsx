@@ -83,17 +83,21 @@ interface StagePillProps {
   light: StageLight;
   timestamp: number | null;
   detail?: string;
-  onClick: () => void;
+  onForceRun: () => void;
+  onOpenModal: () => void;
+  disabled?: boolean;
 }
 
-function StagePill({ label, light, timestamp, detail, onClick }: StagePillProps) {
+function StagePill({ label, light, timestamp, detail, onForceRun, onOpenModal, disabled }: StagePillProps) {
   const s = getStaleness(timestamp);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
-          className="flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity"
-          onClick={onClick}
+          className={`flex items-center gap-1 transition-opacity ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:opacity-80'}`}
+          onClick={disabled ? undefined : onForceRun}
+          onContextMenu={(e) => { e.preventDefault(); if (!disabled) onOpenModal(); }}
+          disabled={disabled}
         >
           <div className={`w-1.5 h-1.5 rounded-full ${STAGE_DOT[light]}`} />
           <span className={`text-[10px] font-mono ${STAGE_TEXT[light]}`}>
@@ -112,9 +116,11 @@ function StagePill({ label, light, timestamp, detail, onClick }: StagePillProps)
       <TooltipContent className="max-w-xs space-y-1">
         <p className="font-semibold text-xs">{label}</p>
         {detail && <p className="text-[10px] text-muted-foreground">{detail}</p>}
-        {light === 'pending' && <p className="text-[10px] text-yellow-400">No corrió hoy — click para abrir pipeline</p>}
-        {light === 'failed' && <p className="text-[10px] text-red-400">Falló — click para ver detalles y re-correr</p>}
-        {light === 'ok' && timestamp && <p className="text-[10px] text-muted-foreground">Última ejecución: {getStaleness(timestamp).label}</p>}
+        <p className="text-[10px] text-blue-400">Click → re-ejecutar este paso (fuerza override de BD)</p>
+        <p className="text-[10px] text-muted-foreground">Click derecho → ver historial</p>
+        {light === 'failed' && <p className="text-[10px] text-red-400">Último intento falló</p>}
+        {light === 'pending' && <p className="text-[10px] text-yellow-400">No corrió hoy</p>}
+        {light === 'ok' && timestamp && <p className="text-[10px] text-green-400">OK — {getStaleness(timestamp).label}</p>}
       </TooltipContent>
     </Tooltip>
   );
@@ -234,35 +240,43 @@ export function InfraBar() {
         {/* Separador */}
         <span className="text-border shrink-0">|</span>
 
-        {/* Pipeline stages — semaforizados */}
+        {/* Pipeline stages — click directo fuerza re-ejecución del stage */}
         <div className="flex items-center gap-3">
           <StagePill
             label="Noticias"
             light={stageLight('news', timestamps?.news ?? null)}
             timestamp={timestamps?.news ?? null}
             detail={newsDetail}
-            onClick={openModal}
+            onForceRun={() => rerunStage('news')}
+            onOpenModal={openModal}
+            disabled={isRunning}
           />
           <StagePill
             label="Fundamentales"
             light={stageLight('fundamentals', timestamps?.fundamentals ?? null)}
             timestamp={timestamps?.fundamentals ?? null}
             detail={fundamentalsDetail ?? 'Datos fundamentales de Yahoo Finance'}
-            onClick={openModal}
+            onForceRun={() => rerunStage('fundamentals')}
+            onOpenModal={openModal}
+            disabled={isRunning}
           />
           <StagePill
             label="Análisis"
             light={stageLight('analysis', timestamps?.analysis ?? null)}
             timestamp={timestamps?.analysis ?? null}
             detail={analysisDetail}
-            onClick={openModal}
+            onForceRun={() => rerunStage('analysis')}
+            onOpenModal={openModal}
+            disabled={isRunning}
           />
           <StagePill
             label="Reporte"
             light={stageLight('report', reportTs)}
             timestamp={reportTs}
             detail={reportDetail}
-            onClick={openModal}
+            onForceRun={() => rerunStage('report')}
+            onOpenModal={openModal}
+            disabled={isRunning}
           />
         </div>
 
