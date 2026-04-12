@@ -12,17 +12,15 @@ import type {
   SecondOrderEffect,
 } from '@trading/shared';
 import {
-  OPPORTUNITY_ENRICHMENT_PROMPT,
   OPPORTUNITY_UNIVERSE,
 } from '@trading/shared';
-import { callAI } from '../shared/ai-router.js';
 import { getTechnicalSummary } from '../technical/technical-analysis.service.js';
 import { getFundamentalSummary } from '../fundamental/fundamental-analysis.service.js';
 import { getIntelligence, getIntelligenceFromDB, getAnalyzedNews } from '../news/news-intelligence.service.js';
 import { analyzeSecondOrderEffects } from '../analysis/sector-correlation.service.js';
 import { persistDailyReport } from '../intelligence/daily-report.service.js';
 import { recordSignals, resolveExpiredSignals, recordMissedOpportunities } from './signal-tracking.service.js';
-import { generateSymbolNarratives, generateDailyDigest } from '../intelligence/market-digest.service.js';
+import { runUnifiedAnalysis } from '../intelligence/unified-analysis.service.js';
 import { getFullSymbolUniverse, getSectorForSymbolDynamic, getSectorLabelDynamic, getDiscoveredTickers, pruneExpiredDiscoveries, getClassificationForSymbol } from '../discovery/discovery-registry.js';
 import { classifyAssets } from '../discovery/asset-classifier.js';
 import { getSourceStats } from '../news/news.service.js';
@@ -52,6 +50,13 @@ let cachedResult: OpportunityScanResult | null = null;
 let cachedMarketDigest: import('@trading/shared').MarketDigest | null = null;
 // Cuando se fuerza un refresh, no cargar el scan viejo de DB hasta que el nuevo termine
 let dbCacheInvalidated = false;
+
+// Expone los últimos análisis unificados para que STAGE 4 (report) los consuma
+let _lastUnifiedAnalyses: Map<string, import('@trading/shared').UnifiedAssetAnalysis> = new Map();
+
+export function getLastUnifiedAnalyses(): Map<string, import('@trading/shared').UnifiedAssetAnalysis> {
+  return _lastUnifiedAnalyses;
+}
 
 export function getMarketDigest() {
   return cachedMarketDigest;
@@ -121,113 +126,7 @@ async function batchProcess<T>(
   return results;
 }
 
-// --- LLM Enrichment (Fase 3) ---
-
-function extractJSON(text: string): string {
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch) return fenceMatch[1].trim();
-  const braceStart = text.indexOf('{');
-  const braceEnd = text.lastIndexOf('}');
-  if (braceStart !== -1 && braceEnd > braceStart) {
-    return text.slice(braceStart, braceEnd + 1);
-  }
-  return text;
-}
-
-interface Enrichment {
-  reasoning: string;
-  catalysts: string[];
-  risks: string[];
-}
-
-function buildEnrichmentMessage(
-  opportunities: Opportunity[],
-  _techMap: Map<string, TechnicalSummary>,
-  _fundMap: Map<string, FundamentalSummary>,
-  sentimentMap: Map<string, SentimentInput>,
-): string {
-  const lines: string[] = [];
-
-  for (const opp of opportunities) {
-    const sent = sentimentMap.get(opp.symbol);
-    const sector = getSectorForSymbolDynamic(opp.symbol);
-    const sectorLabel = sector ? getSectorLabelDynamic(opp.symbol, sector) : 'Otros';
-
-    // Line 1: Symbol, sector, score, action
-    lines.push(`=== ${opp.symbol} (${sectorLabel}) — Score: ${opp.opportunityScore}/100, Action: ${opp.action} ===`);
-
-    // Line 2: Top 3 confluence signals (already processed by algorithmic scoring)
-    const conf = opp.confluenceDetail;
-    if (conf) {
-      const topSignals = opp.action === 'SELL'
-        ? conf.bearishSignals.slice(0, 3)
-        : conf.bullishSignals.slice(0, 3);
-      if (topSignals.length > 0) {
-        lines.push(`  Top signals: ${topSignals.join(', ')}`);
-      }
-    }
-
-    // Line 3: Sentiment score + 1 top headline
-    if (sent) {
-      const topHeadline = sent.headlines.length > 0 ? ` Top: "${sent.headlines[0]}"` : '';
-      lines.push(`  Sentiment: ${sent.score >= 0 ? '+' : ''}${sent.score.toFixed(1)}, ${sent.headlines.length} headlines.${topHeadline}`);
-    }
-
-    // Line 4: Signal conflicts (1-line summary) if any
-    if (opp.signalConflicts && opp.signalConflicts.length > 0) {
-      const conflictSummary = opp.signalConflicts
-        .slice(0, 2)
-        .map(c => `${c.signalA} vs ${c.signalB} (${c.implication})`)
-        .join('; ');
-      lines.push(`  Conflicts: ${conflictSummary}`);
-    }
-
-    lines.push('');
-  }
-
-  return lines.join('\n');
-}
-
-async function enrichWithLLM(
-  topOpportunities: Opportunity[],
-  techMap: Map<string, TechnicalSummary>,
-  fundMap: Map<string, FundamentalSummary>,
-  sentimentMap: Map<string, SentimentInput>,
-): Promise<Map<string, Enrichment>> {
-  const result = new Map<string, Enrichment>();
-
-  try {
-    const userMessage = buildEnrichmentMessage(topOpportunities, techMap, fundMap, sentimentMap);
-    console.log(`[opportunities] Fase 3: enriqueciendo ${topOpportunities.length} símbolos con LM Studio (${userMessage.length} chars)`);
-
-    const raw = await callAI('classification', userMessage, OPPORTUNITY_ENRICHMENT_PROMPT, 4096);
-    const jsonStr = extractJSON(raw);
-    const parsed = JSON.parse(jsonStr);
-
-    if (parsed.enrichments && Array.isArray(parsed.enrichments)) {
-      for (const e of parsed.enrichments) {
-        if (e.symbol && e.reasoning) {
-          result.set(e.symbol, {
-            reasoning: e.reasoning,
-            catalysts: e.catalysts ?? [],
-            risks: e.risks ?? [],
-          });
-        }
-      }
-    }
-
-    console.log(`[opportunities] LM Studio enriqueció ${result.size}/${topOpportunities.length} símbolos`);
-  } catch (err) {
-    console.warn(`[opportunities] LM Studio enrichment failed: ${(err as Error).message.slice(0, 150)}`);
-    console.warn(`[opportunities] Usando reasoning algoritmico para todos los símbolos`);
-  }
-
-  return result;
-}
-
 // --- Main pipeline ---
-
-const TOP_N_FOR_LLM = 10;
 
 // --- Scan Progress Tracking ---
 
@@ -528,77 +427,57 @@ async function runLiveScan(sectors?: OpportunitySector[]): Promise<OpportunitySc
   }
 
   // ============================================================
-  updateProgress('Enriqueciendo con IA (LM Studio)', 5);
-
-  // FASE 3: Enriquecimiento LLM (solo top N que pasaron anti-hype)
+  updateProgress('Análisis unificado con IA', 6);
+  // FASE 3: Análisis unificado — un análisis por activo, mismo modelo
+  // Reemplaza: enrichWithLLM + generateDeepAnalyses + generateSymbolNarratives
   // ============================================================
-  const topForLLM = opportunities
-    .filter((o) => o.passedAntiHype !== false)
-    .slice(0, TOP_N_FOR_LLM);
   let engineDetail = 'Hibrido (algoritmico)';
   let usedEngine: AnalysisEngine = 'hybrid';
-
-  if (topForLLM.length > 0) {
-    const enrichments = await enrichWithLLM(topForLLM, techMap, fundMap, sentimentMap);
-
-    if (enrichments.size > 0) {
-      for (const opp of opportunities) {
-        const enrichment = enrichments.get(opp.symbol);
-        if (enrichment) {
-          opp.reasoning = enrichment.reasoning;
-          if (enrichment.catalysts.length > 0) opp.catalysts = enrichment.catalysts.slice(0, 3);
-          if (enrichment.risks.length > 0) opp.risks = enrichment.risks.slice(0, 2);
-        }
-      }
-      engineDetail = `Hibrido — scoring algoritmico + LM Studio (${process.env.LMSTUDIO_MODEL ?? 'local-model'}) para reasoning`;
-    } else {
-      engineDetail = 'Hibrido (algoritmico, LM Studio no disponible)';
-    }
-  }
-
-  console.log(`[opportunities] Analysis engine: ${engineDetail}`);
-
-  // ============================================================
-  updateProgress('Detectando conflictos y generando narrativas', 6);
 
   // FASE 3.5: Conflictos ya calculados en scoreOpportunity con contexto completo
   // (timingTriggers, baseAction, weeklyDivergences, etc.)
   const conflictCount = opportunities.filter(o => o.signalConflicts && o.signalConflicts.length > 0).length;
   console.log(`[opportunities] Fase 3.5: ${conflictCount} oportunidades con conflictos de senales detectados`);
 
-  // ============================================================
-  // FASE 3.7: Narrativas por símbolo (1 llamada LLM batch)
-  // ============================================================
   try {
-    const topForNarrative = opportunities
-      .filter(o => o.action === 'BUY' || o.action === 'SELL')
-      .filter(o => o.passedAntiHype !== false)
-      .slice(0, 8);
+    const unifiedAnalyses = await runUnifiedAnalysis(
+      opportunities,
+      techMap,
+      fundMap,
+      sentimentMap,
+    );
 
-    if (topForNarrative.length > 0) {
-      const narratives = await generateSymbolNarratives(topForNarrative, techMap, fundMap, sentimentMap);
-      for (const opp of opportunities) {
-        const narrative = narratives.get(opp.symbol);
-        if (narrative) opp.narrativeDigest = narrative;
-      }
-      console.log(`[opportunities] Fase 3.7: ${narratives.size} narrativas generadas`);
-    }
-  } catch (err) {
-    console.warn('[opportunities] Fase 3.7: narrativas fallaron:', err);
-  }
-
-  // ============================================================
-  // DEEP ANALYSIS: análisis profundo por activo (DeepSeek R1 para portfolio + top BUY/SELL)
-  // ============================================================
-  try {
-    const { generateDeepAnalyses } = await import('../intelligence/market-digest.service.js');
-    const deepAnalyses = await generateDeepAnalyses(opportunities, techMap, fundMap, sentimentMap);
     for (const opp of opportunities) {
-      const deep = deepAnalyses.get(opp.symbol);
-      if (deep) opp.deepAnalysis = deep;
+      const unified = unifiedAnalyses.get(opp.symbol);
+      if (!unified) continue;
+
+      // Poblar campos existentes desde unified analysis (retrocompatibilidad UI)
+      opp.unifiedAnalysis = unified;
+      opp.reasoning = unified.thesis;
+      opp.catalysts = unified.catalysts;
+      opp.risks = unified.risks;
+      opp.narrativeDigest = unified.narrative;
+
+      // deepAnalysis retrocompat (UI puede leerlo desde unifiedAnalysis.wouldDo)
+      opp.deepAnalysis = {
+        positives: unified.catalysts,
+        concerns: unified.risks,
+        recommendation: unified.thesis,
+        wouldDo: unified.wouldDo,
+        wouldNotDo: unified.wouldNotDo,
+        generatedBy: unified.generatedBy as 'deepseek' | 'groq' | 'qwen' | 'algorithmic',
+      };
     }
+
+    // Exponer para STAGE 4 (market-report)
+    _lastUnifiedAnalyses = unifiedAnalyses;
+
+    usedEngine = 'hybrid';
+    engineDetail = `Hibrido — scoring algoritmico + DeepSeek R1 análisis unificado (${unifiedAnalyses.size} activos)`;
+    console.log(`[opportunities] Análisis unificado: ${unifiedAnalyses.size}/${opportunities.length} activos`);
   } catch (err) {
-    console.warn('[opportunities] Deep analysis failed (non-critical):', (err as Error).message?.slice(0, 100));
+    console.warn('[opportunities] Unified analysis failed (non-critical):', (err as Error).message?.slice(0, 100));
+    engineDetail = 'Algoritmico (análisis unificado no disponible)';
   }
 
   cachedResult = {
@@ -641,27 +520,6 @@ async function runLiveScan(sectors?: OpportunitySector[]): Promise<OpportunitySc
     analysisEngine: usedEngine,
     analysisDetail: engineDetail,
   });
-
-  // ============================================================
-  updateProgress('Generando market digest con IA', 8);
-
-  // FASE 5: Market Digest (1 llamada LLM)
-  // ============================================================
-  try {
-    const topHeadlines = dbNews.slice(0, 8).map((n: any) => n.title);
-    const digest = await generateDailyDigest(
-      opportunities,
-      secondOrderEffects,
-      { totalNewsCount: intelligence.totalNewsCount, topHeadlines },
-      cachedResult.sectorSummary,
-    );
-    if (digest) {
-      cachedMarketDigest = digest;
-      console.log(`[opportunities] Fase 5: market digest generado (mood: ${digest.marketMood})`);
-    }
-  } catch (err) {
-    console.warn('[opportunities] Fase 5: market digest fallo:', err);
-  }
 
   // Signal tracking: registrar señales BUY/SELL y resolver pendientes
   try {
