@@ -1,6 +1,7 @@
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { db } from './index.js';
 import { seedDatabase } from './seed.js';
+import { seedConfigTables } from './seed-config.js';
 import { resolve } from 'path';
 
 export function initDatabase() {
@@ -13,6 +14,9 @@ export function initDatabase() {
 
   // Seed if empty
   seedDatabase();
+
+  // Seed config tables (idempotent)
+  seedConfigTables();
 
   console.log('[db] Database ready.');
 }
