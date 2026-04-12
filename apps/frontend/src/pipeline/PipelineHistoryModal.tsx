@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { PipelineRun, StageStatus } from '@trading/shared';
 
-const STAGE_LABELS = { news: 'Noticias', analysis: 'Análisis', report: 'Reporte' } as const;
+const STAGE_LABELS = { news: 'Noticias', fundamentals: 'Fundamentales', analysis: 'Análisis', report: 'Reporte' } as const;
 
 function stageIcon(status: StageStatus): string {
   switch (status) {
@@ -39,7 +39,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   history: PipelineRun[];
-  onRerunStage: (stage: 'news' | 'analysis' | 'report') => void;
+  onRerunStage: (stage: 'news' | 'fundamentals' | 'analysis' | 'report') => void;
   onRerunAll: () => void;
   isRunning: boolean;
 }
@@ -76,7 +76,7 @@ export function PipelineHistoryModal({ open, onClose, history, onRerunStage, onR
                   )}
                 </div>
                 <div className="space-y-1">
-                  {(['news', 'analysis', 'report'] as const).map((stage) => {
+                  {(['news', 'fundamentals', 'analysis', 'report'] as const).map((stage) => {
                     const s = run.stages[stage];
                     const canRerun = (s.status === 'failed' || s.status === 'partial') && !isRunning;
                     return (

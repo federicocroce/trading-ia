@@ -43,7 +43,7 @@ export function usePipeline() {
 
   return {
     run: (force = false) => runMutation.mutate({ force }),
-    rerunStage: (stage: 'news' | 'analysis' | 'report') => rerunMutation.mutate({ stage }),
+    rerunStage: (stage: 'news' | 'fundamentals' | 'analysis' | 'report') => rerunMutation.mutate({ stage }),
     status: todayRun,
     history: historyQuery.data ?? [],
     isRunning,
