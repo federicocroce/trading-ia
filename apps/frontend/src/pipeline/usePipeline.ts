@@ -23,8 +23,11 @@ export function usePipeline() {
   });
 
   const rerunMutation = trpc.intelligence.rerunStage.useMutation({
-    onSuccess: () => {
+    onMutate: () => {
       setIsPolling(true);
+      utils.intelligence.pipelineStatus.invalidate();
+    },
+    onSuccess: () => {
       utils.intelligence.pipelineStatus.invalidate();
     },
   });

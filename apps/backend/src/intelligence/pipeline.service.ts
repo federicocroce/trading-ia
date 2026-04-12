@@ -5,6 +5,7 @@ import {
   getActivePipelineRun,
   updatePipelineStage,
   finishPipelineRun,
+  markRunAsRunning,
   markOrphanedRunsFailed,
   getPipelineHistory,
 } from './pipeline.repository.js';
@@ -271,6 +272,8 @@ export async function rerunPipelineStage(
   const existingRun = getPipelineRunByDate(today);
   const run = existingRun ?? createPipelineRun(today);
   const runId = run.id;
+  _stageUnifiedAnalyses = null;
+  markRunAsRunning(runId);
 
   if (stage === 'news') {
     for (const s of ['fundamentals', 'analysis', 'report'] as const) {

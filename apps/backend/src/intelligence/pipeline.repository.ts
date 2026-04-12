@@ -86,6 +86,14 @@ export function updatePipelineStage(
   db.update(schema.pipelineRuns).set(updates as any).where(eq(schema.pipelineRuns.id, runId)).run();
 }
 
+export function markRunAsRunning(runId: number) {
+  db.update(schema.pipelineRuns).set({
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+  }).where(eq(schema.pipelineRuns.id, runId)).run();
+}
+
 export function finishPipelineRun(runId: number, status: 'ok' | 'partial' | 'failed') {
   db.update(schema.pipelineRuns).set({
     status,
