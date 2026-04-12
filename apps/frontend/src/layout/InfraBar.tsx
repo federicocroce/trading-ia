@@ -180,7 +180,7 @@ export function InfraBar() {
   // Determinar estado de cada stage del pipeline
   const today = new Date().toISOString().split('T')[0];
 
-  function stageLight(stageKey: 'news' | 'analysis' | 'report', tsMs: number | null): StageLight {
+  function stageLight(stageKey: 'news' | 'fundamentals' | 'analysis' | 'report', tsMs: number | null): StageLight {
     if (todayRun) {
       const s = todayRun.stages[stageKey].status;
       if (s === 'ok' || s === 'skipped') return 'ok';
@@ -193,6 +193,7 @@ export function InfraBar() {
   }
 
   const newsDetail = todayRun?.stages.news.detail;
+  const fundamentalsDetail = todayRun?.stages.fundamentals?.detail;
   const analysisDetail = todayRun?.stages.analysis.detail;
   const reportDetail = todayRun?.stages.report.detail;
 
@@ -244,9 +245,9 @@ export function InfraBar() {
           />
           <StagePill
             label="Fundamentales"
-            light={isToday(timestamps?.fundamentals ?? null) ? 'ok' : 'pending'}
+            light={stageLight('fundamentals', timestamps?.fundamentals ?? null)}
             timestamp={timestamps?.fundamentals ?? null}
-            detail="Datos fundamentales de Yahoo Finance"
+            detail={fundamentalsDetail ?? 'Datos fundamentales de Yahoo Finance'}
             onClick={openModal}
           />
           <StagePill
