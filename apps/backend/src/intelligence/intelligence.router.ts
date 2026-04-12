@@ -1,8 +1,16 @@
+import { z } from 'zod';
 import { router, publicProcedure } from '../trpc.js';
 import { getStoredDailyReport } from './daily-report.service.js';
 import { getMarketDigest } from '../opportunities/opportunities.service.js';
-import { generateMarketReport, getCachedMarketReport } from './market-report.service.js';
+import { getCachedMarketReport } from './market-report.service.js';
 import { getStoredSectorReports } from './sector-report.service.js';
+import {
+  checkOrRunPipeline,
+  rerunPipelineStage,
+  getPipelineRunByDate,
+  getActivePipelineRun,
+  getPipelineHistory,
+} from './pipeline.service.js';
 
 export const intelligenceRouter = router({
   dailyReport: publicProcedure.query(() => {
@@ -17,9 +25,34 @@ export const intelligenceRouter = router({
     return getCachedMarketReport();
   }),
 
-  generateMarketReport: publicProcedure.mutation(async () => {
-    return generateMarketReport();
+  // Replaces old generateMarketReport — now triggers the full pipeline
+  generateMarketReport: publicProcedure
+    .input(z.object({ force: z.boolean().optional() }).optional())
+    .mutation(async ({ input }) => {
+      return checkOrRunPipeline(input?.force ?? false);
+    }),
+
+  // Pipeline status for polling (every 2s while running)
+  pipelineStatus: publicProcedure.query(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const active = getActivePipelineRun();
+    if (active) return active;
+    return getPipelineRunByDate(today);
   }),
+
+  // Pipeline history (last 7 runs)
+  pipelineHistory: publicProcedure
+    .input(z.object({ limit: z.number().min(1).max(30).default(7) }).optional())
+    .query(({ input }) => {
+      return getPipelineHistory(input?.limit ?? 7);
+    }),
+
+  // Re-run a specific stage
+  rerunStage: publicProcedure
+    .input(z.object({ stage: z.enum(['news', 'analysis', 'report']) }))
+    .mutation(async ({ input }) => {
+      return rerunPipelineStage(input.stage);
+    }),
 
   sectorReports: publicProcedure.query(() => {
     return getStoredSectorReports();
