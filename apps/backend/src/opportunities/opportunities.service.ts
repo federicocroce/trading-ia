@@ -705,11 +705,12 @@ export async function refreshFundamentalsProcess(): Promise<{ refreshed: number 
 
   console.log('[Process B] Actualizando fundamentales...');
 
-  // All symbols: watchlist + discovered + sector-suggested
+  // All symbols: watchlist + portfolio + discovered + sector-suggested
   const dbSymbols = getActiveSymbolList();
+  const portfolioSymbols = getPortfolioPositions().map(p => p.symbol);
   const discovered = getDiscoveredTickers().map(t => t.symbol);
   const sectorTickers = getTickersFromSectorReports();
-  const allSymbols = [...new Set([...dbSymbols, ...discovered, ...sectorTickers])];
+  const allSymbols = [...new Set([...dbSymbols, ...portfolioSymbols, ...discovered, ...sectorTickers])];
 
   const refreshed = await forceRefreshFundamentals(allSymbols);
 

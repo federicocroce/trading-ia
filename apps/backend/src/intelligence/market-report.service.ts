@@ -13,7 +13,7 @@ import {
 } from '../db/repository.js';
 import { getPortfolioPositions, getActiveSymbolList } from '../db/repository.js';
 import { getQuotes, getFundamentals } from '../shared/yahoo.js';
-import { registerNovelTickers } from '../discovery/discovery-registry.js';
+import { registerNovelTickers, getDiscoveredTickers } from '../discovery/discovery-registry.js';
 import { classifyAsset } from '../discovery/asset-classifier.js';
 import {
   getTodayMarketReport,
@@ -578,7 +578,8 @@ export async function generateMarketReport(
 
     const activeThemes = identifiedThemes.filter(t => t.relevance !== 'low');
     const allSuggestedTickers = [...new Set(identifiedThemes.flatMap(t => t.suggestedTickers))];
-    const allTickers = [...new Set([...symbols, ...allSuggestedTickers])];
+    const discoveredTickers = getDiscoveredTickers().map(t => t.symbol);
+    const allTickers = [...new Set([...symbols, ...allSuggestedTickers, ...discoveredTickers])];
     const tickerData = await enrichWithRealData(allTickers);
 
     const themeAnalyses: ThemeDeepAnalysis[] = [];
