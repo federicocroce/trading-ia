@@ -177,6 +177,8 @@ export function getClassificationForSymbol(symbol: string): AssetClassification 
   return undefined;
 }
 
+// Stable classification logic — sector names are part of the domain model, not user-configurable data.
+// Changes here require deliberate domain decisions, not just DB edits.
 function mapClassificationToSector(c: AssetClassification): OpportunitySector {
   if (c.instrumentType === 'crypto') return 'crypto';
   if (c.instrumentType === 'bono') return 'bonds';

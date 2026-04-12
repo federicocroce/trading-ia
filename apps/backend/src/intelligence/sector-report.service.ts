@@ -5,6 +5,7 @@ import {
   deleteSectorImpactsByDate,
   getSectorImpactsByDate,
   getNewsArticlesSince,
+  getAllSectorTickers,
 } from '../db/repository.js';
 
 /**
@@ -56,6 +57,16 @@ export async function generateSectorReports(
 ): Promise<SectorReport[]> {
   if (impacts.length === 0) return [];
 
+  // Build sector → tickers reference from DB so the LLM has up-to-date context.
+  const allSectorTickers = getAllSectorTickers();
+  const sectorExamples = Object.entries(
+    allSectorTickers.reduce((acc, st) => {
+      if (!acc[st.sector]) acc[st.sector] = [];
+      acc[st.sector].push(st.ticker);
+      return acc;
+    }, {} as Record<string, string[]>),
+  ).map(([sector, tickers]) => `- ${sector}: ${tickers.join(', ')}`).join('\n');
+
   const prompt = `Sos un analista de inversiones senior. Para cada sector impactado, genera un informe con:
 - "sector": nombre del sector
 - "impact": "positive", "negative", o "mixed"
@@ -64,15 +75,8 @@ export async function generateSectorReports(
 - "suggestedTickers": 3-5 tickers CONCRETOS (NYSE/NASDAQ) que se benefician o perjudican. Usa tickers reales. Para cada sector piensa en los lideres del mercado.
 - "riskFactors": 1-2 riesgos especificos de este sector
 
-IMPORTANTE: Los tickers deben ser REALES y que coticen en bolsa. Ejemplos:
-- Defensa: LMT, RTX, NOC, GD, BA
-- Semiconductores: NVDA, TSM, AMD, INTC, ASML
-- Petroleo: XOM, CVX, COP, SLB, OXY
-- Banca: JPM, BAC, GS, GGAL, BMA
-- Tech/IA: MSFT, GOOGL, AMZN, META, AAPL
-- Crypto: COIN, MARA, RIOT, MSTR
-- Pharma: PFE, JNJ, LLY, ABBV, MRK
-- Cybersecurity: CRWD, PANW, FTNT, ZS
+IMPORTANTE: Los tickers deben ser REALES y que coticen en bolsa. Referencia de sectores y tickers conocidos:
+${sectorExamples || '- (sin referencia disponible — usar conocimiento propio)'}
 
 Responde SOLO con JSON:
 {"reports":[{"sector":"...","impact":"positive","summary":"...","keyNews":["..."],"suggestedTickers":["LMT","RTX"],"riskFactors":["..."]}]}`;
