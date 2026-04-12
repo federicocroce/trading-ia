@@ -34,6 +34,7 @@ export const opportunityScans = sqliteTable('opportunity_scans', {
   opportunityCount: integer('opportunity_count').notNull(),
   opportunities: text('opportunities').notNull(), // JSON stringified array
   sectorSummary: text('sector_summary').notNull(), // JSON stringified array
+  status: text('status', { enum: ['ok', 'partial', 'failed'] }).notNull().default('ok'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 
@@ -238,5 +239,97 @@ export const transactions = sqliteTable('transactions', {
   platform: text('platform'), // e.g. "Balanz", "Buenbit", "IOL"
   externalId: text('external_id'), // nro de operación externo (evita duplicados)
   notes: text('notes'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Market themes (reemplaza THEMATIC_QUERIES hardcodeadas) ---
+export const marketThemes = sqliteTable('market_themes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  queryKeywords: text('query_keywords').notNull(),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- News sources configurables (reemplaza RSS_FEEDS hardcodeadas) ---
+export const newsSources = sqliteTable('news_sources', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  type: text('type', { enum: ['rss', 'newsapi', 'finnhub'] }).notNull(),
+  url: text('url'),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  priority: integer('priority').notNull().default(0),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Keywords para búsqueda en NewsAPI ---
+export const newsSearchKeywords = sqliteTable('news_search_keywords', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  keyword: text('keyword').notNull(),
+  category: text('category'),
+  priority: integer('priority').notNull().default(0),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+});
+
+// --- Keywords para análisis de sentimiento ---
+export const sentimentKeywords = sqliteTable('sentiment_keywords', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  keyword: text('keyword').notNull(),
+  language: text('language', { enum: ['en', 'es'] }).notNull().default('en'),
+  sentiment: text('sentiment', { enum: ['positive', 'negative'] }).notNull(),
+  impactLevel: text('impact_level', { enum: ['high', 'medium'] }),
+  weight: real('weight').notNull().default(1.0),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+});
+
+// --- Tickers sugeridos por sector ---
+export const sectorTickers = sqliteTable('sector_tickers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  sector: text('sector').notNull(),
+  ticker: text('ticker').notNull(),
+  weight: real('weight').notNull().default(1.0),
+  relevance: text('relevance', { enum: ['primary', 'secondary'] }).notNull().default('primary'),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Reportes de mercado generados (persistencia) ---
+export const marketReports = sqliteTable('market_reports', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  generatedAt: text('generated_at').notNull(),
+  status: text('status', { enum: ['ok', 'partial', 'failed'] }).notNull(),
+  macroContext: text('macro_context'),
+  portfolioImpact: text('portfolio_impact'),
+  themes: text('themes'),
+  topRecommendations: text('top_recommendations'),
+  alternatives: text('alternatives'),
+  scenarios: text('scenarios'),
+  avoidList: text('avoid_list'),
+  engine: text('engine'),
+  errors: text('errors'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Historial de ejecuciones del pipeline ---
+export const pipelineRuns = sqliteTable('pipeline_runs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  date: text('date').notNull(),
+  status: text('status', { enum: ['running', 'ok', 'partial', 'failed'] }).notNull(),
+  newsStatus: text('news_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
+  newsDetail: text('news_detail'),
+  newsErrors: text('news_errors'),
+  newsStartedAt: text('news_started_at'),
+  newsFinishedAt: text('news_finished_at'),
+  analysisStatus: text('analysis_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
+  analysisDetail: text('analysis_detail'),
+  analysisErrors: text('analysis_errors'),
+  analysisStartedAt: text('analysis_started_at'),
+  analysisFinishedAt: text('analysis_finished_at'),
+  reportStatus: text('report_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
+  reportDetail: text('report_detail'),
+  reportErrors: text('report_errors'),
+  reportStartedAt: text('report_started_at'),
+  reportFinishedAt: text('report_finished_at'),
+  startedAt: text('started_at').notNull(),
+  finishedAt: text('finished_at'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });

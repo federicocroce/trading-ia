@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { usePipeline } from '../pipeline/usePipeline';
 
 const relevanceColor = {
   high: 'bg-red-500/20 text-red-400 border-red-500/30',
@@ -25,13 +26,7 @@ export function MarketReportView() {
   });
 
   const utils = trpc.useUtils();
-  const generate = trpc.intelligence.generateMarketReport.useMutation({
-    onSuccess: () => {
-      utils.intelligence.marketReport.invalidate();
-      utils.opportunities.scan.invalidate();
-      setSelectedTheme(null);
-    },
-  });
+  const { run, isRunning } = usePipeline();
 
   const addToWatchlist = trpc.opportunities.addToWatchlist.useMutation({
     onSuccess: () => utils.opportunities.scan.invalidate(),
@@ -55,24 +50,18 @@ export function MarketReportView() {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => generate.mutate()}
-              disabled={generate.isPending}
+              onClick={() => run()}
+              disabled={isRunning}
               className="h-8"
             >
-              {generate.isPending ? 'Generando (~3 min)...' : 'Generar reporte'}
+              {isRunning ? 'Ejecutando pipeline...' : 'Generar reporte'}
             </Button>
           </TooltipTrigger>
           <TooltipContent>Busca noticias en 10 tematicas, analiza cada una con datos reales y genera recomendaciones.</TooltipContent>
         </Tooltip>
       </div>
 
-      {generate.isError && (
-        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-400">
-          Error generando reporte: {generate.error.message.slice(0, 200)}
-        </div>
-      )}
-
-      {!report && !generate.isPending && (
+      {!report && !isRunning && (
         <Card size="sm">
           <CardContent className="py-6 text-center">
             <p className="text-xs text-muted-foreground">

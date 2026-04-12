@@ -1,8 +1,9 @@
 import type { RawNewsArticle } from '@trading/shared';
 import type { NewsSourceAdapter } from './adapter.js';
 import { reportOk, reportError } from '../../shared/service-health.js';
+import { getActiveNewsSources } from '../../db/repository.js';
 
-// Default financial RSS feeds (free, no API key needed)
+// Fallback RSS feeds used only if the DB returns no active RSS sources.
 const DEFAULT_RSS_FEEDS = [
   'https://www.cnbc.com/id/100003114/device/rss/rss.html',        // CNBC Top News
   'https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US', // Yahoo Finance S&P
@@ -28,10 +29,19 @@ interface RSSFeed {
 }
 
 function getFeeds(): string[] {
+  // ENV override takes priority (useful for local dev / testing)
   const envFeeds = process.env.RSS_FEEDS;
   if (envFeeds) {
     return envFeeds.split(',').map((f) => f.trim()).filter(Boolean);
   }
+
+  // Load from DB (news_sources table, type = 'rss', active = true)
+  const dbSources = getActiveNewsSources('rss');
+  if (dbSources.length > 0) {
+    return dbSources.map((s) => s.url).filter((url): url is string => !!url);
+  }
+
+  // Fallback to hardcoded defaults if DB is empty
   return DEFAULT_RSS_FEEDS;
 }
 
@@ -48,7 +58,8 @@ function extractSourceName(feedUrl: string, feedTitle?: string): string {
 function findRelatedSymbols(title: string, content: string | undefined, symbols: string[]): string[] {
   const text = `${title} ${content ?? ''}`.toUpperCase();
   return symbols.filter((s) => {
-    // Para crypto como BTC-USD, buscar tambien BTC y Bitcoin
+    // Para crypto como BTC-USD, buscar tambien BTC y Bitcoin.
+    // TODO: alias names could be derived from the symbol name/description fields in DB.
     const variants = [s.toUpperCase()];
     if (s === 'BTC-USD') variants.push('BTC', 'BITCOIN');
     if (s === 'ETH-USD') variants.push('ETH', 'ETHEREUM');

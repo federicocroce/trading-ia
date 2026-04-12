@@ -1,5 +1,6 @@
 import type { RawNewsArticle } from '@trading/shared';
 import type { NewsSourceAdapter } from './adapter.js';
+import { getActiveNewsSearchKeywords } from '../../db/repository.js';
 
 const NEWSAPI_BASE = 'https://newsapi.org/v2';
 
@@ -25,21 +26,32 @@ function getApiKey(): string | undefined {
 
 // Buscar noticias financieras relevantes al portfolio
 // NewsAPI free tier: 100 req/dia, solo historico >24h en paid
-const FINANCIAL_KEYWORDS = [
+
+// Static fallback keywords — used only when DB returns no active search keywords.
+const FALLBACK_FINANCIAL_KEYWORDS = [
   'stock market', 'oil price', 'cryptocurrency',
   'Argentina economy', 'Vaca Muerta', 'energy sector',
   'Federal Reserve', 'interest rate', 'S&P 500',
   'Bitcoin', 'Ethereum',
 ];
 
+function getFinancialKeywords(): string[] {
+  const dbKeywords = getActiveNewsSearchKeywords();
+  if (dbKeywords.length > 0) {
+    return dbKeywords.map((k) => k.keyword);
+  }
+  return FALLBACK_FINANCIAL_KEYWORDS;
+}
+
 function buildQuery(symbols: string[]): string {
-  // Combinar algunos tickers clave con keywords generales
+  // Combinar algunos tickers clave con keywords generales de la BD
   const tickerNames = symbols
     .filter((s) => !s.includes('-'))
     .slice(0, 5)
     .map((s) => `"${s}"`);
 
-  const parts = [...tickerNames.slice(0, 3), ...FINANCIAL_KEYWORDS.slice(0, 3)];
+  const financialKeywords = getFinancialKeywords();
+  const parts = [...tickerNames.slice(0, 3), ...financialKeywords.slice(0, 3)];
   return parts.join(' OR ');
 }
 

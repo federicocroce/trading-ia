@@ -11,7 +11,7 @@ import type {
   MarketPlaza,
 } from '@trading/shared';
 import { buildBatchNewsAnalysisPrompt, getPlazaForSymbol, PLAZA_CONFIG } from '@trading/shared';
-import { getActiveSymbolList, updateNewsAnalysis } from '../db/repository.js';
+import { getActiveSymbolList, updateNewsAnalysis, getActiveSentimentKeywords } from '../db/repository.js';
 import { getFullSymbolUniverse } from '../discovery/discovery-registry.js';
 import { callAI } from '../shared/ai-router.js';
 import { getNews, getNewsFromDB } from './news.service.js';
@@ -27,62 +27,37 @@ function getMaxBatchSize(): number {
 const INTELLIGENCE_TTL = 60 * 60 * 1000; // 60 minutes — swing trader revisa 1-2x/dia
 
 // Keyword-based sentiment analysis — funciona sin IA
-const POSITIVE_KEYWORDS = [
-  // English
-  'surge', 'surges', 'soar', 'soars', 'rally', 'rallies', 'gain', 'gains', 'jump', 'jumps',
-  'rise', 'rises', 'climb', 'climbs', 'boost', 'record high', 'all-time high', 'breakout',
-  'upgrade', 'upgrades', 'outperform', 'beat', 'beats', 'strong', 'bullish', 'upbeat',
-  'recovery', 'recovers', 'profit', 'profits', 'dividend', 'buyback', 'growth',
-  'positive', 'optimism', 'optimistic', 'momentum', 'opportunity', 'upside',
-  'acquisition', 'merger', 'partnership', 'expansion', 'innovation',
-  'revenue beat', 'earnings beat', 'guidance raise', 'margin expansion',
-  'short squeeze', 'golden cross', 'accumulation', 'inflows', 'rebound',
-  'approval', 'contract win', 'price target raise', 'overweight',
-  'buyback program', 'special dividend', 'stock split',
-  // Spanish
-  'sube', 'suba', 'alcista', 'récord', 'crece', 'crecimiento', 'ganancias',
-  'mejora', 'repunte', 'impulso', 'oportunidad', 'recuperacion', 'expansion',
-  'licitacion exitosa', 'flujo de capitales', 'superavit', 'desregulacion',
-  'acuerdo comercial', 'inversion extranjera', 'produccion record',
-];
+// Keywords are loaded from DB (sentiment_keywords table) with in-memory cache.
+// The cache is populated on first use and reused for the lifetime of the process.
 
-const NEGATIVE_KEYWORDS = [
-  // English
-  'crash', 'crashes', 'plunge', 'plunges', 'drop', 'drops', 'fall', 'falls', 'sink', 'sinks',
-  'decline', 'declines', 'tumble', 'tumbles', 'slump', 'loss', 'losses', 'sell-off', 'selloff',
-  'downgrade', 'downgrades', 'underperform', 'miss', 'misses', 'weak', 'bearish',
-  'risk', 'risks', 'warning', 'warns', 'fear', 'fears', 'crisis', 'recession',
-  'bankruptcy', 'default', 'layoff', 'layoffs', 'cut', 'cuts', 'fraud', 'investigation',
-  'sanction', 'sanctions', 'tariff', 'tariffs', 'inflation', 'shutdown',
-  'profit warning', 'guidance cut', 'margin compression', 'debt restructuring',
-  'death cross', 'distribution', 'outflows', 'delisting', 'sec probe',
-  'class action', 'recall', 'supply disruption', 'margin call',
-  'price target cut', 'underweight', 'downside', 'headwinds',
-  // Spanish
-  'baja', 'bajista', 'caída', 'pérdida', 'pérdidas', 'riesgo', 'crisis',
-  'toma de ganancias', 'presion vendedora', 'riesgo pais', 'dolar blue',
-  'brecha cambiaria', 'cepo', 'default', 'devaluacion', 'inflacion',
-  'conflicto gremial', 'paro', 'embargo', 'deuda soberana',
-];
+let _sentimentCache: {
+  positive: Set<string>;
+  negative: Set<string>;
+  highImpact: Set<string>;
+} | null = null;
 
-const HIGH_IMPACT_KEYWORDS = [
-  'crash', 'surge', 'record', 'all-time', 'bankruptcy', 'merger', 'acquisition',
-  'fed', 'interest rate', 'earnings', 'guidance', 'tariff', 'sanction', 'war',
-  'crisis', 'default', 'rally', 'breakout', 'plunge',
-  'fed rate', 'rate cut', 'rate hike', 'quantitative', 'stimulus',
-  'opec', 'embargo', 'invasion', 'ceasefire', 'election',
-  'devaluation', 'devaluacion', 'riesgo pais',
-];
+function getSentimentSets(): { positive: Set<string>; negative: Set<string>; highImpact: Set<string> } {
+  if (_sentimentCache) return _sentimentCache;
+  const keywords = getActiveSentimentKeywords();
+  _sentimentCache = {
+    positive: new Set(keywords.filter((k) => k.sentiment === 'positive').map((k) => k.keyword.toLowerCase())),
+    negative: new Set(keywords.filter((k) => k.sentiment === 'negative').map((k) => k.keyword.toLowerCase())),
+    highImpact: new Set(keywords.filter((k) => k.impactLevel === 'high').map((k) => k.keyword.toLowerCase())),
+  };
+  return _sentimentCache;
+}
 
 function keywordSentimentAnalysis(title: string): { sentiment: SentimentType; impact: 'high' | 'medium' | 'low' } {
   const lower = title.toLowerCase();
+  const { positive, negative, highImpact } = getSentimentSets();
+
   let posScore = 0;
   let negScore = 0;
 
-  for (const kw of POSITIVE_KEYWORDS) {
+  for (const kw of positive) {
     if (lower.includes(kw)) posScore++;
   }
-  for (const kw of NEGATIVE_KEYWORDS) {
+  for (const kw of negative) {
     if (lower.includes(kw)) negScore++;
   }
 
@@ -91,7 +66,7 @@ function keywordSentimentAnalysis(title: string): { sentiment: SentimentType; im
     : 'neutral';
 
   let impact: 'high' | 'medium' | 'low' = 'low';
-  for (const kw of HIGH_IMPACT_KEYWORDS) {
+  for (const kw of highImpact) {
     if (lower.includes(kw)) { impact = 'high'; break; }
   }
   if (impact === 'low' && (posScore + negScore) >= 2) impact = 'medium';

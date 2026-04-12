@@ -143,23 +143,24 @@ export async function classifyAsset(symbol: string): Promise<AssetClassification
   }
 }
 
+// Exchange codes are standard ISO — independent of user portfolio.
+// Changes here require adding a new exchange, which is an infrastructure change.
+const ARG_EXCHANGES = ['BUE', 'BCBA', 'BA'] as const;
+const US_EXCHANGES = ['NMS', 'NYQ', 'NGM', 'NCM', 'PCX', 'BTS', 'ASE'] as const;
+
 function determineInstrumentType(quoteType: string, exchange: string, symbol: string): InstrumentType {
   if (quoteType === 'ETF' || quoteType === 'MUTUALFUND') return 'etf';
   if (quoteType === 'CRYPTOCURRENCY' || symbol.includes('-USD')) return 'crypto';
 
   // Argentina exchanges
-  const argExchanges = ['BUE', 'BCBA', 'BA'];
-  if (argExchanges.includes(exchange)) return 'cedear';
+  if ((ARG_EXCHANGES as readonly string[]).includes(exchange)) return 'cedear';
 
   return 'accion';
 }
 
 function determineMarket(exchange: string): 'argentina' | 'us' | 'global' {
-  const argExchanges = ['BUE', 'BCBA', 'BA'];
-  if (argExchanges.includes(exchange)) return 'argentina';
-
-  const usExchanges = ['NMS', 'NYQ', 'NGM', 'NCM', 'PCX', 'BTS', 'ASE'];
-  if (usExchanges.includes(exchange)) return 'us';
+  if ((ARG_EXCHANGES as readonly string[]).includes(exchange)) return 'argentina';
+  if ((US_EXCHANGES as readonly string[]).includes(exchange)) return 'us';
 
   return 'global';
 }

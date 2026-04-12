@@ -100,6 +100,8 @@ export interface MarketReport {
   scenarios: MarketReportScenario[];
   avoidList: string[];
   engine: string;
+  status?: 'ok' | 'partial' | 'failed';
+  errors?: string[];
 }
 
 // --- Sector Impact & Reports (news-first pipeline) ---
@@ -146,4 +148,32 @@ export interface SectorCorrelation {
   to: string[];
   direction: 'positive' | 'negative' | 'mixed';
   strength: number; // 0-1
+}
+
+// ============================================================
+// PIPELINE TYPES
+// ============================================================
+
+export type StageStatus = 'pending' | 'running' | 'ok' | 'partial' | 'failed' | 'skipped'
+
+export interface StageResult {
+  status: StageStatus
+  startedAt: string | null
+  finishedAt: string | null
+  detail: string
+  errors: string[]
+  criticalError?: string
+}
+
+export interface PipelineRun {
+  id: number
+  date: string
+  status: 'running' | 'ok' | 'partial' | 'failed'
+  stages: {
+    news: StageResult
+    analysis: StageResult
+    report: StageResult
+  }
+  startedAt: string
+  finishedAt: string | null
 }

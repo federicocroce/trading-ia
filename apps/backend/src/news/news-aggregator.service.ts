@@ -1,6 +1,6 @@
 import type { NewsItem, RawNewsArticle } from '@trading/shared';
 import { getAvailableAdapters } from './sources/index.js';
-import { getActiveSymbolList } from '../db/repository.js';
+import { getActiveSymbolList, getSymbolsByMarket } from '../db/repository.js';
 import { registerNovelTickers } from '../discovery/discovery-registry.js';
 import { isValidTickerFormat } from '../discovery/ticker-validator.js';
 
@@ -68,11 +68,14 @@ function classifySectors(relatedTickers: string[]): string[] {
     XOM: 'energy', CVX: 'energy',
     'BTC-USD': 'crypto', 'ETH-USD': 'crypto',
   };
-  const argTickers = ['VIST', 'YPF', 'PAM', 'GGAL', 'BMA', 'TGS', 'CEPU'];
+
+  // Argentina tickers fetched from DB (symbols with argentina plaza).
+  // Falls back to empty list if DB returns nothing (sector label still works via sectorMap).
+  const argTickersFromDB = getSymbolsByMarket('argentina').map((s) => s.symbol);
 
   for (const ticker of relatedTickers) {
     if (sectorMap[ticker]) sectors.add(sectorMap[ticker]);
-    if (argTickers.includes(ticker)) sectors.add('argentina');
+    if (argTickersFromDB.includes(ticker)) sectors.add('argentina');
   }
   if (sectors.size === 0) sectors.add('global');
   return Array.from(sectors);
