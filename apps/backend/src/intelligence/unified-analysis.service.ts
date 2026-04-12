@@ -31,12 +31,12 @@ const BATCH_SIZE = 4; // DeepSeek R1 vía OpenRouter: 4 en paralelo es seguro
  */
 function buildCompactCard(
   opp: Opportunity,
+  positions: Array<{ symbol: string; quantity: number; avgCost: number }>,
   tech?: TechnicalSummary,
   fund?: FundamentalSummary,
   sent?: SentimentInput,
 ): string {
   const lines: string[] = [];
-  const positions = getPortfolioPositions();
   const pos = positions.find(p => p.symbol === opp.symbol);
   const ind = tech?.indicators;
   const w = tech?.weekly;
@@ -122,8 +122,9 @@ async function analyzeBatch(
 ): Promise<Map<string, UnifiedAssetAnalysis>> {
   const result = new Map<string, UnifiedAssetAnalysis>();
 
+  const positions = getPortfolioPositions();
   const cards = batch
-    .map(o => buildCompactCard(o, techMap.get(o.symbol), fundMap.get(o.symbol), sentimentMap.get(o.symbol)))
+    .map(o => buildCompactCard(o, positions, techMap.get(o.symbol), fundMap.get(o.symbol), sentimentMap.get(o.symbol)))
     .join('\n---\n');
 
   try {
