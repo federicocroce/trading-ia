@@ -1,6 +1,10 @@
+import { useState } from 'react';
 import { trpc } from '@/shared/trpc';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { getStaleness } from '@/hooks/useDataStaleness';
+import { PipelineHistoryModal } from '@/pipeline/PipelineHistoryModal';
+import { PipelineStatusToast } from '@/pipeline/PipelineStatusToast';
+import { usePipeline } from '@/pipeline/usePipeline';
 
 type ServiceStatus = 'ok' | 'degraded' | 'error';
 
@@ -14,7 +18,7 @@ interface ServiceState {
   successCount: number;
 }
 
-const DOT: Record<ServiceStatus, string> = {
+const DOT_COLOR: Record<ServiceStatus, string> = {
   ok: 'bg-green-500',
   degraded: 'bg-yellow-500',
   error: 'bg-red-500',
@@ -26,20 +30,15 @@ const TEXT_COLOR: Record<ServiceStatus, string> = {
   error: 'text-red-400',
 };
 
-function ServicePill({ service, onRetry }: { service: ServiceState; onRetry?: () => void }) {
+function ServicePill({ service }: { service: ServiceState }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <div className="flex items-center gap-1 cursor-help">
-          <div className={`w-1.5 h-1.5 rounded-full ${DOT[service.status]}`} />
+          <div className={`w-1.5 h-1.5 rounded-full ${DOT_COLOR[service.status]}`} />
           <span className={`text-[10px] font-mono ${TEXT_COLOR[service.status]}`}>
             {service.name}
           </span>
-          {service.status !== 'ok' && service.lastError && (
-            <span className="text-[9px] text-muted-foreground">
-              ({getStaleness(service.lastError).label})
-            </span>
-          )}
         </div>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs space-y-1">
@@ -59,14 +58,63 @@ function ServicePill({ service, onRetry }: { service: ServiceState; onRetry?: ()
             Errores consecutivos: {service.errorCount}
           </p>
         )}
-        {onRetry && service.status !== 'ok' && (
-          <button
-            onClick={onRetry}
-            className="text-[10px] text-blue-400 hover:text-blue-300 underline mt-1 block"
-          >
-            Reintentar
-          </button>
-        )}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+// Semáforo: verde=ok/skipped hoy, rojo=failed, amarillo=no corrió hoy
+type StageLight = 'ok' | 'failed' | 'pending';
+
+const STAGE_DOT: Record<StageLight, string> = {
+  ok: 'bg-green-500',
+  failed: 'bg-red-500',
+  pending: 'bg-yellow-500',
+};
+
+const STAGE_TEXT: Record<StageLight, string> = {
+  ok: 'text-muted-foreground',
+  failed: 'text-red-400',
+  pending: 'text-yellow-400',
+};
+
+interface StagePillProps {
+  label: string;
+  light: StageLight;
+  timestamp: number | null;
+  detail?: string;
+  onClick: () => void;
+}
+
+function StagePill({ label, light, timestamp, detail, onClick }: StagePillProps) {
+  const s = getStaleness(timestamp);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          className="flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity"
+          onClick={onClick}
+        >
+          <div className={`w-1.5 h-1.5 rounded-full ${STAGE_DOT[light]}`} />
+          <span className={`text-[10px] font-mono ${STAGE_TEXT[light]}`}>
+            {label}
+          </span>
+          {timestamp && (
+            <span className={`text-[10px] font-mono ${
+              s.level === 'fresh' ? 'text-muted-foreground' :
+              s.level === 'warning' ? 'text-yellow-400' : 'text-red-400'
+            }`}>
+              {s.label}
+            </span>
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs space-y-1">
+        <p className="font-semibold text-xs">{label}</p>
+        {detail && <p className="text-[10px] text-muted-foreground">{detail}</p>}
+        {light === 'pending' && <p className="text-[10px] text-yellow-400">No corrió hoy — click para abrir pipeline</p>}
+        {light === 'failed' && <p className="text-[10px] text-red-400">Falló — click para ver detalles y re-correr</p>}
+        {light === 'ok' && timestamp && <p className="text-[10px] text-muted-foreground">Última ejecución: {getStaleness(timestamp).label}</p>}
       </TooltipContent>
     </Tooltip>
   );
@@ -102,94 +150,143 @@ function ScanProgress() {
   );
 }
 
-function DataTimestamps() {
-  const { data: timestamps } = trpc.opportunities.processTimestamps.useQuery(undefined, {
-    refetchInterval: 30_000,
-  });
-
-  if (!timestamps) return null;
-
-  const items = [
-    { key: 'N', ts: timestamps.news, label: 'Noticias' },
-    { key: 'F', ts: timestamps.fundamentals, label: 'Fundamentales' },
-    { key: 'A', ts: timestamps.analysis, label: 'Análisis' },
-  ];
-
-  return (
-    <div className="flex items-center gap-2 border-l border-border pl-2">
-      {items.map(({ key, ts, label }) => {
-        const s = getStaleness(ts ?? null);
-        const color =
-          s.level === 'fresh' ? 'text-muted-foreground' :
-          s.level === 'warning' ? 'text-yellow-400' :
-          'text-red-400';
-        return (
-          <Tooltip key={key}>
-            <TooltipTrigger asChild>
-              <span className={`text-[10px] font-mono cursor-help ${color}`}>
-                {key}:{s.label}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{label}: última actualización {s.label}</TooltipContent>
-          </Tooltip>
-        );
-      })}
-    </div>
-  );
+function isToday(timestamp: number | null): boolean {
+  if (!timestamp) return false;
+  const d = new Date(timestamp);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
 }
 
 export function InfraBar() {
-  const { data, refetch } = trpc.health.useQuery(undefined, {
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const { data: health, refetch } = trpc.health.useQuery(undefined, {
     refetchInterval: 30_000,
     staleTime: 15_000,
   });
   const utils = trpc.useUtils();
 
-  const handleRetry = () => {
-    refetch();
-    utils.invalidate();
-  };
+  const { data: timestamps } = trpc.opportunities.processTimestamps.useQuery(undefined, {
+    refetchInterval: 30_000,
+  });
 
-  const services: ServiceState[] = (data?.services as ServiceState[]) ?? [];
-  const hasProblems = services.some((s) => s.status !== 'ok');
-  const problems = services.filter((s) => s.status !== 'ok');
-  const okServices = services.filter((s) => s.status === 'ok');
+  const { todayRun, history, isRunning, run, rerunStage } = usePipeline();
+
+  const services: ServiceState[] = (health?.services as ServiceState[]) ?? [];
+  const hasServiceProblems = services.some((s) => s.status !== 'ok');
+
+  // Determinar estado de cada stage del pipeline
+  const today = new Date().toISOString().split('T')[0];
+
+  function stageLight(stageKey: 'news' | 'analysis' | 'report', tsMs: number | null): StageLight {
+    if (todayRun) {
+      const s = todayRun.stages[stageKey].status;
+      if (s === 'ok' || s === 'skipped') return 'ok';
+      if (s === 'failed') return 'failed';
+      if (s === 'partial') return 'ok'; // parcial = corrió con advertencias
+    }
+    // Sin run de hoy — usar timestamps
+    if (isToday(tsMs)) return 'ok';
+    return 'pending';
+  }
+
+  const newsDetail = todayRun?.stages.news.detail;
+  const analysisDetail = todayRun?.stages.analysis.detail;
+  const reportDetail = todayRun?.stages.report.detail;
+
+  // Para reporte: usamos el market report timestamp si existe
+  const { data: marketReport } = trpc.intelligence.marketReport.useQuery(undefined, {
+    refetchInterval: 60_000,
+  });
+  const reportTs = marketReport ? Date.now() : null; // si hay reporte de hoy, está fresco
+
+  const openModal = () => setModalOpen(true);
 
   return (
-    <div
-      className={`h-7 flex items-center px-3 gap-3 border-b text-[10px] shrink-0 transition-colors ${
-        hasProblems ? 'bg-red-500/5 border-red-500/20' : 'bg-background border-border'
-      }`}
-      role="status"
-      aria-label="Estado de servicios"
-    >
-      {hasProblems ? (
-        <>
-          <span className="text-red-400 font-semibold shrink-0">
-            {problems.length} {problems.length === 1 ? 'servicio caído' : 'servicios caídos'}
-          </span>
-          {problems.map((s) => (
-            <ServicePill key={s.name} service={s} onRetry={handleRetry} />
-          ))}
-          {okServices.length > 0 && (
-            <>
-              <span className="text-border">|</span>
-              {okServices.map((s) => <ServicePill key={s.name} service={s} />)}
-            </>
+    <>
+      <div
+        className={`h-6 flex items-center px-3 gap-3 border-b text-[10px] shrink-0 transition-colors ${
+          hasServiceProblems ? 'bg-red-500/5 border-red-500/20' : 'bg-background border-border'
+        }`}
+        role="status"
+        aria-label="Estado del sistema"
+      >
+        {/* Servicios externos */}
+        <div className="flex items-center gap-2">
+          {hasServiceProblems ? (
+            <span className="text-red-400 font-semibold shrink-0">
+              {services.filter(s => s.status !== 'ok').length} caído{services.filter(s => s.status !== 'ok').length > 1 ? 's' : ''}
+            </span>
+          ) : (
+            <div className="flex items-center gap-1 shrink-0">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
+              <span className="text-muted-foreground">Servicios OK</span>
+            </div>
           )}
-        </>
-      ) : (
-        <>
-          <div className="flex items-center gap-1 shrink-0">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-500" />
-            <span className="text-muted-foreground">Servicios OK</span>
-          </div>
-          {services.map((s) => <ServicePill key={s.name} service={s} />)}
-        </>
-      )}
+          {services.map((s) => (
+            <ServicePill key={s.name} service={s} />
+          ))}
+        </div>
 
-      <ScanProgress />
-      <DataTimestamps />
-    </div>
+        {/* Separador */}
+        <span className="text-border shrink-0">|</span>
+
+        {/* Pipeline stages — semaforizados */}
+        <div className="flex items-center gap-3">
+          <StagePill
+            label="Noticias"
+            light={stageLight('news', timestamps?.news ?? null)}
+            timestamp={timestamps?.news ?? null}
+            detail={newsDetail}
+            onClick={openModal}
+          />
+          <StagePill
+            label="Fundamentales"
+            light={isToday(timestamps?.fundamentals ?? null) ? 'ok' : 'pending'}
+            timestamp={timestamps?.fundamentals ?? null}
+            detail="Datos fundamentales de Yahoo Finance"
+            onClick={openModal}
+          />
+          <StagePill
+            label="Análisis"
+            light={stageLight('analysis', timestamps?.analysis ?? null)}
+            timestamp={timestamps?.analysis ?? null}
+            detail={analysisDetail}
+            onClick={openModal}
+          />
+          <StagePill
+            label="Reporte"
+            light={stageLight('report', reportTs)}
+            timestamp={reportTs}
+            detail={reportDetail}
+            onClick={openModal}
+          />
+        </div>
+
+        {/* Scan en progreso */}
+        <ScanProgress />
+
+        {/* Pipeline corriendo — indicador animado */}
+        {isRunning && (
+          <div className="flex items-center gap-1.5 border-l border-border pl-2 ml-auto">
+            <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+            <span className="text-[10px] text-blue-400">Pipeline ejecutando...</span>
+          </div>
+        )}
+      </div>
+
+      <PipelineHistoryModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        history={history}
+        onRerunStage={rerunStage}
+        onRerunAll={() => run(false)}
+        isRunning={isRunning}
+      />
+
+      {todayRun && isRunning && <PipelineStatusToast run={todayRun} />}
+    </>
   );
 }

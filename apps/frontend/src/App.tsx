@@ -16,7 +16,6 @@ import { OpportunityDashboard } from '@/opportunities/OpportunityDashboard';
 import { DailySummary } from '@/daily/DailySummary';
 import { NavigationContext } from '@/shared/navigation';
 import { trpc } from '@/shared/trpc';
-import { PipelineStatusButton } from './pipeline/PipelineStatusButton';
 
 function getSymbolFromURL(): string | null {
   const params = new URLSearchParams(window.location.search);
@@ -81,9 +80,6 @@ export function App() {
             <div className="flex-1">
               <Header />
             </div>
-            <div className="pr-2">
-              <PipelineStatusButton />
-            </div>
           </div>
 
           <div className="flex flex-1 overflow-hidden">
@@ -94,14 +90,14 @@ export function App() {
                 <SymbolDetailPage symbol={selectedSymbol} onBack={goHome} />
               </div>
             ) : (
-              <Tabs defaultValue="daily" className="flex-1 flex flex-col overflow-hidden gap-0">
+              <Tabs defaultValue="portfolio" className="flex-1 flex flex-col overflow-hidden gap-0">
                 <TabsList variant="line" className="w-full justify-start rounded-none border-b border-border bg-card px-2">
+                  <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
                   <TabsTrigger value="daily">Resumen</TabsTrigger>
                   <TabsTrigger value="opportunities" className="relative">
                     Oportunidades
                     <BuyBadge />
                   </TabsTrigger>
-                  <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
                   <TabsTrigger value="news">Noticias</TabsTrigger>
                   <TabsTrigger value="transactions">Operaciones</TabsTrigger>
                 </TabsList>
