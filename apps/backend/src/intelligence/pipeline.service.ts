@@ -174,7 +174,7 @@ async function runReportStage(runId: number): Promise<StageResult> {
   const startedAt = new Date().toISOString();
   updatePipelineStage(runId, 'report', { status: 'running', startedAt });
   try {
-    const report = await generateMarketReport(_stageUnifiedAnalyses ?? undefined);
+    const report = await generateMarketReport();
     _stageUnifiedAnalyses = null; // limpiar después de uso
     const themeCount = report.themes?.length ?? 0;
     const reportErrors: string[] = report.errors ?? [];
