@@ -171,6 +171,7 @@ export interface PipelineRun {
   status: 'running' | 'ok' | 'partial' | 'failed'
   stages: {
     news: StageResult
+    fundamentals: StageResult
     analysis: StageResult
     report: StageResult
   }
