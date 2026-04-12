@@ -11,6 +11,9 @@ validateEnv();
 import { initDatabase } from './db/init.js';
 initDatabase();
 
+import { initPipeline } from './intelligence/pipeline.service.js';
+initPipeline();
+
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { trpcServer } from '@hono/trpc-server';
