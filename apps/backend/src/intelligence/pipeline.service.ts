@@ -10,8 +10,12 @@ import {
 } from './pipeline.repository.js';
 import { generateMarketReport } from './market-report.service.js';
 import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAge } from '../db/repository.js';
-import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess } from '../opportunities/opportunities.service.js';
+import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, getLastUnifiedAnalyses } from '../opportunities/opportunities.service.js';
 import type { PipelineRun, StageResult } from '@trading/shared';
+
+// State passed between stages within a single pipeline run
+// Null between runs; populated by STAGE 3; consumed and cleared by STAGE 4
+let _stageUnifiedAnalyses: Map<string, import('@trading/shared').UnifiedAssetAnalysis> | null = null;
 
 export function initPipeline() {
   markOrphanedRunsFailed();
@@ -139,16 +143,19 @@ async function runAnalysisStage(runId: number): Promise<StageResult> {
   try {
     const result = await runAnalysisBlocking();
     const symbolCount = result.totalSymbolsScanned ?? 0;
+    // Capturar análisis unificados para STAGE 4
+    _stageUnifiedAnalyses = getLastUnifiedAnalyses();
     const sr: StageResult = {
       status: 'ok',
       startedAt,
       finishedAt: new Date().toISOString(),
-      detail: `${symbolCount} símbolos analizados.`,
+      detail: `${symbolCount} símbolos analizados, ${_stageUnifiedAnalyses?.size ?? 0} con análisis IA.`,
       errors: [],
     };
     updatePipelineStage(runId, 'analysis', sr);
     return sr;
   } catch (err) {
+    _stageUnifiedAnalyses = null;
     const sr: StageResult = {
       status: 'failed',
       startedAt,
@@ -166,7 +173,8 @@ async function runReportStage(runId: number): Promise<StageResult> {
   const startedAt = new Date().toISOString();
   updatePipelineStage(runId, 'report', { status: 'running', startedAt });
   try {
-    const report = await generateMarketReport();
+    const report = await generateMarketReport(_stageUnifiedAnalyses ?? undefined);
+    _stageUnifiedAnalyses = null; // limpiar después de uso
     const themeCount = report.themes?.length ?? 0;
     const reportErrors: string[] = report.errors ?? [];
     const sr: StageResult = {
@@ -193,6 +201,7 @@ async function runReportStage(runId: number): Promise<StageResult> {
 }
 
 export async function checkOrRunPipeline(force = false): Promise<PipelineRun> {
+  _stageUnifiedAnalyses = null; // reset para este run
   const today = getToday();
   const activeRun = getActivePipelineRun();
   if (activeRun) return activeRun;
