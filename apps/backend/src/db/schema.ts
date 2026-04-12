@@ -319,6 +319,12 @@ export const pipelineRuns = sqliteTable('pipeline_runs', {
   newsErrors: text('news_errors'),
   newsStartedAt: text('news_started_at'),
   newsFinishedAt: text('news_finished_at'),
+  // Stage: fundamentals
+  fundamentalsStatus: text('fundamentals_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
+  fundamentalsDetail: text('fundamentals_detail'),
+  fundamentalsErrors: text('fundamentals_errors'),  // JSON array
+  fundamentalsStartedAt: text('fundamentals_started_at'),
+  fundamentalsFinishedAt: text('fundamentals_finished_at'),
   analysisStatus: text('analysis_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
   analysisDetail: text('analysis_detail'),
   analysisErrors: text('analysis_errors'),
