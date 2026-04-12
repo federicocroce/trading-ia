@@ -16,6 +16,7 @@ import { OpportunityDashboard } from '@/opportunities/OpportunityDashboard';
 import { DailySummary } from '@/daily/DailySummary';
 import { NavigationContext } from '@/shared/navigation';
 import { trpc } from '@/shared/trpc';
+import { PipelineStatusButton } from './pipeline/PipelineStatusButton';
 
 function getSymbolFromURL(): string | null {
   const params = new URLSearchParams(window.location.search);
@@ -79,6 +80,9 @@ export function App() {
             </Button>
             <div className="flex-1">
               <Header />
+            </div>
+            <div className="pr-2">
+              <PipelineStatusButton />
             </div>
           </div>
 
