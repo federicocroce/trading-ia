@@ -18,7 +18,14 @@ export function recordSignals(opportunities: Opportunity[]): number {
   let recorded = 0;
 
   for (const opp of opportunities) {
-    if (opp.action !== 'BUY' && opp.action !== 'SELL') continue;
+    const isActionable = opp.action === 'BUY' || opp.action === 'SELL';
+    // También trackear WATCH con timing activo (now/soon) y 2+ triggers — señales de anticipación
+    const tv = (opp as any).timingView as { timing?: string; triggers?: unknown[]; confidence?: number } | undefined;
+    const isWatchWithTiming = opp.action === 'WATCH'
+      && tv && (tv.timing === 'now' || tv.timing === 'soon')
+      && Array.isArray(tv.triggers) && tv.triggers.length >= 2;
+
+    if (!isActionable && !isWatchWithTiming) continue;
     if (opp.currentPrice <= 0) continue;
 
     try {

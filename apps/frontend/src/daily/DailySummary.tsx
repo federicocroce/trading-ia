@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { trpc } from '@/shared/trpc';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MarketReportView } from './MarketReportView';
 import { AccuracyPanel } from './AccuracyPanel';
+import { usePipeline } from '../pipeline/usePipeline';
 
 function MarketReportSection() {
   return <MarketReportView />;
@@ -175,7 +177,7 @@ function TrackingHistory() {
   );
 }
 
-function PortfolioAlerts() {
+function PortfolioAlerts({ symbolFilter }: { symbolFilter: string }) {
   const { data: portfolio } = trpc.portfolio.get.useQuery(undefined, { staleTime: 60_000 });
   const { data: scan } = trpc.opportunities.scan.useQuery(undefined, { staleTime: 5 * 60_000 });
 
@@ -187,6 +189,7 @@ function PortfolioAlerts() {
   // Posiciones del portfolio con señal IA
   const positionsWithSignals = (portfolio.positions ?? [])
     .filter((p: any) => p.quantity > 0)
+    .filter((p: any) => !symbolFilter || p.symbol.toUpperCase().includes(symbolFilter.toUpperCase()))
     .map((p: any) => {
       const opp = oppMap.get(p.symbol);
       return { ...p, opp };
@@ -272,7 +275,7 @@ function PortfolioAlerts() {
   );
 }
 
-function ActiveAlerts() {
+function ActiveAlerts({ symbolFilter }: { symbolFilter: string }) {
   const { data: scan, isLoading } = trpc.opportunities.scan.useQuery(undefined, {
     staleTime: 5 * 60_000,
   });
@@ -304,22 +307,30 @@ function ActiveAlerts() {
     );
   }
 
-  const opportunities = scan?.opportunities ?? [];
+  const allOpportunities = scan?.opportunities ?? [];
+  const opportunities = symbolFilter
+    ? allOpportunities.filter(o => o.symbol.toUpperCase().includes(symbolFilter.toUpperCase()))
+    : allOpportunities;
 
   // Filtrar oportunidades con timing activo O divergencias semanales
+  // Incluye WATCH con timing activo — son las señales de anticipación más valiosas
   const activeAlerts = opportunities.filter(o => {
     const tv = (o as any).timingView;
     const divs = (o as any).divergences as Array<{ timeframe: string }> | undefined;
     const hasWeeklyDivergence = divs?.some(d => d.timeframe === 'weekly');
     const hasActiveTiming = tv && tv.triggers.length > 0 && (tv.timing === 'now' || tv.timing === 'soon');
     return (hasActiveTiming || hasWeeklyDivergence)
-      && (o.action === 'BUY' || o.action === 'SELL');
+      && (o.action === 'BUY' || o.action === 'SELL' || o.action === 'WATCH');
   });
 
-  // Top BUY/SELL del día
+  // Top BUY/SELL/WATCH-con-timing del día
   const topSignals = opportunities
-    .filter(o => o.action === 'BUY' || o.action === 'SELL')
-    .slice(0, 5);
+    .filter(o => {
+      if (o.action === 'BUY' || o.action === 'SELL') return true;
+      const tv = (o as any).timingView;
+      return o.action === 'WATCH' && tv && tv.triggers.length >= 2 && (tv.timing === 'now' || tv.timing === 'soon');
+    })
+    .slice(0, 8);
 
   return (
     <div className="space-y-4">
@@ -439,6 +450,7 @@ function MarketDigestPanel() {
   const { data: digest } = trpc.intelligence.marketDigest.useQuery(undefined, {
     staleTime: 5 * 60_000,
   });
+  const { run, isRunning } = usePipeline();
 
   if (!digest) return null;
 
@@ -491,7 +503,7 @@ function MarketDigestPanel() {
         )}
 
         {/* Lo que SÍ haría */}
-        {digest.wouldDo && digest.wouldDo.length > 0 && (
+        {digest.wouldDo && digest.wouldDo.length > 0 ? (
           <div className="rounded-md bg-green-500/5 border border-green-500/20 p-2">
             <span className="text-[9px] text-green-400 uppercase tracking-wider font-medium">Lo que SI haria hoy</span>
             <div className="space-y-1 mt-1">
@@ -499,6 +511,22 @@ function MarketDigestPanel() {
                 <p key={i} className="text-[10px] text-foreground leading-relaxed">- {item}</p>
               ))}
             </div>
+          </div>
+        ) : (
+          <div className="rounded-md bg-yellow-500/5 border border-yellow-500/20 p-2 flex items-center justify-between gap-2">
+            <div>
+              <span className="text-[9px] text-yellow-400 uppercase tracking-wider font-medium">Lo que SI haria hoy</span>
+              <p className="text-[10px] text-muted-foreground mt-0.5">El modelo no generó recomendaciones en este run. Regenerá el análisis para obtenerlas.</p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-[9px] px-2 shrink-0 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10"
+              onClick={() => run()}
+              disabled={isRunning}
+            >
+              {isRunning ? 'Ejecutando...' : 'Regenerar'}
+            </Button>
           </div>
         )}
 
@@ -531,15 +559,26 @@ function MarketDigestPanel() {
 }
 
 export function DailySummary() {
+  const [symbolFilter, setSymbolFilter] = useState('');
+
   return (
     <div className="p-4 max-w-4xl mx-auto space-y-4">
-      <h2 className="text-sm font-semibold text-foreground">Resumen del dia</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-foreground">Resumen del dia</h2>
+        <input
+          type="text"
+          placeholder="Filtrar simbolo..."
+          value={symbolFilter}
+          onChange={(e) => setSymbolFilter(e.target.value.toUpperCase())}
+          className="h-7 w-32 rounded border border-border/50 bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
 
-      <SectorImpactsSection />
       <MarketReportSection />
+      <SectorImpactsSection />
       <MarketDigestPanel />
-      <PortfolioAlerts />
-      <ActiveAlerts />
+      <PortfolioAlerts symbolFilter={symbolFilter} />
+      <ActiveAlerts symbolFilter={symbolFilter} />
       <AccuracyPanel />
       <TrackingHistory />
     </div>

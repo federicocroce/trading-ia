@@ -206,7 +206,9 @@ async function identifyActiveThemes(
   // Build CEDEAR/ADR list from DB
   const adrSymbols = getSymbolsByType('adr').map(s => s.symbol).join(', ');
 
-  const prompt = `Sos un analista de mercado. Te doy noticias agrupadas por tematica. Tu trabajo:
+  const prompt = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Todos los textos deben estar en español. Prohibido usar inglés.
+
+Sos un analista de mercado. Te doy noticias agrupadas por tematica. Tu trabajo:
 
 1. Identifica las 4-6 TEMATICAS MAS RELEVANTES para un swing trader (no todas, solo las que impactan inversiones).
 2. Para cada tematica, determina:
@@ -269,7 +271,9 @@ async function analyzeThemeDeep(
     tickerLines.push(line);
   }
 
-  const prompt = `Sos un analista de inversiones senior. Analiza esta TEMATICA ESPECIFICA para un swing trader argentino.
+  const prompt = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Todos los textos (thesis, catalysts, risks, name, sector) deben estar en español. Prohibido usar inglés.
+
+Sos un analista de inversiones senior. Analiza esta TEMATICA ESPECIFICA para un swing trader argentino.
 
 TEMATICA: ${theme.theme}
 CONTEXTO: ${theme.summary}

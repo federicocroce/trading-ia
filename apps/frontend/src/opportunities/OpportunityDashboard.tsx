@@ -6,6 +6,7 @@ import { trpc } from '@/shared/trpc';
 import { OpportunityCard } from './OpportunityCard';
 import { SectorFilter } from './SectorFilter';
 import { IntelligenceReportSheet } from '@/intelligence/IntelligenceReportSheet';
+import { usePipeline } from '@/pipeline/usePipeline';
 
 type OpportunitySector = 'argentina-energy' | 'argentina-finance' | 'us-energy' | 'us-tech' | 'crypto';
 
@@ -66,8 +67,10 @@ export function OpportunityDashboard() {
   const [selectedSectors, setSelectedSectors] = useState<OpportunitySector[]>([]);
   const [actionFilter, setActionFilter] = useState<'BUY' | 'SELL' | 'WATCH' | null>(null);
   const [portfolioFilter, setPortfolioFilter] = useState(false);
+  const [symbolFilter, setSymbolFilter] = useState('');
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.opportunities.scan.useQuery(undefined);
+  const { isRunning } = usePipeline();
   const refresh = trpc.opportunities.refresh.useMutation({
     onSuccess: () => utils.opportunities.scan.invalidate(),
   });
@@ -188,10 +191,10 @@ export function OpportunityDashboard() {
             <TooltipTrigger asChild>
               <button
                 onClick={() => refresh.mutate({})}
-                disabled={refresh.isPending}
+                disabled={refresh.isPending || isRunning}
                 className="text-[10px] px-2 py-0.5 rounded border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-40"
               >
-                {refresh.isPending ? 'Recalculando...' : 'Recalcular'}
+                {isRunning ? 'Pipeline corriendo...' : refresh.isPending ? 'Recalculando...' : 'Recalcular'}
               </button>
             </TooltipTrigger>
             <TooltipContent>Fuerza un nuevo escaneo completo con los datos actuales. Tarda ~30 segundos.</TooltipContent>
@@ -200,6 +203,13 @@ export function OpportunityDashboard() {
           <IntelligenceReportSheet />
         </div>
         <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Filtrar simbolo..."
+            value={symbolFilter}
+            onChange={(e) => setSymbolFilter(e.target.value.toUpperCase())}
+            className="h-7 w-32 rounded border border-border/50 bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
           {buyCount > 0 && (
             <Badge
               className={`text-[10px] cursor-pointer transition-all ${actionFilter === 'BUY' ? 'bg-green-500/40 text-green-300 ring-1 ring-green-500' : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'}`}
@@ -270,6 +280,11 @@ export function OpportunityDashboard() {
       {/* Opportunity cards */}
       {(() => {
         let filtered = opportunities;
+
+        // Symbol filter
+        if (symbolFilter) {
+          filtered = filtered.filter((o) => o.symbol.toUpperCase().includes(symbolFilter));
+        }
 
         // Sector filter (client-side)
         if (selectedSectors.length > 0) {

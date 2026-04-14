@@ -36,6 +36,8 @@ import {
   getSymbolHistory,
   getNewsCacheAge,
   getFundamentalCacheAge,
+  getMarketDigestByDate,
+  upsertMarketDigest,
 } from '../db/repository.js';
 import {
   buildAlgorithmicOpportunity,
@@ -58,8 +60,29 @@ export function getLastUnifiedAnalyses(): Map<string, import('@trading/shared').
   return _lastUnifiedAnalyses;
 }
 
-export function getMarketDigest() {
-  return cachedMarketDigest;
+export function getMarketDigest(): import('@trading/shared').MarketDigest | null {
+  if (cachedMarketDigest) return cachedMarketDigest;
+  // Try to load today's digest from DB
+  const today = todayDateStr();
+  const raw = getMarketDigestByDate(today);
+  if (raw) {
+    try {
+      cachedMarketDigest = JSON.parse(raw) as import('@trading/shared').MarketDigest;
+      return cachedMarketDigest;
+    } catch { /* ignore */ }
+  }
+  return null;
+}
+
+export function setMarketDigest(digest: import('@trading/shared').MarketDigest) {
+  cachedMarketDigest = digest;
+  // Persist to DB
+  const today = todayDateStr();
+  try {
+    upsertMarketDigest(today, JSON.stringify(digest));
+  } catch (e) {
+    console.warn('[opportunities] Failed to persist market digest to DB:', (e as Error).message?.slice(0, 100));
+  }
 }
 
 function todayDateStr(): string {
@@ -689,10 +712,38 @@ export async function refreshNewsProcess(): Promise<{ newsCount: number; sectors
     } catch { /* non-critical */ }
   }
 
+  // 5. Fetch fundamentals for newly discovered symbols (background, non-blocking)
+  fetchFundamentalsForNewSymbols(suggestedTickers);
+
   processTimestamps.newsLastRun = Date.now();
   console.log(`[Process A] Completado: ${intelligence.totalNewsCount} noticias, ${sectorReports.length} sectores`);
 
   return { newsCount: intelligence.totalNewsCount, sectorsFound: sectorReports.length };
+}
+
+/**
+ * Fetches fundamentals for symbols that don't have a cache entry yet.
+ * Fire-and-forget — does not block the caller.
+ */
+function fetchFundamentalsForNewSymbols(candidates: string[]): void {
+  if (candidates.length === 0) return;
+  (async () => {
+    const { getFundamentals } = await import('../shared/yahoo.js');
+    const { getFundamentalFromCache: getCache, upsertFundamentalCache } = await import('../db/repository.js');
+    const newSymbols = candidates.filter(s => !getCache(s));
+    if (newSymbols.length === 0) return;
+    console.log(`[Process A] Fetching fundamentals for ${newSymbols.length} new symbols: ${newSymbols.slice(0, 5).join(', ')}${newSymbols.length > 5 ? '...' : ''}`);
+    for (const symbol of newSymbols) {
+      try {
+        const data = await getFundamentals(symbol);
+        upsertFundamentalCache(symbol, JSON.stringify(data));
+        console.log(`[Process A] Fundamentales cacheados: ${symbol}`);
+      } catch {
+        // Non-critical — skip silently
+      }
+      await new Promise(r => setTimeout(r, 500)); // throttle
+    }
+  })().catch(() => { /* non-critical */ });
 }
 
 /**

@@ -242,6 +242,15 @@ export const transactions = sqliteTable('transactions', {
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 
+// --- Market digest (wouldDo / wouldNotDo / summary — persisted per day) ---
+export const marketDigests = sqliteTable('market_digests', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  reportDate: text('report_date').notNull().unique(), // YYYY-MM-DD
+  digest: text('digest').notNull(),                   // JSON (MarketDigest)
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+});
+
 // --- Market themes (reemplaza THEMATIC_QUERIES hardcodeadas) ---
 export const marketThemes = sqliteTable('market_themes', {
   id: integer('id').primaryKey({ autoIncrement: true }),

@@ -10,8 +10,10 @@ import {
   getPipelineHistory,
 } from './pipeline.repository.js';
 import { generateMarketReport } from './market-report.service.js';
+import { generateDailyDigest } from './market-digest.service.js';
 import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAge } from '../db/repository.js';
-import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, getLastUnifiedAnalyses } from '../opportunities/opportunities.service.js';
+import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, getLastUnifiedAnalyses, setMarketDigest } from '../opportunities/opportunities.service.js';
+import { getIntelligenceFromDB } from '../news/news-intelligence.service.js';
 import type { PipelineRun, StageResult } from '@trading/shared';
 
 // State passed between stages within a single pipeline run
@@ -176,6 +178,24 @@ async function runReportStage(runId: number): Promise<StageResult> {
   try {
     const report = await generateMarketReport();
     _stageUnifiedAnalyses = null; // limpiar después de uso
+
+    // Generar market digest (wouldDo, wouldNotDo, overnightSummary, etc.)
+    try {
+      const scan = getTodayOpportunityScan();
+      const intelligence = await getIntelligenceFromDB();
+      if (scan) {
+        const opportunities = JSON.parse(scan.opportunities);
+        const sectorSummary = JSON.parse(scan.sectorSummary ?? '[]');
+        // second order effects vienen de intelligence (no se persisten en la scan)
+        const secondOrderEffects = intelligence.plazas
+          .flatMap((p: any) => p.secondOrderEffects ?? []);
+        const digest = await generateDailyDigest(opportunities, secondOrderEffects, intelligence, sectorSummary);
+        if (digest) setMarketDigest(digest);
+      }
+    } catch (digestErr) {
+      console.warn('[pipeline] Market digest generation failed (non-critical):', (digestErr as Error).message?.slice(0, 100));
+    }
+
     const themeCount = report.themes?.length ?? 0;
     const reportErrors: string[] = report.errors ?? [];
     const sr: StageResult = {

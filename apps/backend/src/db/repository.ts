@@ -989,3 +989,27 @@ export function getTodayOpportunityScan() {
     .orderBy(desc(schema.opportunityScans.createdAt))
     .get();
 }
+
+// ==================== MARKET DIGESTS ====================
+
+export function getMarketDigestByDate(date: string): string | null {
+  const row = db.select().from(schema.marketDigests)
+    .where(eq(schema.marketDigests.reportDate, date))
+    .get();
+  return row?.digest ?? null;
+}
+
+export function upsertMarketDigest(date: string, digest: string) {
+  const existing = db.select().from(schema.marketDigests)
+    .where(eq(schema.marketDigests.reportDate, date))
+    .get();
+  const now = new Date().toISOString();
+  if (existing) {
+    db.update(schema.marketDigests)
+      .set({ digest, updatedAt: now })
+      .where(eq(schema.marketDigests.reportDate, date))
+      .run();
+  } else {
+    db.insert(schema.marketDigests).values({ reportDate: date, digest, createdAt: now, updatedAt: now }).run();
+  }
+}

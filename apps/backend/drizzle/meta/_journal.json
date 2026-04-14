@@ -99,6 +99,13 @@
       "when": 1775400000000,
       "tag": "0013_add_missing_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1775500000000,
+      "tag": "0014_market_digests",
+      "breakpoints": true
     }
   ]
 }

@@ -15,7 +15,9 @@ import {
 export async function identifySectorImpacts(headlines: string[]): Promise<SectorImpact[]> {
   if (headlines.length === 0) return [];
 
-  const prompt = `Sos un analista de mercado. Te doy los titulares de noticias financieras de las ultimas 48hs.
+  const prompt = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Todos los textos (sector, event, etc.) deben estar en español. Prohibido usar inglés.
+
+Sos un analista de mercado. Te doy los titulares de noticias financieras de las ultimas 48hs.
 
 Tu trabajo: identificar los SECTORES FINANCIEROS que estan siendo impactados por estas noticias.
 
@@ -67,7 +69,9 @@ export async function generateSectorReports(
     }, {} as Record<string, string[]>),
   ).map(([sector, tickers]) => `- ${sector}: ${tickers.join(', ')}`).join('\n');
 
-  const prompt = `Sos un analista de inversiones senior. Para cada sector impactado, genera un informe con:
+  const prompt = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Todos los textos (summary, keyNews, riskFactors) deben estar en español. Prohibido usar inglés.
+
+Sos un analista de inversiones senior. Para cada sector impactado, genera un informe con:
 - "sector": nombre del sector
 - "impact": "positive", "negative", o "mixed"
 - "summary": 2-3 oraciones explicando QUE PASA en este sector y POR QUE importa para invertir. Se especifico.

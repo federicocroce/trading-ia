@@ -16,7 +16,9 @@ import type { SentimentInput } from '../opportunities/scoring.js';
 // DEEP ANALYSIS (per-asset, DeepSeek R1 for portfolio, Groq for rest)
 // ============================================================
 
-const DEEP_ANALYSIS_PROMPT = `Sos un analista de inversiones senior asesorando a un swing trader argentino con 4 anios de experiencia. Opera CEDEARs, acciones US, ETFs y crypto. Horizonte: semanas a meses. Busca anticiparse al mercado.
+const DEEP_ANALYSIS_PROMPT = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Todos los textos (positives, concerns, recommendation, wouldDo, wouldNotDo) deben estar en español. Prohibido usar inglés.
+
+Sos un analista de inversiones senior asesorando a un swing trader argentino con 4 anios de experiencia. Opera CEDEARs, acciones US, ETFs y crypto. Horizonte: semanas a meses. Busca anticiparse al mercado.
 
 Te doy fichas tecnicas compactas de varios activos. Para CADA uno genera un analisis completo:
 

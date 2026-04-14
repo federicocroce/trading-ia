@@ -325,7 +325,7 @@ export function computeConfluenceDetail(
 export function scoreToAction(score: number, inPortfolio: boolean, confidence?: number, hasConflicts?: boolean): SignalAction {
   if (score >= 72 && (confidence ?? 0) >= 70 && !hasConflicts) return 'BUY'; // STRONG BUY tier
   if (score >= 72) return hasConflicts ? 'WATCH' : 'BUY';
-  if (score >= 62) return hasConflicts ? 'WATCH' : 'BUY';
+  if (score >= 58) return hasConflicts ? 'WATCH' : 'BUY'; // bajado de 62 → más señales en mercado volátil
   if (score >= 52 && inPortfolio) return 'HOLD';
   if (score >= 42) return inPortfolio ? 'HOLD' : 'WATCH';
   return inPortfolio ? 'SELL' : 'WATCH'; // <42 en portfolio = SELL
