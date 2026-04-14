@@ -7,7 +7,7 @@
  * - Narrative (short summaries): Groq → Qwen local
  */
 
-import { askGroq } from './groq.js';
+import { askGroq, askGroqLight } from './groq.js';
 import { askOpenRouter } from './openrouter.js';
 import { askLMStudio } from './lmstudio.js';
 
@@ -112,6 +112,11 @@ function getProviderChain(
     fn: () => askGroq(userMessage, systemPrompt, maxTokens),
   };
 
+  const groqLight = {
+    name: 'Groq Light (gemma2/8b)',
+    fn: () => askGroqLight(userMessage, systemPrompt, Math.min(maxTokens, 2048)),
+  };
+
   const qwen = {
     name: 'Qwen 3.5 9B (local)',
     fn: () => askLMStudio(userMessage, systemPrompt, Math.min(maxTokens, 4096)),
@@ -119,15 +124,15 @@ function getProviderChain(
 
   switch (task) {
     case 'reasoning':
-      // Deep thinking: DeepSeek R1 → Groq → Qwen
+      // Deep thinking: DeepSeek R1 → Groq 70B → Qwen
       return [deepseek, groq, qwen];
 
     case 'classification':
-      // Fast classification: Groq → DeepSeek → Qwen
-      return [groq, deepseek, qwen];
+      // Fast classification: light models first (preserve 70B quota) → DeepSeek → Qwen
+      return [groqLight, deepseek, qwen];
 
     case 'narrative':
-      // Short text generation: Groq → Qwen
-      return [groq, qwen];
+      // Short text: light models first → Qwen
+      return [groqLight, qwen];
   }
 }
