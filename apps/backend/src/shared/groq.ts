@@ -1,4 +1,5 @@
 import Groq from 'groq-sdk';
+import { isExhausted, markExhausted, minuteResetAt } from './quota-tracker.js';
 
 let client: Groq | null = null;
 
@@ -9,14 +10,11 @@ function getClient(): Groq {
   return client;
 }
 
-// Models to try in order — each has its own rate limit pool
-// Ordered by capability; each model has independent rate limit quota on Groq
 const GROQ_MODELS = [
-  'llama-3.3-70b-versatile',   // primary — best quality
-  'llama-3.1-70b-versatile',   // same capability, separate quota pool
-  'mixtral-8x7b-32768',        // MoE, strong reasoning, separate quota
-  'gemma2-9b-it',              // fast fallback
-  'llama-3.1-8b-instant',      // last resort — lowest quota pressure
+  'llama-3.3-70b-versatile',
+  'llama-3.1-70b-versatile',
+  'mixtral-8x7b-32768',
+  'llama-3.1-8b-instant',
 ] as const;
 
 export type GroqModel = (typeof GROQ_MODELS)[number];
@@ -29,27 +27,27 @@ export interface GroqResult {
 export async function askGroq(
   userMessage: string,
   systemPrompt: string,
-  maxTokens: number = 4096
+  maxTokens: number = 4096,
 ): Promise<string> {
   const result = await askGroqWithRotation(userMessage, systemPrompt, maxTokens);
   return result.content;
 }
 
-// Lighter model pool — for classification/narrative tasks that don't need 70B
 const GROQ_LIGHT_MODELS = [
-  'gemma2-9b-it',
   'llama-3.1-8b-instant',
-  'mixtral-8x7b-32768', // fallback to something more capable if light ones fail
+  'mixtral-8x7b-32768',
 ] as const;
 
 export async function askGroqLight(
   userMessage: string,
   systemPrompt: string,
-  maxTokens: number = 2048
+  maxTokens: number = 2048,
 ): Promise<string> {
   let lastError: Error | null = null;
 
   for (const model of GROQ_LIGHT_MODELS) {
+    if (isExhausted('groq', model)) continue;
+
     try {
       const response = await getClient().chat.completions.create({
         model,
@@ -70,9 +68,15 @@ export async function askGroqLight(
     } catch (err) {
       const msg = (err as Error).message || '';
       const is429 = msg.includes('429') || msg.includes('rate_limit');
-      console.warn(`[groq-light] ${model} failed${is429 ? ' (rate limit)' : ''}: ${msg.slice(0, 120)}`);
+      const isDecommissioned = msg.includes('decommissioned') || msg.includes('no longer supported');
+      const shouldRotate = is429 || isDecommissioned;
+
+      console.warn(`[groq-light] ${model} failed${is429 ? ' (rate limit)' : isDecommissioned ? ' (decommissioned)' : ''}: ${msg.slice(0, 120)}`);
+
+      if (is429) markExhausted('groq', model, minuteResetAt());
+
       lastError = err as Error;
-      if (!is429) throw err;
+      if (!shouldRotate) throw err;
     }
   }
 
@@ -82,11 +86,13 @@ export async function askGroqLight(
 export async function askGroqWithRotation(
   userMessage: string,
   systemPrompt: string,
-  maxTokens: number = 4096
+  maxTokens: number = 4096,
 ): Promise<GroqResult> {
   let lastError: Error | null = null;
 
   for (const model of GROQ_MODELS) {
+    if (isExhausted('groq', model)) continue;
+
     try {
       const response = await getClient().chat.completions.create({
         model,
@@ -107,11 +113,17 @@ export async function askGroqWithRotation(
     } catch (err) {
       const msg = (err as Error).message || '';
       const is429 = msg.includes('429') || msg.includes('rate_limit');
-      console.warn(`[groq] ${model} failed${is429 ? ' (rate limit)' : ''}: ${msg.slice(0, 120)}`);
+      const isDecommissioned = msg.includes('decommissioned') || msg.includes('no longer supported');
+      const shouldRotate = is429 || isDecommissioned;
+
+      console.warn(`[groq] ${model} failed${is429 ? ' (rate limit)' : isDecommissioned ? ' (decommissioned)' : ''}: ${msg.slice(0, 120)}`);
+
+      if (is429) markExhausted('groq', model, minuteResetAt());
+
       lastError = err as Error;
-      if (!is429) throw err; // Only rotate on rate limit, throw other errors
+      if (!shouldRotate) throw err;
     }
   }
 
-  throw lastError ?? new Error('All Groq models rate limited');
+  throw lastError ?? new Error('All Groq models rate limited or exhausted');
 }
