@@ -23,28 +23,17 @@ export function isExhausted(
       : isNull(quotaExhausted.keyIndex),
   );
 
-  const rows = db
-    .select()
-    .from(quotaExhausted)
-    .where(baseCondition!)
-    .all();
+  // Delete expired entries for this specific provider+model+key
+  db.delete(quotaExhausted)
+    .where(and(baseCondition!, lte(quotaExhausted.resetAt, now)))
+    .run();
 
-  // Clear expired ones
-  for (const row of rows) {
-    if (row.resetAt <= now) {
-      db.delete(quotaExhausted)
-        .where(eq(quotaExhausted.id, row.id))
-        .run();
-    }
-  }
-
-  // Re-check if any active entry remains
+  // Single check for active entries
   const active = db
     .select()
     .from(quotaExhausted)
     .where(baseCondition!)
-    .all()
-    .filter(r => r.resetAt > now);
+    .all();
 
   return active.length > 0;
 }
@@ -83,21 +72,19 @@ export function markExhausted(
 
 /**
  * Calculate reset time for daily quota providers (Gemini).
- * Resets at midnight Pacific Time (UTC-7).
+ * Resets at next midnight Pacific Time (handles PST/PDT automatically).
  */
 export function dailyResetAt(): Date {
   const now = new Date();
-  const pacificOffset = -7 * 60; // minutes (PDT)
-  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  const pacificMinutes = utcMinutes + pacificOffset;
-
-  const minutesUntilMidnight = pacificMinutes >= 0
-    ? (24 * 60) - pacificMinutes
-    : -pacificMinutes;
-
-  const resetAt = new Date(now.getTime() + minutesUntilMidnight * 60 * 1000);
-  resetAt.setMinutes(resetAt.getMinutes() + 5); // 5 min buffer
-  return resetAt;
+  // Get current time in PT using locale string trick (handles DST)
+  const ptString = now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+  const nowInPT = new Date(ptString);
+  // Next midnight PT = set to tomorrow 00:05 in PT, then convert back to UTC
+  const midnightPT = new Date(ptString);
+  midnightPT.setHours(24, 5, 0, 0); // next midnight + 5 min buffer
+  // Offset between UTC and PT wall clock
+  const offsetMs = now.getTime() - nowInPT.getTime();
+  return new Date(midnightPT.getTime() + offsetMs);
 }
 
 /**
