@@ -3,6 +3,7 @@ import { db } from './index.js';
 import { seedDatabase } from './seed.js';
 import { seedConfigTables } from './seed-config.js';
 import { resolve } from 'path';
+import { clearExpiredQuota } from '../shared/quota-tracker.js';
 
 export function initDatabase() {
   console.log('[db] Initializing database...');
@@ -17,6 +18,9 @@ export function initDatabase() {
 
   // Seed config tables (idempotent)
   seedConfigTables();
+
+  // Clear stale quota entries from previous sessions
+  clearExpiredQuota();
 
   console.log('[db] Database ready.');
 }
