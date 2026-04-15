@@ -318,6 +318,16 @@ export const marketReports = sqliteTable('market_reports', {
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 
+// --- Quota exhaustion tracking (skip exhausted models until reset) ---
+export const quotaExhausted = sqliteTable('quota_exhausted', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  provider: text('provider').notNull(),   // 'gemini' | 'groq' | 'openrouter'
+  model: text('model').notNull(),
+  keyIndex: integer('key_index'),         // null for groq/openrouter (no key rotation)
+  exhaustedAt: text('exhausted_at').notNull().default(sql`(datetime('now'))`),
+  resetAt: text('reset_at').notNull(),    // ISO timestamp when quota resets
+});
+
 // --- Historial de ejecuciones del pipeline ---
 export const pipelineRuns = sqliteTable('pipeline_runs', {
   id: integer('id').primaryKey({ autoIncrement: true }),
