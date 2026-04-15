@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { isExhausted, markExhausted, minuteResetAt } from './quota-tracker.js';
 
 let client: OpenAI | null = null;
 
@@ -12,12 +13,15 @@ function getClient(): OpenAI {
   return client;
 }
 
-// Free models on OpenRouter (verified April 2026)
 const OPENROUTER_FREE_MODELS = [
-  'nousresearch/hermes-3-llama-3.1-405b:free',    // 405B — mejor para razonamiento
-  'nvidia/nemotron-3-super-120b-a12b:free',        // 120B — buen razonamiento
-  'meta-llama/llama-3.3-70b-instruct:free',        // 70B — general purpose
-  'google/gemma-4-31b-it:free',                     // 31B — rápido
+  'deepseek/deepseek-r1:free',
+  'deepseek/deepseek-r1-distill-llama-70b:free',
+  'qwen/qwen3-235b-a22b:free',
+  'nousresearch/hermes-3-llama-3.1-405b:free',
+  'qwen/qwen3-30b-a3b:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'google/gemma-4-31b-it:free',
 ] as const;
 
 export async function askOpenRouter(
@@ -28,6 +32,8 @@ export async function askOpenRouter(
   let lastError: Error | null = null;
 
   for (const model of OPENROUTER_FREE_MODELS) {
+    if (isExhausted('openrouter', model)) continue;
+
     try {
       const response = await getClient().chat.completions.create({
         model,
@@ -46,10 +52,22 @@ export async function askOpenRouter(
       }
     } catch (err) {
       const msg = (err as Error).message || '';
+      const is429 = msg.includes('429') || msg.includes('rate_limit');
+      const shouldRotate =
+        is429 ||
+        msg.includes('decommissioned') ||
+        msg.includes('no longer supported') ||
+        msg.includes('overloaded') ||
+        msg.includes('unavailable');
+
       console.warn(`[openrouter] ${model} failed: ${msg.slice(0, 120)}`);
+
+      if (is429) markExhausted('openrouter', model, minuteResetAt());
+
       lastError = err as Error;
+      if (!shouldRotate) throw err;
     }
   }
 
-  throw lastError ?? new Error('All OpenRouter models failed');
+  throw lastError ?? new Error('All OpenRouter models failed or exhausted');
 }
