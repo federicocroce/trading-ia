@@ -1,6 +1,6 @@
 import type { NewsItem, RawNewsArticle } from '@trading/shared';
 import { getAvailableAdapters } from './sources/index.js';
-import { getActiveSymbolList, getSymbolsByMarket } from '../db/repository.js';
+import { getActiveSymbolList, getSymbolsByMarket, getWebSearchArticlesForDate } from '../db/repository.js';
 import { registerNovelTickers } from '../discovery/discovery-registry.js';
 import { isValidTickerFormat } from '../discovery/ticker-validator.js';
 
@@ -139,6 +139,24 @@ export async function aggregateNews(): Promise<AggregationResult> {
     } else {
       console.warn(`[aggregator] Source failed:`, r.reason);
     }
+  }
+
+  // Prepend today's web search articles
+  const today = new Date().toISOString().split('T')[0];
+  const webSearchRows = getWebSearchArticlesForDate(today);
+  if (webSearchRows.length > 0) {
+    const webSearchRaw: RawNewsArticle[] = webSearchRows.map((row) => ({
+      externalId: `web-search-${row.id}`,
+      title: row.title,
+      url: row.url,
+      publishedAt: row.publishedAt ?? new Date().toISOString(),
+      source: 'WebSearch',
+      sourceType: 'web' as const,
+      relatedSymbols: row.relatedSymbols,
+    }));
+    allArticles.unshift(...webSearchRaw);
+    sourceStats['WebSearch'] = webSearchRaw.length;
+    console.log(`[aggregator] WebSearch: ${webSearchRaw.length} artículos prepended`);
   }
 
   const totalRaw = allArticles.length;

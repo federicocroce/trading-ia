@@ -1,6 +1,6 @@
 // --- News Source Adapter types ---
 
-export type NewsSourceType = 'api' | 'rss' | 'scraper';
+export type NewsSourceType = 'api' | 'rss' | 'scraper' | 'web';
 
 export interface RawNewsArticle {
   externalId: string;
