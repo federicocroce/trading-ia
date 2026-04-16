@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { PipelineRun, StageStatus } from '@trading/shared';
 
-const STAGE_LABELS = { news: 'Noticias', fundamentals: 'Fundamentales', analysis: 'Análisis', report: 'Reporte' } as const;
+const STAGE_LABELS = { webSearch: 'Web Search', news: 'Noticias', fundamentals: 'Fundamentales', analysis: 'Análisis', report: 'Reporte' } as const;
 
 function stageIcon(status: StageStatus): string {
   switch (status) {
@@ -12,6 +12,7 @@ function stageIcon(status: StageStatus): string {
     case 'failed': return '❌';
     case 'running': return '⏳';
     case 'skipped': return '⏭️';
+    case 'waiting_user': return '🟠';
     default: return '○';
   }
 }
@@ -22,6 +23,8 @@ function overallBadge(status: PipelineRun['status']) {
     case 'partial': return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 text-[9px]">Parcial</Badge>;
     case 'failed': return <Badge className="bg-red-500/20 text-red-400 border-red-500/30 text-[9px]">Fallido</Badge>;
     case 'running': return <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-[9px]">Ejecutando</Badge>;
+    case 'waiting_user': return <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30 text-[9px]">Esperando</Badge>;
+    case 'cancelled': return <Badge className="bg-zinc-500/20 text-zinc-400 border-zinc-500/30 text-[9px]">Cancelado</Badge>;
   }
 }
 
@@ -39,7 +42,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   history: PipelineRun[];
-  onRerunStage: (stage: 'news' | 'fundamentals' | 'analysis' | 'report') => void;
+  onRerunStage: (stage: 'webSearch' | 'news' | 'fundamentals' | 'analysis' | 'report') => void;
   onRerunAll: () => void;
   isRunning: boolean;
 }
@@ -76,7 +79,7 @@ export function PipelineHistoryModal({ open, onClose, history, onRerunStage, onR
                   )}
                 </div>
                 <div className="space-y-1">
-                  {(['news', 'fundamentals', 'analysis', 'report'] as const).map((stage) => {
+                  {(['webSearch', 'news', 'fundamentals', 'analysis', 'report'] as const).map((stage) => {
                     const s = run.stages[stage];
                     const canRerun = (s.status === 'failed' || s.status === 'partial') && !isRunning;
                     return (

@@ -54,7 +54,7 @@ export function usePipeline() {
 
   return {
     run: (force = false) => runMutation.mutate({ force }),
-    rerunStage: (stage: 'news' | 'fundamentals' | 'analysis' | 'report') => rerunMutation.mutate({ stage }),
+    rerunStage: (stage: 'webSearch' | 'news' | 'fundamentals' | 'analysis' | 'report') => rerunMutation.mutate({ stage }),
     resolveWebSearch: (action: 'retry' | 'skip' | 'cancel') => resolveWebSearchMutation.mutate({ action }),
     status: todayRun,
     history: historyQuery.data ?? [],

@@ -86,9 +86,11 @@ export async function runWebSearch(date: string): Promise<WebSearchStageResult> 
   }
 
   // --- Layer 2: Discovery (sequential — respects rate limits) ---
+  let discoverySuccessCount = 0;
   for (const query of DISCOVERY_QUERIES) {
     try {
       const results = await searchWithFallback(query);
+      discoverySuccessCount++;
       for (const result of results) {
         const tickers = extractTickers(result.title + ' ' + result.content);
         articles.push({
@@ -113,5 +115,7 @@ export async function runWebSearch(date: string): Promise<WebSearchStageResult> 
     }
   }
 
-  return { articles, errors, allFailed: false };
+  const totalAttempts = positions.length + DISCOVERY_QUERIES.length;
+  const totalSuccess = portfolioSuccessCount + discoverySuccessCount;
+  return { articles, errors, allFailed: totalAttempts > 0 && totalSuccess === 0 };
 }
