@@ -154,7 +154,7 @@ export interface SectorCorrelation {
 // PIPELINE TYPES
 // ============================================================
 
-export type StageStatus = 'pending' | 'running' | 'ok' | 'partial' | 'failed' | 'skipped'
+export type StageStatus = 'pending' | 'running' | 'ok' | 'partial' | 'failed' | 'skipped' | 'waiting_user'
 
 export interface StageResult {
   status: StageStatus
@@ -170,7 +170,7 @@ export interface PipelineRun {
   date: string
   status: 'running' | 'ok' | 'partial' | 'failed' | 'waiting_user' | 'cancelled'
   stages: {
-    webSearch?: StageResult
+    webSearch: StageResult
     news: StageResult
     fundamentals: StageResult
     analysis: StageResult
