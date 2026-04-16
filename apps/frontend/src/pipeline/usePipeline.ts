@@ -33,8 +33,8 @@ export function usePipeline() {
   });
 
   const resolveWebSearchMutation = trpc.intelligence.resolveWebSearch.useMutation({
-    onSuccess: () => {
-      setIsPolling(true);
+    onSuccess: (run: PipelineRun) => {
+      if (run.status !== 'cancelled') setIsPolling(true);
       utils.intelligence.pipelineStatus.invalidate();
     },
   });
