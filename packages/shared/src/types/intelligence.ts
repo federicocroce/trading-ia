@@ -168,8 +168,9 @@ export interface StageResult {
 export interface PipelineRun {
   id: number
   date: string
-  status: 'running' | 'ok' | 'partial' | 'failed'
+  status: 'running' | 'ok' | 'partial' | 'failed' | 'waiting_user' | 'cancelled'
   stages: {
+    webSearch?: StageResult
     news: StageResult
     fundamentals: StageResult
     analysis: StageResult

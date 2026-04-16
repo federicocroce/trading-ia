@@ -328,11 +328,33 @@ export const quotaExhausted = sqliteTable('quota_exhausted', {
   resetAt: text('reset_at').notNull(),    // ISO timestamp when quota resets
 });
 
+// --- Web search results ---
+export const webSearchArticles = sqliteTable('web_search_articles', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  date: text('date').notNull(),
+  symbol: text('symbol'),
+  query: text('query').notNull(),
+  layer: text('layer', { enum: ['portfolio', 'discovery'] }).notNull(),
+  title: text('title').notNull(),
+  url: text('url').notNull(),
+  content: text('content').notNull(),
+  publishedAt: text('published_at'),
+  relatedSymbols: text('related_symbols').notNull().default('[]'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
 // --- Historial de ejecuciones del pipeline ---
 export const pipelineRuns = sqliteTable('pipeline_runs', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   date: text('date').notNull(),
-  status: text('status', { enum: ['running', 'ok', 'partial', 'failed'] }).notNull(),
+  status: text('status', { enum: ['running', 'ok', 'partial', 'failed', 'waiting_user', 'cancelled'] }).notNull(),
+  // Stage: webSearch (new — first stage)
+  webSearchStatus: text('web_search_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped', 'waiting_user'] }).notNull().default('pending'),
+  webSearchDetail: text('web_search_detail'),
+  webSearchErrors: text('web_search_errors'),
+  webSearchStartedAt: text('web_search_started_at'),
+  webSearchFinishedAt: text('web_search_finished_at'),
+  // Stage: news
   newsStatus: text('news_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
   newsDetail: text('news_detail'),
   newsErrors: text('news_errors'),
@@ -341,14 +363,16 @@ export const pipelineRuns = sqliteTable('pipeline_runs', {
   // Stage: fundamentals
   fundamentalsStatus: text('fundamentals_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
   fundamentalsDetail: text('fundamentals_detail'),
-  fundamentalsErrors: text('fundamentals_errors'),  // JSON array
+  fundamentalsErrors: text('fundamentals_errors'),
   fundamentalsStartedAt: text('fundamentals_started_at'),
   fundamentalsFinishedAt: text('fundamentals_finished_at'),
+  // Stage: analysis
   analysisStatus: text('analysis_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
   analysisDetail: text('analysis_detail'),
   analysisErrors: text('analysis_errors'),
   analysisStartedAt: text('analysis_started_at'),
   analysisFinishedAt: text('analysis_finished_at'),
+  // Stage: report
   reportStatus: text('report_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
   reportDetail: text('report_detail'),
   reportErrors: text('report_errors'),
