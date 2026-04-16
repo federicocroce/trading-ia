@@ -11,6 +11,8 @@ function statusDot(status: string | undefined): string {
     case 'partial': return '🟡';
     case 'failed': return '🔴';
     case 'running': return '🔵';
+    case 'waiting_user': return '🟠';
+    case 'cancelled': return '⚫';
     default: return '⚪';
   }
 }
@@ -21,6 +23,8 @@ function statusClass(status: string | undefined): string {
     case 'partial': return 'text-yellow-400';
     case 'failed': return 'text-red-400';
     case 'running': return 'text-blue-400 animate-pulse';
+    case 'waiting_user': return 'text-orange-400 animate-pulse';
+    case 'cancelled': return 'text-zinc-600';
     default: return 'text-zinc-500';
   }
 }

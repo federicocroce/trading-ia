@@ -1,6 +1,12 @@
 import type { PipelineRun, StageStatus } from '@trading/shared';
 
-const STAGE_LABELS = { news: 'Noticias', fundamentals: 'Fundamentales', analysis: 'Análisis', report: 'Reporte' } as const;
+const STAGE_LABELS = {
+  webSearch: 'Web Search',
+  news: 'Noticias',
+  fundamentals: 'Fundamentales',
+  analysis: 'Análisis',
+  report: 'Reporte',
+} as const;
 
 function stageIcon(status: StageStatus): string {
   switch (status) {
@@ -9,6 +15,7 @@ function stageIcon(status: StageStatus): string {
     case 'failed': return '❌';
     case 'running': return '⏳';
     case 'skipped': return '⏭️';
+    case 'waiting_user': return '🟠';
     default: return '○';
   }
 }
@@ -20,7 +27,7 @@ export function PipelineStatusToast({ run }: Props) {
   return (
     <div className="fixed bottom-4 right-4 z-50 min-w-[260px] rounded-lg border border-white/10 bg-zinc-900 p-3 shadow-xl">
       <div className="mb-2 text-[11px] font-medium text-zinc-300">🔄 Ejecutando pipeline...</div>
-      {(['news', 'fundamentals', 'analysis', 'report'] as const).map((stage) => {
+      {(['webSearch', 'news', 'fundamentals', 'analysis', 'report'] as const).map((stage) => {
         const s = run.stages[stage];
         return (
           <div key={stage} className="flex items-center gap-2 py-0.5 text-[11px]">
