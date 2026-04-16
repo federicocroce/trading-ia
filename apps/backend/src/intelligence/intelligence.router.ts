@@ -10,6 +10,7 @@ import {
   getPipelineRunByDate,
   getActivePipelineRun,
   getPipelineHistory,
+  resolveWebSearch,
 } from './pipeline.service.js';
 
 export const intelligenceRouter = router({
@@ -49,9 +50,15 @@ export const intelligenceRouter = router({
 
   // Re-run a specific stage
   rerunStage: publicProcedure
-    .input(z.object({ stage: z.enum(['news', 'fundamentals', 'analysis', 'report']) }))
+    .input(z.object({ stage: z.enum(['webSearch', 'news', 'fundamentals', 'analysis', 'report']) }))
     .mutation(async ({ input }) => {
       return rerunPipelineStage(input.stage);
+    }),
+
+  resolveWebSearch: publicProcedure
+    .input(z.object({ action: z.enum(['retry', 'skip', 'cancel']) }))
+    .mutation(async ({ input }) => {
+      return resolveWebSearch(input.action);
     }),
 
   sectorReports: publicProcedure.query(() => {
