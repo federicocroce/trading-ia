@@ -32,9 +32,16 @@ export function usePipeline() {
     },
   });
 
+  const resolveWebSearchMutation = trpc.intelligence.resolveWebSearch.useMutation({
+    onSuccess: () => {
+      setIsPolling(true);
+      utils.intelligence.pipelineStatus.invalidate();
+    },
+  });
+
   useEffect(() => {
     const status = statusQuery.data?.status;
-    if (status && status !== 'running') {
+    if (status && status !== 'running' && status !== 'waiting_user') {
       setIsPolling(false);
       utils.intelligence.marketReport.invalidate();
       utils.intelligence.pipelineHistory.invalidate();
@@ -43,13 +50,16 @@ export function usePipeline() {
 
   const todayRun = statusQuery.data ?? null;
   const isRunning = todayRun?.status === 'running';
+  const isWaitingUser = todayRun?.status === 'waiting_user';
 
   return {
     run: (force = false) => runMutation.mutate({ force }),
     rerunStage: (stage: 'news' | 'fundamentals' | 'analysis' | 'report') => rerunMutation.mutate({ stage }),
+    resolveWebSearch: (action: 'retry' | 'skip' | 'cancel') => resolveWebSearchMutation.mutate({ action }),
     status: todayRun,
     history: historyQuery.data ?? [],
     isRunning,
+    isWaitingUser,
     todayRun,
     isLoading: statusQuery.isLoading,
   };

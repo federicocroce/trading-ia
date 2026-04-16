@@ -16,6 +16,8 @@ import { OpportunityDashboard } from '@/opportunities/OpportunityDashboard';
 import { DailySummary } from '@/daily/DailySummary';
 import { NavigationContext } from '@/shared/navigation';
 import { trpc } from '@/shared/trpc';
+import { usePipeline } from '@/pipeline/usePipeline';
+import { WebSearchBlockedModal } from '@/pipeline/WebSearchBlockedModal';
 
 function getSymbolFromURL(): string | null {
   const params = new URLSearchParams(window.location.search);
@@ -36,6 +38,7 @@ function BuyBadge() {
 export function App() {
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(getSymbolFromURL);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { isWaitingUser, resolveWebSearch } = usePipeline();
 
   const goToSymbol = useCallback((symbol: string) => {
     setSelectedSymbol(symbol);
@@ -126,6 +129,12 @@ export function App() {
           </div>
         </div>
       </NavigationContext>
+      <WebSearchBlockedModal
+        open={isWaitingUser}
+        onRetry={() => resolveWebSearch('retry')}
+        onSkip={() => resolveWebSearch('skip')}
+        onCancel={() => resolveWebSearch('cancel')}
+      />
     </TooltipProvider>
   );
 }
