@@ -1013,3 +1013,42 @@ export function upsertMarketDigest(date: string, digest: string) {
     db.insert(schema.marketDigests).values({ reportDate: date, digest, createdAt: now, updatedAt: now }).run();
   }
 }
+
+// ==================== WEB SEARCH ARTICLES ====================
+
+export function insertWebSearchArticles(articles: Array<{
+  date: string;
+  symbol: string | null;
+  query: string;
+  layer: 'portfolio' | 'discovery';
+  title: string;
+  url: string;
+  content: string;
+  publishedAt: string | null;
+  relatedSymbols: string[];
+}>) {
+  if (articles.length === 0) return;
+  db.insert(schema.webSearchArticles).values(
+    articles.map((a) => ({
+      date: a.date,
+      symbol: a.symbol ?? null,
+      query: a.query,
+      layer: a.layer,
+      title: a.title,
+      url: a.url,
+      content: a.content,
+      publishedAt: a.publishedAt ?? null,
+      relatedSymbols: JSON.stringify(a.relatedSymbols),
+    })),
+  ).run();
+}
+
+export function getWebSearchArticlesForDate(date: string) {
+  return db.select().from(schema.webSearchArticles)
+    .where(eq(schema.webSearchArticles.date, date))
+    .all()
+    .map((row) => ({
+      ...row,
+      relatedSymbols: JSON.parse(row.relatedSymbols) as string[],
+    }));
+}
