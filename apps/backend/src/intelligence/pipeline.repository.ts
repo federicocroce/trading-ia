@@ -1,4 +1,4 @@
-import { eq, desc, gte } from 'drizzle-orm';
+import { eq, desc, gte, or } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type { PipelineRun, StageResult, StageStatus } from '@trading/shared';
 
@@ -22,10 +22,11 @@ function rowToPipelineRun(row: typeof schema.pipelineRuns.$inferSelect): Pipelin
   return {
     id: row.id,
     date: row.date,
-    status: row.status,
+    status: row.status as PipelineRun['status'],
     startedAt: row.startedAt,
     finishedAt: row.finishedAt ?? null,
     stages: {
+      webSearch: stageResultFromRow(row.webSearchStatus, row.webSearchDetail, row.webSearchErrors, row.webSearchStartedAt, row.webSearchFinishedAt),
       news: stageResultFromRow(row.newsStatus, row.newsDetail, row.newsErrors, row.newsStartedAt, row.newsFinishedAt),
       fundamentals: stageResultFromRow(row.fundamentalsStatus, row.fundamentalsDetail, row.fundamentalsErrors, row.fundamentalsStartedAt, row.fundamentalsFinishedAt),
       analysis: stageResultFromRow(row.analysisStatus, row.analysisDetail, row.analysisErrors, row.analysisStartedAt, row.analysisFinishedAt),
@@ -39,6 +40,7 @@ export function createPipelineRun(date: string): PipelineRun {
   const result = db.insert(schema.pipelineRuns).values({
     date,
     status: 'running',
+    webSearchStatus: 'pending',
     newsStatus: 'pending',
     fundamentalsStatus: 'pending',
     analysisStatus: 'pending',
@@ -64,6 +66,15 @@ export function getActivePipelineRun(): PipelineRun | null {
   return row ? rowToPipelineRun(row) : null;
 }
 
+export function getWaitingUserRun(date: string): PipelineRun | null {
+  const row = db.select().from(schema.pipelineRuns)
+    .where(eq(schema.pipelineRuns.date, date))
+    .orderBy(desc(schema.pipelineRuns.createdAt))
+    .get();
+  if (!row || row.status !== 'waiting_user') return null;
+  return rowToPipelineRun(row);
+}
+
 export function getPipelineHistory(limit = 7): PipelineRun[] {
   const rows = db.select().from(schema.pipelineRuns)
     .orderBy(desc(schema.pipelineRuns.createdAt))
@@ -74,7 +85,7 @@ export function getPipelineHistory(limit = 7): PipelineRun[] {
 
 export function updatePipelineStage(
   runId: number,
-  stage: 'news' | 'fundamentals' | 'analysis' | 'report',
+  stage: 'webSearch' | 'news' | 'fundamentals' | 'analysis' | 'report',
   result: Partial<StageResult & { startedAt: string | null; finishedAt: string | null }>,
 ) {
   const updates: Record<string, unknown> = {};
@@ -94,7 +105,14 @@ export function markRunAsRunning(runId: number) {
   }).where(eq(schema.pipelineRuns.id, runId)).run();
 }
 
-export function finishPipelineRun(runId: number, status: 'ok' | 'partial' | 'failed') {
+export function pauseRunWaitingUser(runId: number) {
+  db.update(schema.pipelineRuns).set({
+    status: 'waiting_user',
+    finishedAt: null,
+  }).where(eq(schema.pipelineRuns.id, runId)).run();
+}
+
+export function finishPipelineRun(runId: number, status: 'ok' | 'partial' | 'failed' | 'cancelled') {
   db.update(schema.pipelineRuns).set({
     status,
     finishedAt: new Date().toISOString(),
@@ -102,11 +120,12 @@ export function finishPipelineRun(runId: number, status: 'ok' | 'partial' | 'fai
 }
 
 export function markOrphanedRunsFailed() {
-  const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const orphans = db.select().from(schema.pipelineRuns)
-    .where(eq(schema.pipelineRuns.status, 'running'))
-    .all()
-    .filter(r => r.startedAt < fifteenMinutesAgo);
+    .where(or(
+      eq(schema.pipelineRuns.status, 'running'),
+      eq(schema.pipelineRuns.status, 'waiting_user'),
+    ))
+    .all();
   for (const o of orphans) {
     db.update(schema.pipelineRuns).set({
       status: 'failed',
