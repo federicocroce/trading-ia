@@ -372,6 +372,12 @@ export const pipelineRuns = sqliteTable('pipeline_runs', {
   analysisErrors: text('analysis_errors'),
   analysisStartedAt: text('analysis_started_at'),
   analysisFinishedAt: text('analysis_finished_at'),
+  // Stage: quant (non-blocking, runs after analysis)
+  quantStatus: text('quant_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
+  quantDetail: text('quant_detail'),
+  quantErrors: text('quant_errors'),
+  quantStartedAt: text('quant_started_at'),
+  quantFinishedAt: text('quant_finished_at'),
   // Stage: report
   reportStatus: text('report_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
   reportDetail: text('report_detail'),
@@ -380,5 +386,27 @@ export const pipelineRuns = sqliteTable('pipeline_runs', {
   reportFinishedAt: text('report_finished_at'),
   startedAt: text('started_at').notNull(),
   finishedAt: text('finished_at'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Backtest runs ---
+export const backtestRuns = sqliteTable('backtest_runs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  symbol: text('symbol').notNull(),
+  startDate: text('start_date').notNull(),
+  endDate: text('end_date').notNull(),
+  strategy: text('strategy').notNull(),
+  metrics: text('metrics'),
+  trades: text('trades'),
+  equityCurve: text('equity_curve'),
+  status: text('status').notNull().default('running'),
+  error: text('error'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Calibrated weights history ---
+export const calibratedWeightsTable = sqliteTable('calibrated_weights', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  weights: text('weights').notNull(),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });

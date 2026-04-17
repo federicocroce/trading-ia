@@ -11,9 +11,3 @@ CREATE TABLE IF NOT EXISTS `web_search_articles` (
   `related_symbols` text NOT NULL DEFAULT '[]',
   `created_at` text DEFAULT (datetime('now')) NOT NULL
 );
-
-ALTER TABLE `pipeline_runs` ADD COLUMN `web_search_status` text NOT NULL DEFAULT 'pending';
-ALTER TABLE `pipeline_runs` ADD COLUMN `web_search_detail` text;
-ALTER TABLE `pipeline_runs` ADD COLUMN `web_search_errors` text;
-ALTER TABLE `pipeline_runs` ADD COLUMN `web_search_started_at` text;
-ALTER TABLE `pipeline_runs` ADD COLUMN `web_search_finished_at` text;
