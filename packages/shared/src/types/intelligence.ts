@@ -174,6 +174,7 @@ export interface PipelineRun {
     news: StageResult
     fundamentals: StageResult
     analysis: StageResult
+    quant?: StageResult
     report: StageResult
   }
   startedAt: string
