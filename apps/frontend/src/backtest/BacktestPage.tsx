@@ -92,7 +92,7 @@ export function BacktestPage() {
 
       {showResults && (
         <>
-          <MetricsCards metrics={currentRun.metrics} symbol={currentRun.symbol} />
+          <MetricsCards metrics={currentRun.metrics!} symbol={currentRun.symbol} />
 
           <Card className="p-4 space-y-2">
             <div className="flex items-center justify-between">
@@ -101,18 +101,18 @@ export function BacktestPage() {
                 Agregar al comparador
               </Button>
             </div>
-            <EquityCurveChart data={currentRun.equityCurve} symbol={currentRun.symbol} />
+            <EquityCurveChart data={currentRun.equityCurve!} symbol={currentRun.symbol} />
           </Card>
 
           <Card className="p-4 space-y-2">
             <span className="text-sm font-medium text-muted-foreground">Drawdown</span>
-            <DrawdownChart data={currentRun.equityCurve} />
+            <DrawdownChart data={currentRun.equityCurve!} />
           </Card>
 
-          {currentRun.trades.length > 0 && (
+          {currentRun.trades!.length > 0 && (
             <Card className="p-4">
               <span className="text-sm font-medium text-muted-foreground block mb-3">
-                Operaciones ({currentRun.trades.length})
+                Operaciones ({currentRun.trades!.length})
               </span>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -127,7 +127,7 @@ export function BacktestPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {currentRun.trades.map((t, i) => (
+                    {currentRun.trades!.map((t, i) => (
                       <tr key={i} className="border-t border-border/30">
                         <td className="py-1 tabular-nums">{t.entryDate}</td>
                         <td className="py-1 tabular-nums">{t.exitDate}</td>

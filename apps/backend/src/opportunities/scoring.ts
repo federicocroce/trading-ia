@@ -1181,6 +1181,8 @@ export function buildAlgorithmicOpportunity(
   const sector = getSectorForSymbolDynamic(symbol);
   if (!sector) return null;
 
+  // TODO(V2): pass calibrated weights from quant stage via getLatestCalibratedWeights()
+  // The quant stage runs after analysis, so only previous-run weights are available here.
   const { shortTerm, mediumTerm, composite } = computeCompositeScore(techScore, fundScore, sentScore);
   const confluenceDetail = computeConfluenceDetail(tech, fund, sent);
   const confidence = confluenceDetail.confluencePercent;

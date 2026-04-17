@@ -84,9 +84,9 @@ export interface BacktestRun {
   startDate: string;
   endDate: string;
   strategy: StrategyConfig;
-  metrics: BacktestMetrics;
-  trades: BacktestTrade[];
-  equityCurve: BacktestEquityPoint[];
+  metrics: BacktestMetrics | null;
+  trades: BacktestTrade[] | null;
+  equityCurve: BacktestEquityPoint[] | null;
   createdAt: string;
   status: 'running' | 'completed' | 'failed';
   error?: string;

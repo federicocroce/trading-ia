@@ -48,23 +48,23 @@ export function StrategyCompareTable({ runs, onRemove }: Props) {
               <td className="px-3 py-2 text-right">
                 <Badge variant="outline">{run.symbol}</Badge>
               </td>
-              <td className={`px-3 py-2 text-right tabular-nums ${colorClass(run.metrics.totalReturnPercent)}`}>
-                {pct(run.metrics.totalReturnPercent)}
+              <td className={`px-3 py-2 text-right tabular-nums ${colorClass(run.metrics!.totalReturnPercent)}`}>
+                {pct(run.metrics!.totalReturnPercent)}
               </td>
-              <td className={`px-3 py-2 text-right tabular-nums ${colorClass(run.metrics.buyAndHoldReturnPercent)}`}>
-                {pct(run.metrics.buyAndHoldReturnPercent)}
+              <td className={`px-3 py-2 text-right tabular-nums ${colorClass(run.metrics!.buyAndHoldReturnPercent)}`}>
+                {pct(run.metrics!.buyAndHoldReturnPercent)}
               </td>
-              <td className={`px-3 py-2 text-right tabular-nums ${colorClass(run.metrics.sharpeRatio)}`}>
-                {run.metrics.sharpeRatio.toFixed(2)}
+              <td className={`px-3 py-2 text-right tabular-nums ${colorClass(run.metrics!.sharpeRatio)}`}>
+                {run.metrics!.sharpeRatio.toFixed(2)}
               </td>
               <td className="px-3 py-2 text-right tabular-nums text-trading-red">
-                -{run.metrics.maxDrawdownPercent.toFixed(1)}%
+                -{run.metrics!.maxDrawdownPercent.toFixed(1)}%
               </td>
-              <td className={`px-3 py-2 text-right tabular-nums ${run.metrics.winRate >= 0.5 ? 'text-trading-green' : 'text-trading-red'}`}>
-                {(run.metrics.winRate * 100).toFixed(0)}%
+              <td className={`px-3 py-2 text-right tabular-nums ${run.metrics!.winRate >= 0.5 ? 'text-trading-green' : 'text-trading-red'}`}>
+                {(run.metrics!.winRate * 100).toFixed(0)}%
               </td>
               <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                {run.metrics.numTrades}
+                {run.metrics!.numTrades}
               </td>
               <td className="px-3 py-2 text-right">
                 <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => onRemove(run.id)}>
