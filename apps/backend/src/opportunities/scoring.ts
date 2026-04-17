@@ -16,6 +16,7 @@ import type {
   ConvictionTier,
 } from '@trading/shared';
 import { OPPORTUNITY_UNIVERSE, getSectorForSymbol } from '@trading/shared';
+import { getActiveWeights } from '../intelligence/weight-adjustment.service.js';
 import { getSectorForSymbolDynamic, getSectorLabelDynamic, getClassificationForSymbol } from '../discovery/discovery-registry.js';
 import { detectSignalConflicts } from './signal-conflicts.js';
 
@@ -78,8 +79,23 @@ export function computeCompositeScore(
   sentScore: number,
   overrideWeights?: { shortTerm: HorizonWeights; mediumTerm: HorizonWeights },
 ): { shortTerm: number; mediumTerm: number; composite: number } {
-  const shortWeights = overrideWeights?.shortTerm ?? SHORT_TERM_WEIGHTS;
-  const medWeights = overrideWeights?.mediumTerm ?? MEDIUM_TERM_WEIGHTS;
+  // Priority: explicit override > DB active weights > static defaults
+  let shortWeights: HorizonWeights;
+  let medWeights: HorizonWeights;
+  if (overrideWeights) {
+    shortWeights = overrideWeights.shortTerm;
+    medWeights = overrideWeights.mediumTerm;
+  } else {
+    try {
+      const w = getActiveWeights();
+      shortWeights = { technical: w.shortTerm.technical, fundamental: w.shortTerm.fundamental, sentiment: w.shortTerm.sentiment };
+      medWeights = { technical: w.mediumTerm.technical, fundamental: w.mediumTerm.fundamental, sentiment: w.mediumTerm.sentiment };
+    } catch {
+      // Fall back to static defaults if DB not available
+      shortWeights = SHORT_TERM_WEIGHTS;
+      medWeights = MEDIUM_TERM_WEIGHTS;
+    }
+  }
   const shortTerm = computeHorizonScore(techScore, fundScore, sentScore, shortWeights);
   const mediumTerm = computeHorizonScore(techScore, fundScore, sentScore, medWeights);
   const composite = Math.round(shortTerm * 0.4 + mediumTerm * 0.6);

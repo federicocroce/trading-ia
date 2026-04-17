@@ -3,6 +3,7 @@ import { searchExa } from './exa.js';
 import { getPortfolioPositions } from '../db/repository.js';
 import { registerNovelTickers } from '../discovery/discovery-registry.js';
 import { isValidTickerFormat } from '../discovery/ticker-validator.js';
+import { getActiveDiscoveryQueries } from '../intelligence/config.repository.js';
 
 export interface WebSearchArticle {
   date: string;
@@ -16,7 +17,8 @@ export interface WebSearchArticle {
   relatedSymbols: string[];
 }
 
-const DISCOVERY_QUERIES = [
+// Fallback discovery queries used when the DB has no active discovery queries configured
+const FALLBACK_DISCOVERY_QUERIES = [
   // EN — global coverage
   'best stock market opportunities today',
   'AI semiconductors stocks news today',
@@ -90,8 +92,11 @@ export async function runWebSearch(date: string): Promise<WebSearchStageResult> 
   }
 
   // --- Layer 2: Discovery (parallel, basic depth — saves Tavily credits) ---
+  // Use DB-configured discovery queries if available, otherwise fall back to hardcoded list
+  const dbDiscoveryQueries = getActiveDiscoveryQueries();
+  const discoveryQueryList = dbDiscoveryQueries.length > 0 ? dbDiscoveryQueries : FALLBACK_DISCOVERY_QUERIES;
   const discoveryResults = await Promise.allSettled(
-    DISCOVERY_QUERIES.map(async (query) => {
+    discoveryQueryList.map(async (query) => {
       const results = await searchWithFallback(query, 'basic');
       const discoveryArticles: WebSearchArticle[] = results.map((result) => {
         const tickers = extractTickers(result.title + ' ' + result.content);
@@ -126,7 +131,7 @@ export async function runWebSearch(date: string): Promise<WebSearchStageResult> 
     }
   }
 
-  const totalAttempts = positions.length + DISCOVERY_QUERIES.length;
+  const totalAttempts = positions.length + discoveryQueryList.length;
   const totalSuccess = portfolioSuccessCount + discoverySuccessCount;
   return { articles, errors, allFailed: totalAttempts > 0 && totalSuccess === 0 };
 }

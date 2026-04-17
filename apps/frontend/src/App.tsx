@@ -19,6 +19,8 @@ import { NavigationContext } from '@/shared/navigation';
 import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
 import { WebSearchBlockedModal } from '@/pipeline/WebSearchBlockedModal';
+import { PipelineConfig } from './intelligence/PipelineConfig.js';
+import { AccuracyDashboard } from './intelligence/AccuracyDashboard.js';
 
 function getSymbolFromURL(): string | null {
   const params = new URLSearchParams(window.location.search);
@@ -105,6 +107,8 @@ export function App() {
                   <TabsTrigger value="news">Noticias</TabsTrigger>
                   <TabsTrigger value="transactions">Operaciones</TabsTrigger>
                   <TabsTrigger value="backtest">Backtest</TabsTrigger>
+                  <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
+                  <TabsTrigger value="config">Config</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="daily" className="flex-1 overflow-y-auto">
@@ -124,6 +128,12 @@ export function App() {
                 </TabsContent>
                 <TabsContent value="backtest" className="flex-1 overflow-y-auto">
                   <BacktestPage />
+                </TabsContent>
+                <TabsContent value="accuracy" className="flex-1 overflow-y-auto">
+                  <AccuracyDashboard />
+                </TabsContent>
+                <TabsContent value="config" className="flex-1 overflow-y-auto">
+                  <PipelineConfig />
                 </TabsContent>
               </Tabs>
             )}

@@ -11,6 +11,7 @@ import {
   markOrphanedRunsFailed,
   getPipelineHistory,
 } from './pipeline.repository.js';
+import { saveStageArtifact } from './pipeline-artifacts.repository.js';
 import { generateMarketReport } from './market-report.service.js';
 import { generateDailyDigest } from './market-digest.service.js';
 import { getStoredDailyReport } from './daily-report.service.js';
@@ -18,6 +19,7 @@ import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAg
 import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, getLastUnifiedAnalyses, setMarketDigest } from '../opportunities/opportunities.service.js';
 import { getIntelligenceFromDB } from '../news/news-intelligence.service.js';
 import { runWebSearch } from '../web-search/web-search.service.js';
+import { generateWeightProposal, shouldGenerateProposal } from './weight-adjustment.service.js';
 import type { PipelineRun, StageResult, QuantContext } from '@trading/shared';
 import { detectRegime } from '../quant/regime-detector.service.js';
 import { rankMomentum } from '../quant/momentum-ranker.service.js';
@@ -66,6 +68,23 @@ function getFundamentalsDaysOld(): number {
     return (Date.now() - new Date(age).getTime()) / (1000 * 60 * 60 * 24);
   } catch {
     return 999;
+  }
+}
+
+function recordStageArtifact(runId: number, stage: 'webSearch' | 'news' | 'fundamentals' | 'analysis' | 'report' | 'digest', sr: StageResult): void {
+  try {
+    const durationMs = (sr.startedAt && sr.finishedAt)
+      ? new Date(sr.finishedAt).getTime() - new Date(sr.startedAt).getTime()
+      : undefined;
+    saveStageArtifact({
+      pipelineRunId: runId,
+      stage,
+      output: { status: sr.status, detail: sr.detail, errors: sr.errors, criticalError: sr.criticalError },
+      durationMs,
+      errorCount: sr.errors.length,
+    });
+  } catch (err) {
+    console.warn('[pipeline] Failed to save stage artifact:', (err as Error).message);
   }
 }
 
@@ -208,7 +227,7 @@ async function runAnalysisStage(runId: number): Promise<StageResult> {
   const startedAt = new Date().toISOString();
   updatePipelineStage(runId, 'analysis', { status: 'running', startedAt });
   try {
-    const result = await runAnalysisBlocking();
+    const result = await runAnalysisBlocking(runId);
     const symbolCount = result.totalSymbolsScanned ?? 0;
     _stageUnifiedAnalyses = getLastUnifiedAnalyses();
     const sr: StageResult = {
@@ -347,6 +366,7 @@ async function runRemainingStages(runId: number): Promise<void> {
 
   if (!isNewsStageValid()) {
     const newsResult = await runNewsStage(runId);
+    recordStageArtifact(runId, 'news', newsResult);
     if (newsResult.status === 'failed') {
       for (const s of ['fundamentals', 'analysis', 'report'] as const) {
         updatePipelineStage(runId, s, { status: 'skipped', detail: 'Saltado: noticias fallaron.', errors: [], startedAt: null, finishedAt: null });
@@ -361,10 +381,12 @@ async function runRemainingStages(runId: number): Promise<void> {
     });
   }
 
-  await runFundamentalsStage(runId);
+  const fundResult = await runFundamentalsStage(runId);
+  recordStageArtifact(runId, 'fundamentals', fundResult);
 
   if (!isAnalysisStageValid()) {
     const analysisResult = await runAnalysisStage(runId);
+    recordStageArtifact(runId, 'analysis', analysisResult);
     if (analysisResult.status === 'failed') {
       updatePipelineStage(runId, 'report', { status: 'skipped', detail: 'Saltado: análisis falló.', errors: [], startedAt: null, finishedAt: null });
       finishPipelineRun(runId, 'failed');
@@ -380,13 +402,22 @@ async function runRemainingStages(runId: number): Promise<void> {
   // Quant stage: non-blocking (failure doesn't stop pipeline)
   await runQuantStage(runId);
 
-  await runReportStage(runId);
+  const reportResult = await runReportStage(runId);
+  recordStageArtifact(runId, 'report', reportResult);
 
   const finalRun = getPipelineRunByDate(today)!;
   const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
   const anyFailed = stageList.some((s) => s.status === 'failed');
   const allOk = stageList.every((s) => s.status === 'ok' || s.status === 'skipped');
   finishPipelineRun(runId, anyFailed ? 'failed' : allOk ? 'ok' : 'partial');
+
+  // Auto-generate weight proposal if enough resolved signals available
+  if (shouldGenerateProposal()) {
+    const proposal = generateWeightProposal();
+    if (proposal) {
+      console.log(`[pipeline] Weight adjustment proposal #${proposal.id} generated — pending user approval`);
+    }
+  }
 }
 
 export async function checkOrRunPipeline(force = false): Promise<PipelineRun> {
@@ -406,6 +437,7 @@ export async function checkOrRunPipeline(force = false): Promise<PipelineRun> {
 
   try {
     const webSearchResult = await runWebSearchStage(runId);
+    recordStageArtifact(runId, 'webSearch', webSearchResult);
 
     if (webSearchResult.status === 'failed') {
       pauseRunWaitingUser(runId);
@@ -438,6 +470,7 @@ export async function resolveWebSearch(action: 'retry' | 'skip' | 'cancel'): Pro
 
   if (action === 'retry') {
     const webSearchResult = await runWebSearchStage(runId);
+    recordStageArtifact(runId, 'webSearch', webSearchResult);
     if (webSearchResult.status === 'failed') {
       pauseRunWaitingUser(runId);
       return getPipelineRunByDate(today)!;
@@ -477,6 +510,7 @@ export async function rerunPipelineStage(
       updatePipelineStage(runId, s, { status: 'pending', detail: 'Pendiente re-run.', errors: [], startedAt: null, finishedAt: null });
     }
     const webSearchResult = await runWebSearchStage(runId);
+    recordStageArtifact(runId, 'webSearch', webSearchResult);
     if (webSearchResult.status === 'failed') {
       pauseRunWaitingUser(runId);
       return getPipelineRunByDate(today)!;
@@ -486,23 +520,33 @@ export async function rerunPipelineStage(
     for (const s of ['fundamentals', 'analysis', 'report'] as const) {
       updatePipelineStage(runId, s, { status: 'pending', detail: 'Pendiente re-run de noticias.', errors: [], startedAt: null, finishedAt: null });
     }
-    await runNewsStage(runId);
-    await runFundamentalsStage(runId);
-    await runAnalysisStage(runId);
-    await runReportStage(runId);
+    const newsRerunResult = await runNewsStage(runId);
+    recordStageArtifact(runId, 'news', newsRerunResult);
+    const fundRerunResult = await runFundamentalsStage(runId);
+    recordStageArtifact(runId, 'fundamentals', fundRerunResult);
+    const analysisRerunResult = await runAnalysisStage(runId);
+    recordStageArtifact(runId, 'analysis', analysisRerunResult);
+    const reportRerunResult = await runReportStage(runId);
+    recordStageArtifact(runId, 'report', reportRerunResult);
   } else if (stage === 'fundamentals') {
     for (const s of ['analysis', 'report'] as const) {
       updatePipelineStage(runId, s, { status: 'pending', detail: 'Pendiente re-run de fundamentales.', errors: [], startedAt: null, finishedAt: null });
     }
-    await runFundamentalsStage(runId);
-    await runAnalysisStage(runId);
-    await runReportStage(runId);
+    const fundRerunResult = await runFundamentalsStage(runId);
+    recordStageArtifact(runId, 'fundamentals', fundRerunResult);
+    const analysisRerunResult = await runAnalysisStage(runId);
+    recordStageArtifact(runId, 'analysis', analysisRerunResult);
+    const reportRerunResult = await runReportStage(runId);
+    recordStageArtifact(runId, 'report', reportRerunResult);
   } else if (stage === 'analysis') {
     updatePipelineStage(runId, 'report', { status: 'pending', detail: 'Pendiente re-run de análisis.', errors: [], startedAt: null, finishedAt: null });
-    await runAnalysisStage(runId);
-    await runReportStage(runId);
+    const analysisRerunResult = await runAnalysisStage(runId);
+    recordStageArtifact(runId, 'analysis', analysisRerunResult);
+    const reportRerunResult = await runReportStage(runId);
+    recordStageArtifact(runId, 'report', reportRerunResult);
   } else {
-    await runReportStage(runId);
+    const reportRerunResult = await runReportStage(runId);
+    recordStageArtifact(runId, 'report', reportRerunResult);
   }
 
   const finalRun = getPipelineRunByDate(today)!;
@@ -510,6 +554,14 @@ export async function rerunPipelineStage(
   const anyFailed = stageList.some((s) => s.status === 'failed');
   const allOk = stageList.every((s) => s.status === 'ok' || s.status === 'skipped');
   finishPipelineRun(runId, anyFailed ? 'failed' : allOk ? 'ok' : 'partial');
+
+  if (shouldGenerateProposal()) {
+    const proposal = generateWeightProposal();
+    if (proposal) {
+      console.log(`[pipeline] Weight adjustment proposal #${proposal.id} generated — pending user approval`);
+    }
+  }
+
   return getPipelineRunByDate(today)!;
 }
 

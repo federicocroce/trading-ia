@@ -21,6 +21,7 @@ import { UNIFIED_ASSET_ANALYSIS_PROMPT } from '@trading/shared';
 import { callAIWithModel } from '../shared/ai-router.js';
 import { getPortfolioPositions } from '../db/repository.js';
 import type { SentimentInput } from '../opportunities/scoring.js';
+import { saveUnifiedAnalysisBatch } from './pipeline-artifacts.repository.js';
 
 type PortfolioPosition = { symbol: string; quantity: number; avgCost: number };
 
@@ -131,17 +132,27 @@ async function analyzeBatch(
   techMap: Map<string, TechnicalSummary>,
   fundMap: Map<string, FundamentalSummary>,
   sentimentMap: Map<string, SentimentInput>,
-  positions: PortfolioPosition[],
+  pipelineRunId?: number,
+  batchIndex = 0,
 ): Promise<Map<string, UnifiedAssetAnalysis>> {
   const result = new Map<string, UnifiedAssetAnalysis>();
 
+  const positions = getPortfolioPositions();
   const cards = batch
     .map(o => buildCompactCard(o, positions, techMap.get(o.symbol), fundMap.get(o.symbol), sentimentMap.get(o.symbol)))
     .join('\n---\n');
 
+  const batchStart = Date.now();
+  let parsedOk = true;
+  let errorMsg: string | undefined;
+  let rawResponse: string | undefined;
+  let usedModel = 'reasoning';
+
   try {
-    const { content: raw, model: usedModel } = await callAIWithModel('reasoning', cards, UNIFIED_ASSET_ANALYSIS_PROMPT, 6144);
-    const parsed = JSON.parse(raw);
+    const result2 = await callAIWithModel('reasoning', cards, UNIFIED_ASSET_ANALYSIS_PROMPT, 6144);
+    rawResponse = result2.content;
+    usedModel = result2.model ?? 'reasoning';
+    const parsed = JSON.parse(result2.content);
 
     const generatedBy = modelNameToProvider(usedModel);
 
@@ -162,7 +173,26 @@ async function analyzeBatch(
 
     console.log(`[unified-analysis] Batch ${batch.map(o => o.symbol).join(',')}: ${result.size}/${batch.length} OK`);
   } catch (err) {
-    console.warn(`[unified-analysis] Batch failed: ${(err as Error).message?.slice(0, 100)}`);
+    parsedOk = false;
+    errorMsg = (err as Error).message?.slice(0, 200);
+    console.warn(`[unified-analysis] Batch failed: ${errorMsg}`);
+  }
+
+  if (pipelineRunId) {
+    try {
+      saveUnifiedAnalysisBatch({
+        pipelineRunId,
+        batchIndex,
+        assetsInput: batch.map(o => o.symbol),
+        modelUsed: usedModel,
+        durationMs: Date.now() - batchStart,
+        parsedOk,
+        errorMsg,
+        rawResponse,
+      });
+    } catch (saveErr) {
+      console.warn('[unified-analysis] Failed to save batch artifact:', (saveErr as Error).message);
+    }
   }
 
   return result;
@@ -174,6 +204,7 @@ async function analyzeBatch(
  *
  * @param opportunities - Sorted by opportunityScore desc, already filtered by anti-hype
  * @param maxAssets - Max assets to analyze (default 12)
+ * @param pipelineRunId - Optional pipeline run ID for persisting batch artifacts
  */
 export async function runUnifiedAnalysis(
   opportunities: Opportunity[],
@@ -181,6 +212,7 @@ export async function runUnifiedAnalysis(
   fundMap: Map<string, FundamentalSummary>,
   sentimentMap: Map<string, SentimentInput>,
   maxAssets = 12,
+  pipelineRunId?: number,
 ): Promise<Map<string, UnifiedAssetAnalysis>> {
   const result = new Map<string, UnifiedAssetAnalysis>();
 
@@ -199,9 +231,6 @@ export async function runUnifiedAnalysis(
 
   console.log(`[unified-analysis] Analyzing ${targets.length} assets (${portfolio.length} portfolio + ${topNonPortfolio.length} top) in batches of ${BATCH_SIZE}`);
 
-  // Fetch positions once — passed to each batch to avoid N DB calls
-  const positions = getPortfolioPositions();
-
   // Build batches
   const batches: Opportunity[][] = [];
   for (let i = 0; i < targets.length; i += BATCH_SIZE) {
@@ -210,7 +239,7 @@ export async function runUnifiedAnalysis(
 
   // Run batches in parallel
   const batchResults = await Promise.allSettled(
-    batches.map(batch => analyzeBatch(batch, techMap, fundMap, sentimentMap, positions)),
+    batches.map((batch, i) => analyzeBatch(batch, techMap, fundMap, sentimentMap, pipelineRunId, i)),
   );
 
   for (const r of batchResults) {

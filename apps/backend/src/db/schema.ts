@@ -176,6 +176,18 @@ export const signalTracking = sqliteTable('signal_tracking', {
   hitStop: integer('hit_stop', { mode: 'boolean' }),
   outcome: text('outcome'),                            // 'win' | 'loss' | 'neutral' | 'pending'
   resolvedAt: text('resolved_at'),
+  // Portfolio context
+  isPortfolioHold: integer('is_portfolio_hold', { mode: 'boolean' }).default(false),
+  // Entry accuracy
+  entryHit: integer('entry_hit', { mode: 'boolean' }),
+  entryDeviation: real('entry_deviation'),
+  entryHitAt: text('entry_hit_at'),
+  // Target accuracy (hitTarget already exists — only add deviation/date)
+  targetDeviation: real('target_deviation'),
+  targetHitAt: text('target_hit_at'),
+  // Stop accuracy (hitStop already exists — only add deviation/date)
+  stopDeviation: real('stop_deviation'),
+  stopTriggeredAt: text('stop_triggered_at'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 
@@ -409,4 +421,83 @@ export const calibratedWeightsTable = sqliteTable('calibrated_weights', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   weights: text('weights').notNull(),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Discovery Queries (user-configurable web search queries) ---
+export const discoveryQueries = sqliteTable('discovery_queries', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  query: text('query').notNull(),
+  lang: text('lang', { enum: ['en', 'es'] }).notNull().default('en'),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  priority: integer('priority').notNull().default(0),
+  category: text('category').notNull().default('general'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Thematic Queries (user-configurable market report themes) ---
+export const thematicQueries = sqliteTable('thematic_queries', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  keywords: text('keywords').notNull(), // JSON array of strings
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  priority: integer('priority').notNull().default(0),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Pipeline Stage Artifacts (audit trail per stage per run) ---
+export const pipelineStageArtifacts = sqliteTable('pipeline_stage_artifacts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  pipelineRunId: integer('pipeline_run_id').notNull().references(() => pipelineRuns.id),
+  stage: text('stage', { enum: ['webSearch', 'news', 'fundamentals', 'analysis', 'report', 'digest'] }).notNull(),
+  inputSnapshot: text('input_snapshot'),   // JSON — truncated to 50KB max
+  outputSnapshot: text('output_snapshot'), // JSON — truncated to 50KB max
+  tokensUsed: integer('tokens_used'),
+  modelUsed: text('model_used'),
+  symbolsProcessed: text('symbols_processed'), // JSON array of strings
+  durationMs: integer('duration_ms'),
+  errorCount: integer('error_count').notNull().default(0),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Unified Analysis Batches (each LLM call during unified analysis) ---
+export const unifiedAnalysisBatches = sqliteTable('unified_analysis_batches', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  pipelineRunId: integer('pipeline_run_id').notNull().references(() => pipelineRuns.id),
+  batchIndex: integer('batch_index').notNull(),
+  assetsInput: text('assets_input').notNull(),  // JSON array of symbol names
+  modelUsed: text('model_used').notNull(),
+  tokensInput: integer('tokens_input'),
+  tokensOutput: integer('tokens_output'),
+  durationMs: integer('duration_ms'),
+  parsedOk: integer('parsed_ok', { mode: 'boolean' }).notNull().default(true),
+  errorMsg: text('error_msg'),
+  rawResponse: text('raw_response'), // Full LLM response (always saved)
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Scoring Weight Proposals (semi-automatic weight adjustment) ---
+export const scoringWeightProposals = sqliteTable('scoring_weight_proposals', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  proposedAt: text('proposed_at').notNull().default(sql`(datetime('now'))`),
+  signalCount: integer('signal_count').notNull(),
+  shortTermBasis: integer('short_term_basis').notNull(),
+  mediumTermBasis: integer('medium_term_basis').notNull(),
+  currentWeights: text('current_weights').notNull(),
+  proposedWeights: text('proposed_weights').notNull(),
+  correlations: text('correlations').notNull(),
+  status: text('status', { enum: ['pending', 'approved', 'rejected'] }).notNull().default('pending'),
+  approvedAt: text('approved_at'),
+  appliedAt: text('applied_at'),
+  rejectedReason: text('rejected_reason'),
+});
+
+// --- Scoring Weight History (all applied weight changes) ---
+export const scoringWeightHistory = sqliteTable('scoring_weight_history', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  appliedAt: text('applied_at').notNull().default(sql`(datetime('now'))`),
+  weights: text('weights').notNull(),
+  source: text('source', { enum: ['manual', 'proposal'] }).notNull(),
+  proposalId: integer('proposal_id').references(() => scoringWeightProposals.id),
+  accuracyBefore: real('accuracy_before'),
+  accuracyAfter: real('accuracy_after'),
 });

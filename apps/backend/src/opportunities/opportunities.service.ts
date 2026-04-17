@@ -232,7 +232,7 @@ export async function scanOpportunities(sectors?: OpportunitySector[]): Promise<
   };
 }
 
-async function runLiveScan(sectors?: OpportunitySector[]): Promise<OpportunityScanResult> {
+async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number): Promise<OpportunityScanResult> {
   // Prune expired discoveries before scan
   pruneExpiredDiscoveries();
 
@@ -468,6 +468,8 @@ async function runLiveScan(sectors?: OpportunitySector[]): Promise<OpportunitySc
       techMap,
       fundMap,
       sentimentMap,
+      12,
+      pipelineRunId,
     );
 
     for (const opp of opportunities) {
@@ -812,7 +814,7 @@ export async function runAnalysis(): Promise<OpportunityScanResult> {
  * Blocking variant — used by the unified pipeline.
  * Awaits runLiveScan() fully before returning.
  */
-export async function runAnalysisBlocking(): Promise<OpportunityScanResult> {
+export async function runAnalysisBlocking(pipelineRunId?: number): Promise<OpportunityScanResult> {
   if (scanProgress.isScanning) {
     return cachedResult ?? {
       scannedAt: Date.now(), totalSymbolsScanned: 0, opportunities: [],
@@ -828,7 +830,7 @@ export async function runAnalysisBlocking(): Promise<OpportunityScanResult> {
   cachedResult = null;
 
   try {
-    const result = await runLiveScan();
+    const result = await runLiveScan(undefined, pipelineRunId);
     cachedResult = result;
     processTimestamps.analysisLastRun = Date.now();
     return result;
