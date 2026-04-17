@@ -59,6 +59,7 @@ export function StrategyConfigForm({ onSubmit, loading }: Props) {
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [selectedPreset, setSelectedPreset] = useState<string>('base');
   const [strategy, setStrategy] = useState<StrategyConfig>(PRESETS.base);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   function handlePresetChange(key: string) {
     setSelectedPreset(key);
@@ -67,6 +68,11 @@ export function StrategyConfigForm({ onSubmit, loading }: Props) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (strategy.buyThreshold <= strategy.sellThreshold) {
+      setValidationError('Buy threshold debe ser mayor que Sell threshold');
+      return;
+    }
+    setValidationError(null);
     onSubmit(symbol.toUpperCase().trim(), startDate, endDate, strategy);
   }
 
@@ -121,7 +127,7 @@ export function StrategyConfigForm({ onSubmit, loading }: Props) {
             <Input
               type="number"
               value={strategy.buyThreshold}
-              onChange={e => setStrategy(s => ({ ...s, name: 'Custom', buyThreshold: +e.target.value }))}
+              onChange={e => { const v = +e.target.value; setStrategy(s => ({ ...s, name: 'Custom', buyThreshold: v })); }}
               className="w-16"
               min={0} max={100}
             />
@@ -129,7 +135,7 @@ export function StrategyConfigForm({ onSubmit, loading }: Props) {
             <Input
               type="number"
               value={strategy.sellThreshold}
-              onChange={e => setStrategy(s => ({ ...s, name: 'Custom', sellThreshold: +e.target.value }))}
+              onChange={e => { const v = +e.target.value; setStrategy(s => ({ ...s, name: 'Custom', sellThreshold: v })); }}
               className="w-16"
               min={0} max={100}
             />
@@ -141,7 +147,7 @@ export function StrategyConfigForm({ onSubmit, loading }: Props) {
             <Input
               type="number"
               value={strategy.stopLossPercent}
-              onChange={e => setStrategy(s => ({ ...s, name: 'Custom', stopLossPercent: +e.target.value }))}
+              onChange={e => { const v = +e.target.value; setStrategy(s => ({ ...s, name: 'Custom', stopLossPercent: v })); }}
               className="w-16"
               min={0} max={50}
             />
@@ -149,7 +155,7 @@ export function StrategyConfigForm({ onSubmit, loading }: Props) {
             <Input
               type="number"
               value={strategy.takeProfitPercent}
-              onChange={e => setStrategy(s => ({ ...s, name: 'Custom', takeProfitPercent: +e.target.value }))}
+              onChange={e => { const v = +e.target.value; setStrategy(s => ({ ...s, name: 'Custom', takeProfitPercent: v })); }}
               className="w-16"
               min={0} max={100}
             />
@@ -158,6 +164,9 @@ export function StrategyConfigForm({ onSubmit, loading }: Props) {
         <Button type="submit" disabled={loading} className="mt-auto">
           {loading ? 'Corriendo...' : 'Correr Backtest'}
         </Button>
+        {validationError && (
+          <span className="self-center text-xs text-trading-red">{validationError}</span>
+        )}
       </form>
     </Card>
   );

@@ -1,6 +1,7 @@
 // apps/frontend/src/backtest/DrawdownChart.tsx
 import { useEffect, useRef } from 'react';
 import { createChart, ColorType, AreaSeries } from 'lightweight-charts';
+import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
 import type { BacktestEquityPoint } from '@trading/shared';
 
 interface Props {
@@ -9,9 +10,12 @@ interface Props {
 
 export function DrawdownChart({ data }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const areaSeriesRef = useRef<ISeriesApi<'Area'> | null>(null);
 
+  // Create chart once on mount
   useEffect(() => {
-    if (!containerRef.current || data.length === 0) return;
+    if (!containerRef.current) return;
 
     const chart = createChart(containerRef.current, {
       layout: {
@@ -28,7 +32,7 @@ export function DrawdownChart({ data }: Props) {
       timeScale: { borderColor: '#374151' },
     });
 
-    const areaSeries = chart.addSeries(AreaSeries, {
+    areaSeriesRef.current = chart.addSeries(AreaSeries, {
       lineColor: '#ef4444',
       topColor: '#ef444430',
       bottomColor: 'transparent',
@@ -36,13 +40,7 @@ export function DrawdownChart({ data }: Props) {
       title: 'Drawdown %',
     });
 
-    // Negate so it shows as downward area
-    const ddData = data.map(p => ({
-      time: p.date as import('lightweight-charts').Time,
-      value: -p.drawdownPercent,
-    }));
-    areaSeries.setData(ddData);
-    chart.timeScale().fitContent();
+    chartRef.current = chart;
 
     const ro = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
@@ -52,7 +50,19 @@ export function DrawdownChart({ data }: Props) {
     return () => {
       ro.disconnect();
       chart.remove();
+      chartRef.current = null;
+      areaSeriesRef.current = null;
     };
+  }, []);
+
+  // Update data without recreating chart
+  useEffect(() => {
+    if (!areaSeriesRef.current || data.length === 0) return;
+    areaSeriesRef.current.setData(data.map(p => ({
+      time: p.date as Time,
+      value: -p.drawdownPercent,
+    })));
+    chartRef.current?.timeScale().fitContent();
   }, [data]);
 
   return <div ref={containerRef} className="w-full" />;

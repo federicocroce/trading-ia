@@ -18,7 +18,7 @@ export function BacktestPage() {
 
   const triggerMutation = trpc.quant.triggerBacktest.useMutation();
 
-  const { data: currentRun } = trpc.quant.getBacktestRun.useQuery(
+  const { data: currentRun, error: queryError } = trpc.quant.getBacktestRun.useQuery(
     { runId: currentRunId! },
     {
       enabled: currentRunId !== null,
@@ -26,6 +26,7 @@ export function BacktestPage() {
         const data = query.state.data;
         return data?.status === 'running' ? 2000 : false;
       },
+      retry: 2,
     },
   );
 
@@ -33,7 +34,11 @@ export function BacktestPage() {
     if (currentRun?.status === 'completed' || currentRun?.status === 'failed') {
       setLoading(false);
     }
-  }, [currentRun?.status]);
+    if (queryError) {
+      setLoading(false);
+      setError('Error al obtener resultado del backtest');
+    }
+  }, [currentRun?.status, queryError]);
 
   async function handleSubmit(symbol: string, startDate: string, endDate: string, strategy: StrategyConfig) {
     setLoading(true);

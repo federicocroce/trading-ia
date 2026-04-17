@@ -1,6 +1,7 @@
 // apps/frontend/src/backtest/EquityCurveChart.tsx
 import { useEffect, useRef } from 'react';
 import { createChart, ColorType, LineSeries } from 'lightweight-charts';
+import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
 import type { BacktestEquityPoint } from '@trading/shared';
 
 interface Props {
@@ -10,9 +11,13 @@ interface Props {
 
 export function EquityCurveChart({ data, symbol }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const stratSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const buhSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
 
+  // Create chart once on mount
   useEffect(() => {
-    if (!containerRef.current || data.length === 0) return;
+    if (!containerRef.current) return;
 
     const chart = createChart(containerRef.current, {
       layout: {
@@ -29,25 +34,20 @@ export function EquityCurveChart({ data, symbol }: Props) {
       timeScale: { borderColor: '#374151' },
     });
 
-    const stratSeries = chart.addSeries(LineSeries, {
+    stratSeriesRef.current = chart.addSeries(LineSeries, {
       color: '#22c55e',
       lineWidth: 2,
       title: `Estrategia ${symbol}`,
     });
 
-    const buhSeries = chart.addSeries(LineSeries, {
+    buhSeriesRef.current = chart.addSeries(LineSeries, {
       color: '#6b7280',
       lineWidth: 1,
-      lineStyle: 2, // dashed
+      lineStyle: 2,
       title: 'Buy & Hold',
     });
 
-    const stratData = data.map(p => ({ time: p.date as import('lightweight-charts').Time, value: p.portfolioValue }));
-    const buhData = data.map(p => ({ time: p.date as import('lightweight-charts').Time, value: p.buyAndHoldValue }));
-
-    stratSeries.setData(stratData);
-    buhSeries.setData(buhData);
-    chart.timeScale().fitContent();
+    chartRef.current = chart;
 
     const ro = new ResizeObserver(() => {
       if (containerRef.current) chart.applyOptions({ width: containerRef.current.clientWidth });
@@ -57,8 +57,19 @@ export function EquityCurveChart({ data, symbol }: Props) {
     return () => {
       ro.disconnect();
       chart.remove();
+      chartRef.current = null;
+      stratSeriesRef.current = null;
+      buhSeriesRef.current = null;
     };
-  }, [data, symbol]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update data without recreating chart
+  useEffect(() => {
+    if (!stratSeriesRef.current || !buhSeriesRef.current || data.length === 0) return;
+    stratSeriesRef.current.setData(data.map(p => ({ time: p.date as Time, value: p.portfolioValue })));
+    buhSeriesRef.current.setData(data.map(p => ({ time: p.date as Time, value: p.buyAndHoldValue })));
+    chartRef.current?.timeScale().fitContent();
+  }, [data]);
 
   return <div ref={containerRef} className="w-full" />;
 }
