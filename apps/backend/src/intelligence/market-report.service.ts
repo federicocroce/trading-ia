@@ -20,6 +20,7 @@ import {
   getLatestMarketReport,
   saveMarketReport,
 } from './pipeline.repository.js';
+import { getActiveThematicQueries } from './config.repository.js';
 
 export function getCachedMarketReport(): MarketReport | null {
   const row = getTodayMarketReport();
@@ -43,18 +44,6 @@ export function getCachedMarketReport(): MarketReport | null {
 // THEMATIC NEWS SEARCH (Pasada 0)
 // ============================================================
 
-const THEMATIC_QUERIES = [
-  { theme: 'Geopolítica y conflictos', query: 'war conflict sanctions geopolitics military defense' },
-  { theme: 'Política monetaria', query: 'Federal Reserve interest rate inflation central bank ECB' },
-  { theme: 'Tecnología e IA', query: 'artificial intelligence AI semiconductor earnings tech NVIDIA' },
-  { theme: 'Energía y petróleo', query: 'oil price OPEC crude energy natural gas renewable' },
-  { theme: 'Mercados emergentes y Argentina', query: 'Argentina IMF emerging markets Latin America Brazil' },
-  { theme: 'Comercio y aranceles', query: 'tariffs trade war China imports exports supply chain' },
-  { theme: 'Crypto y fintech', query: 'Bitcoin cryptocurrency blockchain DeFi regulation SEC crypto' },
-  { theme: 'Salud y pharma', query: 'FDA approval pharmaceutical biotech drug healthcare' },
-  { theme: 'Commodities', query: 'gold copper lithium uranium commodities mining metals' },
-  { theme: 'M&A y earnings', query: 'merger acquisition earnings report revenue guidance IPO' },
-];
 
 async function fetchThematicNewsFromAPI(): Promise<Array<{ theme: string; headlines: string[] }>> {
   console.log('[MarketReport] Pasada 0 (API fallback): Buscando noticias por temática...');
@@ -66,9 +55,10 @@ async function fetchThematicNewsFromAPI(): Promise<Array<{ theme: string; headli
     return results;
   }
 
+  const thematicQueriesList = getActiveThematicQueries();
   // Fetch in batches of 3 to respect rate limits (100 req/day on free tier)
-  for (let i = 0; i < THEMATIC_QUERIES.length; i += 3) {
-    const batch = THEMATIC_QUERIES.slice(i, i + 3);
+  for (let i = 0; i < thematicQueriesList.length; i += 3) {
+    const batch = thematicQueriesList.slice(i, i + 3);
     const fetches = await Promise.allSettled(
       batch.map(async ({ theme, query }) => {
         const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&language=en&sortBy=publishedAt&pageSize=8&apiKey=${newsapiKey}`;

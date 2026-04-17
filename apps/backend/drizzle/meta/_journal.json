@@ -131,21 +131,21 @@
     {
       "idx": 18,
       "version": "6",
-      "when": 1745539200000,
+      "when": 1776437000000,
       "tag": "0018_pipeline_intelligence",
       "breakpoints": true
     },
     {
       "idx": 19,
       "version": "6",
-      "when": 1745625600000,
+      "when": 1776437100000,
       "tag": "0019_signal_tracking_accuracy",
       "breakpoints": true
     },
     {
       "idx": 20,
       "version": "6",
-      "when": 1745712000000,
+      "when": 1776437200000,
       "tag": "0020_scoring_weights",
       "breakpoints": true
     }

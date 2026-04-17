@@ -4,6 +4,7 @@ import { seedDatabase } from './seed.js';
 import { seedConfigTables } from './seed-config.js';
 import { resolve } from 'path';
 import { clearExpiredQuota } from '../shared/quota-tracker.js';
+import { seedConfigIfEmpty } from '../intelligence/config.repository.js';
 
 export function initDatabase() {
   console.log('[db] Initializing database...');
@@ -18,6 +19,9 @@ export function initDatabase() {
 
   // Seed config tables (idempotent)
   seedConfigTables();
+
+  // Seed discovery/thematic queries if tables are empty
+  seedConfigIfEmpty();
 
   // Clear stale quota entries from previous sessions
   clearExpiredQuota();
