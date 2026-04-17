@@ -6,6 +6,7 @@ import type {
   SectorSummary,
   MarketDigest,
   DeepAnalysis,
+  QuantContext,
 } from '@trading/shared';
 import { NARRATIVE_DIGEST_PROMPT, DAILY_MARKET_DIGEST_PROMPT } from '@trading/shared';
 import { callAI } from '../shared/ai-router.js';
@@ -287,6 +288,7 @@ export async function generateDailyDigest(
   secondOrderEffects: SecondOrderEffect[],
   intelligence: NewsIntelligence,
   sectorSummary: SectorSummary[],
+  quantContext?: QuantContext | null,
 ): Promise<MarketDigest | null> {
   const topBuySell = opportunities
     .filter(o => o.action === 'BUY' || o.action === 'SELL')
@@ -326,6 +328,28 @@ export async function generateDailyDigest(
       }
       return line;
     }).join('\n')}`);
+  }
+
+  // Regime context (if available)
+  if (quantContext?.regime && quantContext.regime.regime !== 'unknown') {
+    const r = quantContext.regime;
+    const regimeLabel: Record<string, string> = {
+      trending_bull: 'Tendencia alcista',
+      trending_bear: 'Tendencia bajista',
+      mean_reverting: 'Mercado lateral/oscilante',
+      volatile: 'Alta volatilidad',
+    };
+    parts.push(
+      `RÉGIMEN DE MERCADO: ${regimeLabel[r.regime] ?? r.regime} (confianza: ${r.confidence}%)\n` +
+      `${r.indicators.trendConsistency}% de activos sobre SMA200, momentum ${r.indicators.spyMomentum > 0 ? '+' : ''}${r.indicators.spyMomentum}`
+    );
+  }
+
+  // Top momentum movers (if available)
+  if (quantContext?.momentumRankings && quantContext.momentumRankings.length >= 3) {
+    const top3 = quantContext.momentumRankings.slice(0, 3).map(m => `${m.symbol}(+${m.relativeStrength}%)`).join(', ');
+    const bot3 = quantContext.momentumRankings.slice(-3).map(m => `${m.symbol}(${m.relativeStrength}%)`).join(', ');
+    parts.push(`TOP MOMENTUM: ${top3} | MENOR MOMENTUM: ${bot3}`);
   }
 
   const userMessage = parts.join('\n\n');
