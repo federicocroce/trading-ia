@@ -18,9 +18,19 @@ import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAg
 import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, getLastUnifiedAnalyses, setMarketDigest } from '../opportunities/opportunities.service.js';
 import { getIntelligenceFromDB } from '../news/news-intelligence.service.js';
 import { runWebSearch } from '../web-search/web-search.service.js';
-import type { PipelineRun, StageResult } from '@trading/shared';
+import type { PipelineRun, StageResult, QuantContext } from '@trading/shared';
+import { detectRegime } from '../quant/regime-detector.service.js';
+import { rankMomentum } from '../quant/momentum-ranker.service.js';
+import { calibrateWeights } from '../quant/weight-calibrator.service.js';
+import { getAllTechnicalSummaries } from '../technical/technical-analysis.service.js';
 
 let _stageUnifiedAnalyses: Map<string, import('@trading/shared').UnifiedAssetAnalysis> | null = null;
+
+let _stageQuantContext: QuantContext | null = null;
+
+export function getStageQuantContext(): QuantContext | null {
+  return _stageQuantContext;
+}
 
 export function initPipeline() {
   markOrphanedRunsFailed();
@@ -219,6 +229,43 @@ async function runAnalysisStage(runId: number): Promise<StageResult> {
   }
 }
 
+async function runQuantStage(runId: number): Promise<StageResult> {
+  const startedAt = new Date().toISOString();
+  updatePipelineStage(runId, 'quant', { status: 'running', startedAt });
+  try {
+    const summaries = await getAllTechnicalSummaries();
+    const regime = detectRegime(summaries);
+    const momentumRankings = rankMomentum(summaries);
+    const calibratedWeightsResult = calibrateWeights();
+
+    _stageQuantContext = { regime, momentumRankings, calibratedWeights: calibratedWeightsResult };
+
+    const sr: StageResult = {
+      status: 'ok',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      detail: `Régimen: ${regime.regime} (${regime.confidence}% conf). ${summaries.length} activos rankeados.${calibratedWeightsResult ? ' Pesos calibrados.' : ''}`,
+      errors: [],
+    };
+    updatePipelineStage(runId, 'quant', sr);
+    return sr;
+  } catch (err) {
+    const errMsg = (err as Error).message ?? String(err);
+    console.error('[pipeline] runQuantStage error:', errMsg);
+    _stageQuantContext = null;
+    const sr: StageResult = {
+      status: 'failed',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      detail: 'Error en quant stage (no bloqueante).',
+      errors: [],
+      criticalError: errMsg.slice(0, 200),
+    };
+    updatePipelineStage(runId, 'quant', sr);
+    return sr;
+  }
+}
+
 async function runReportStage(runId: number): Promise<StageResult> {
   const startedAt = new Date().toISOString();
   updatePipelineStage(runId, 'report', { status: 'running', startedAt });
@@ -235,7 +282,13 @@ async function runReportStage(runId: number): Promise<StageResult> {
         const opportunities = JSON.parse(scan.opportunities);
         const sectorSummary = JSON.parse(scan.sectorSummary ?? '[]');
         const secondOrderEffects = getStoredDailyReport()?.secondOrderEffects ?? [];
-        const digest = await generateDailyDigest(opportunities, secondOrderEffects, intelligence, sectorSummary);
+        const digest = await generateDailyDigest(
+          opportunities,
+          secondOrderEffects,
+          intelligence,
+          sectorSummary,
+          _stageQuantContext,
+        );
         if (digest) setMarketDigest(digest);
       }
     } catch (digestErr) {
@@ -302,6 +355,9 @@ async function runRemainingStages(runId: number): Promise<void> {
     });
   }
 
+  // Quant stage: non-blocking (failure doesn't stop pipeline)
+  await runQuantStage(runId);
+
   await runReportStage(runId);
 
   const finalRun = getPipelineRunByDate(today)!;
@@ -313,6 +369,7 @@ async function runRemainingStages(runId: number): Promise<void> {
 
 export async function checkOrRunPipeline(force = false): Promise<PipelineRun> {
   _stageUnifiedAnalyses = null;
+  _stageQuantContext = null;
   const today = getToday();
 
   const activeRun = getActivePipelineRun();
