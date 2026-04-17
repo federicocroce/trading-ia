@@ -14,6 +14,7 @@ import { ChatToggle } from '@/layout/ChatToggle';
 import { SymbolDetailPage } from '@/symbol/SymbolDetailPage';
 import { OpportunityDashboard } from '@/opportunities/OpportunityDashboard';
 import { DailySummary } from '@/daily/DailySummary';
+import { BacktestPage } from '@/backtest/BacktestPage';
 import { NavigationContext } from '@/shared/navigation';
 import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
@@ -103,6 +104,7 @@ export function App() {
                   </TabsTrigger>
                   <TabsTrigger value="news">Noticias</TabsTrigger>
                   <TabsTrigger value="transactions">Operaciones</TabsTrigger>
+                  <TabsTrigger value="backtest">Backtest</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="daily" className="flex-1 overflow-y-auto">
@@ -119,6 +121,9 @@ export function App() {
                 </TabsContent>
                 <TabsContent value="opportunities" className="flex-1 overflow-y-auto">
                   <OpportunityDashboard />
+                </TabsContent>
+                <TabsContent value="backtest" className="flex-1 overflow-y-auto">
+                  <BacktestPage />
                 </TabsContent>
               </Tabs>
             )}
