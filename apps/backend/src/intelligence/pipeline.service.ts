@@ -12,8 +12,7 @@ import {
   getPipelineHistory,
 } from './pipeline.repository.js';
 import { saveStageArtifact } from './pipeline-artifacts.repository.js';
-import { generateMarketReport } from './market-report.service.js';
-import { generateDailyDigest } from './market-digest.service.js';
+import { generateMarketReport, type DigestInputs } from './market-report.service.js';
 import { getStoredDailyReport } from './daily-report.service.js';
 import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAge, insertWebSearchArticles } from '../db/repository.js';
 import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, getLastUnifiedAnalyses, setMarketDigest } from '../opportunities/opportunities.service.js';
@@ -21,6 +20,7 @@ import { getIntelligenceFromDB } from '../news/news-intelligence.service.js';
 import { runWebSearch } from '../web-search/web-search.service.js';
 import { generateWeightProposal, shouldGenerateProposal } from './weight-adjustment.service.js';
 import type { PipelineRun, StageResult, QuantContext } from '@trading/shared';
+import { getToday } from '../shared/date-utils.js';
 import { detectRegime } from '../quant/regime-detector.service.js';
 import { rankMomentum } from '../quant/momentum-ranker.service.js';
 import { calibrateWeights } from '../quant/weight-calibrator.service.js';
@@ -38,10 +38,6 @@ export function initPipeline() {
   markOrphanedRunsFailed();
 }
 
-function getToday(): string {
-  // Use Buenos Aires timezone (UTC-3) — avoids date shift after 21hs local time
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
-}
 
 function isNewsStageValid(): boolean {
   const today = getToday();
@@ -297,42 +293,29 @@ async function runReportStage(runId: number): Promise<StageResult> {
   const startedAt = new Date().toISOString();
   updatePipelineStage(runId, 'report', { status: 'running', startedAt });
   try {
-    // Pass precomputed Stage 3 analyses so generateMarketReport skips the full thematic pipeline
-    const precomputed = _stageUnifiedAnalyses ?? undefined;
+    const precomputed = _stageUnifiedAnalyses ?? new Map();
     _stageUnifiedAnalyses = null;
 
-    // Prepare digest inputs before spawning parallel tasks
-    const scan = getTodayOpportunityScan();
-    const digestInputsPromise = scan
-      ? (async () => {
-          const intelligence = await getIntelligenceFromDB();
-          const opportunities = JSON.parse(scan.opportunities);
-          const sectorSummary = JSON.parse(scan.sectorSummary ?? '[]');
-          const secondOrderEffects = getStoredDailyReport()?.secondOrderEffects ?? [];
-          return { opportunities, secondOrderEffects, intelligence, sectorSummary };
-        })()
-      : Promise.resolve(null);
-
-    // Run market report and digest inputs fetch in parallel
-    const [report, digestInputs] = await Promise.all([
-      generateMarketReport(precomputed),
-      digestInputsPromise,
-    ]);
-
-    // Generate digest with pre-fetched inputs + quant context (non-critical, won't block report)
-    if (digestInputs) {
-      generateDailyDigest(
-        digestInputs.opportunities,
-        digestInputs.secondOrderEffects,
-        digestInputs.intelligence,
-        digestInputs.sectorSummary,
-        _stageQuantContext,
-      )
-        .then(digest => { if (digest) setMarketDigest(digest); })
-        .catch(digestErr => {
-          console.warn('[pipeline] Market digest generation failed (non-critical):', (digestErr as Error).message?.slice(0, 100));
-        });
+    if (precomputed.size === 0) {
+      throw new Error('No hay análisis de Stage 3 disponibles. Corré el pipeline completo primero.');
     }
+
+    // Build digest inputs from today's scan
+    let digestInputs: DigestInputs | undefined;
+    const scan = getTodayOpportunityScan();
+    if (scan) {
+      const intelligence = await getIntelligenceFromDB();
+      digestInputs = {
+        opportunities: JSON.parse(scan.opportunities),
+        secondOrderEffects: getStoredDailyReport()?.secondOrderEffects ?? [],
+        intelligence,
+        sectorSummary: JSON.parse(scan.sectorSummary ?? '[]'),
+        quantContext: _stageQuantContext,
+      };
+    }
+
+    const { report, digest } = await generateMarketReport(precomputed, digestInputs);
+    if (digest) setMarketDigest(digest);
 
     const themeCount = report.themes?.length ?? 0;
     const reportErrors: string[] = report.errors ?? [];
@@ -500,8 +483,6 @@ export async function rerunPipelineStage(
   const existingRun = getPipelineRunByDate(today);
   const run = existingRun ?? createPipelineRun(today);
   const runId = run.id;
-  // For report-only re-runs, reuse analyses already in memory from Stage 3.
-  // For any other stage re-run, reset so stale data doesn't leak forward.
   _stageUnifiedAnalyses = stage === 'report' ? (getLastUnifiedAnalyses() ?? null) : null;
   markRunAsRunning(runId);
 

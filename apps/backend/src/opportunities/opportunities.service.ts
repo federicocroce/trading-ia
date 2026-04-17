@@ -24,7 +24,6 @@ import { runUnifiedAnalysis } from '../intelligence/unified-analysis.service.js'
 import { getSectorForSymbolDynamic, getDiscoveredTickers, pruneExpiredDiscoveries } from '../discovery/discovery-registry.js';
 import { classifyAssets } from '../discovery/asset-classifier.js';
 import { getSourceStats } from '../news/news.service.js';
-import { getTriangulationStats } from '../news/triangulation.service.js';
 import {
   getActiveSymbolList,
   getPortfolioPositions,
@@ -46,6 +45,7 @@ import {
   type SentimentInput,
   type AntiHypeFilterResult,
 } from './scoring.js';
+import { getToday } from '../shared/date-utils.js';
 
 // --- In-memory cache (survives within same process, backed by DB) ---
 let cachedResult: OpportunityScanResult | null = null;
@@ -63,7 +63,7 @@ export function getLastUnifiedAnalyses(): Map<string, import('@trading/shared').
 export function getMarketDigest(): import('@trading/shared').MarketDigest | null {
   if (cachedMarketDigest) return cachedMarketDigest;
   // Try to load today's digest from DB
-  const today = todayDateStr();
+  const today = getToday();
   const raw = getMarketDigestByDate(today);
   if (raw) {
     try {
@@ -77,7 +77,7 @@ export function getMarketDigest(): import('@trading/shared').MarketDigest | null
 export function setMarketDigest(digest: import('@trading/shared').MarketDigest) {
   cachedMarketDigest = digest;
   // Persist to DB
-  const today = todayDateStr();
+  const today = getToday();
   try {
     upsertMarketDigest(today, JSON.stringify(digest));
   } catch (e) {
@@ -85,9 +85,6 @@ export function setMarketDigest(digest: import('@trading/shared').MarketDigest) 
   }
 }
 
-function todayDateStr(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function tryLoadFromDB(): OpportunityScanResult | null {
   if (dbCacheInvalidated) return null; // refresh explícito en curso, ignorar DB
@@ -463,6 +460,14 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
   console.log(`[opportunities] Fase 3.5: ${conflictCount} oportunidades con conflictos de senales detectados`);
 
   try {
+    const macroHeadlines = intelligence.plazas
+      .flatMap((p) => p.symbolTrends.flatMap((t) => t.topHeadlines))
+      .filter((h, i, arr) => arr.indexOf(h) === i)
+      .slice(0, 10);
+    const macroContextStr = macroHeadlines.length > 0
+      ? `[CONTEXTO MACRO - noticias recientes]\n${macroHeadlines.map((h) => `- ${h}`).join('\n')}`
+      : '';
+
     const unifiedAnalyses = await runUnifiedAnalysis(
       opportunities,
       techMap,
@@ -470,6 +475,7 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
       sentimentMap,
       12,
       pipelineRunId,
+      macroContextStr,
     );
 
     for (const opp of opportunities) {
@@ -525,12 +531,7 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
     .sort((a, b) => b.opportunityScore - a.opportunityScore)
     .slice(0, 10);
 
-  // Get triangulation stats from BD (no LLM re-analysis)
-  const { getNewsFromDB } = await import('../news/news.service.js');
-  const { triangulateNews } = await import('../news/triangulation.service.js');
-  const dbNews = getNewsFromDB();
-  const triangulated = triangulateNews(dbNews);
-  const triangulationStats = getTriangulationStats(triangulated as any);
+  const triangulationStats: Record<'high' | 'medium' | 'low', number> = { high: 0, medium: 0, low: 0 };
 
   persistDailyReport({
     reportType: 'on-demand',

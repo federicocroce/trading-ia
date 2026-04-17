@@ -182,19 +182,3 @@ export function getTodayMarketReport() {
     errors: row.errors ? JSON.parse(row.errors) : [],
   };
 }
-
-export function getLatestMarketReport() {
-  const row = db.select().from(schema.marketReports)
-    .orderBy(desc(schema.marketReports.createdAt))
-    .get();
-  if (!row) return null;
-  return {
-    ...row,
-    themes: row.themes ? JSON.parse(row.themes) : null,
-    topRecommendations: row.topRecommendations ? JSON.parse(row.topRecommendations) : null,
-    alternatives: row.alternatives ? JSON.parse(row.alternatives) : null,
-    scenarios: row.scenarios ? JSON.parse(row.scenarios) : null,
-    avoidList: row.avoidList ? JSON.parse(row.avoidList) : null,
-    errors: row.errors ? JSON.parse(row.errors) : [],
-  };
-}

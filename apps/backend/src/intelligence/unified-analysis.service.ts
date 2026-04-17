@@ -28,7 +28,7 @@ type PortfolioPosition = { symbol: string; quantity: number; avgCost: number };
 const BATCH_SIZE = 4; // DeepSeek R1 vía OpenRouter: 4 en paralelo es seguro
 
 function modelNameToProvider(name: string): UnifiedAssetAnalysis['generatedBy'] {
-  if (name.includes('Gemini')) return 'claude'; // 'claude' slot reutilizado para Gemini (mismo tipo en shared)
+  if (name.includes('Gemini') || name.includes('gemini')) return 'gemini';
   if (name.includes('DeepSeek')) return 'deepseek';
   if (name.includes('Groq')) return 'groq';
   if (name.includes('Qwen') || name.includes('local')) return 'qwen';
@@ -134,13 +134,15 @@ async function analyzeBatch(
   sentimentMap: Map<string, SentimentInput>,
   pipelineRunId?: number,
   batchIndex = 0,
+  macroContext = '',
 ): Promise<Map<string, UnifiedAssetAnalysis>> {
   const result = new Map<string, UnifiedAssetAnalysis>();
 
   const positions = getPortfolioPositions();
-  const cards = batch
+  const symbolCards = batch
     .map(o => buildCompactCard(o, positions, techMap.get(o.symbol), fundMap.get(o.symbol), sentimentMap.get(o.symbol)))
     .join('\n---\n');
+  const cards = macroContext ? `${macroContext}\n===\n${symbolCards}` : symbolCards;
 
   const batchStart = Date.now();
   let parsedOk = true;
@@ -213,6 +215,7 @@ export async function runUnifiedAnalysis(
   sentimentMap: Map<string, SentimentInput>,
   maxAssets = 12,
   pipelineRunId?: number,
+  macroContext = '',
 ): Promise<Map<string, UnifiedAssetAnalysis>> {
   const result = new Map<string, UnifiedAssetAnalysis>();
 
@@ -239,7 +242,7 @@ export async function runUnifiedAnalysis(
 
   // Run batches in parallel
   const batchResults = await Promise.allSettled(
-    batches.map((batch, i) => analyzeBatch(batch, techMap, fundMap, sentimentMap, pipelineRunId, i)),
+    batches.map((batch, i) => analyzeBatch(batch, techMap, fundMap, sentimentMap, pipelineRunId, i, macroContext)),
   );
 
   for (const r of batchResults) {

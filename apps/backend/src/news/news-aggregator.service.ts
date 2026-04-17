@@ -1,6 +1,6 @@
 import type { NewsItem, RawNewsArticle } from '@trading/shared';
 import { getAvailableAdapters } from './sources/index.js';
-import { getActiveSymbolList, getSymbolsByMarket, getWebSearchArticlesForDate } from '../db/repository.js';
+import { getActiveSymbolList, getAllSymbols, getWebSearchArticlesForDate } from '../db/repository.js';
 import { registerNovelTickers } from '../discovery/discovery-registry.js';
 import { isValidTickerFormat } from '../discovery/ticker-validator.js';
 
@@ -53,29 +53,56 @@ function deduplicateArticles(articles: RawNewsArticle[], threshold: number = 0.7
 
 // --- Impact classification ---
 
-function classifyImpact(relatedTickers: string[], activeSymbols: string[]): 'high' | 'medium' | 'low' {
+const MACRO_KEYWORDS = [
+  'fed', 'federal reserve', 'interest rate', 'rate cut', 'rate hike', 'rate decision',
+  'tariff', 'trade war', 'trade deal', 'sanctions', 'inflation', 'cpi', 'pce', 'deflation',
+  'recession', 'gdp', 'geopolitical', 'conflict', 'war', 'escalation', 'opec',
+  'ecb', 'bank of japan', 'boj', 'central bank', 'monetary policy', 'quantitative',
+  'arancel', 'guerra', 'inflacion', 'reserva federal', 'banco central', 'tasas de interes',
+];
+
+function hasMacroKeywords(title: string): boolean {
+  const lower = title.toLowerCase();
+  return MACRO_KEYWORDS.some((k) => lower.includes(k));
+}
+
+function classifyImpact(relatedTickers: string[], activeSymbols: string[], title = ''): 'high' | 'medium' | 'low' {
   const portfolioTickers = relatedTickers.filter((t) => activeSymbols.includes(t));
   if (portfolioTickers.length >= 2) return 'high';
   if (portfolioTickers.length === 1) return 'medium';
+  if (hasMacroKeywords(title)) return 'medium';
   return 'low';
 }
 
-function classifySectors(relatedTickers: string[]): string[] {
+const PLAZA_SECTORS: Record<string, string[]> = {
+  'argentina-energy':   ['energy', 'argentina'],
+  'argentina-finance':  ['finance', 'argentina'],
+  'argentina-cedears':  ['argentina'],
+  'us-energy':          ['energy'],
+  'us-tech':            ['tech'],
+  'crypto':             ['crypto'],
+  'bonds':              ['bonds'],
+  'etfs-sectors':       ['etf'],
+  'commodities':        ['commodities'],
+  'emerging-markets':   ['emerging'],
+  'global':             ['global'],
+};
+
+function buildTickerSectorMap(): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const s of getAllSymbols()) {
+    if (s.plaza && PLAZA_SECTORS[s.plaza]) {
+      map.set(s.symbol, PLAZA_SECTORS[s.plaza]);
+    }
+  }
+  return map;
+}
+
+function classifySectors(relatedTickers: string[], tickerSectorMap: Map<string, string[]>): string[] {
   const sectors = new Set<string>();
-  const sectorMap: Record<string, string> = {
-    VIST: 'energy', YPF: 'energy', PAM: 'energy', TGS: 'energy', CEPU: 'energy',
-    GGAL: 'finance', BMA: 'finance',
-    XOM: 'energy', CVX: 'energy',
-    'BTC-USD': 'crypto', 'ETH-USD': 'crypto',
-  };
-
-  // Argentina tickers fetched from DB (symbols with argentina plaza).
-  // Falls back to empty list if DB returns nothing (sector label still works via sectorMap).
-  const argTickersFromDB = getSymbolsByMarket('argentina').map((s) => s.symbol);
-
   for (const ticker of relatedTickers) {
-    if (sectorMap[ticker]) sectors.add(sectorMap[ticker]);
-    if (argTickersFromDB.includes(ticker)) sectors.add('argentina');
+    const tickerSectors = tickerSectorMap.get(ticker);
+    if (tickerSectors) tickerSectors.forEach(s => sectors.add(s));
   }
   if (sectors.size === 0) sectors.add('global');
   return Array.from(sectors);
@@ -83,14 +110,14 @@ function classifySectors(relatedTickers: string[]): string[] {
 
 // --- Convert RawNewsArticle to NewsItem ---
 
-function toNewsItem(article: RawNewsArticle, activeSymbols: string[]): NewsItem {
+function toNewsItem(article: RawNewsArticle, activeSymbols: string[], tickerSectorMap: Map<string, string[]>): NewsItem {
   return {
     id: article.externalId,
     time: article.publishedAt,
     title: article.title,
     source: article.source,
-    impact: classifyImpact(article.relatedSymbols, activeSymbols),
-    sectors: classifySectors(article.relatedSymbols),
+    impact: classifyImpact(article.relatedSymbols, activeSymbols, article.title),
+    sectors: classifySectors(article.relatedSymbols, tickerSectorMap),
     sentiment: 'neutral', // Will be classified by LLM later
     url: article.url || undefined,
     relatedTickers: article.relatedSymbols,
@@ -116,6 +143,7 @@ export interface AggregationResult {
 export async function aggregateNews(): Promise<AggregationResult> {
   const adapters = await getAvailableAdapters();
   const symbols = getActiveSymbolList();
+  const tickerSectorMap = buildTickerSectorMap();
 
   // Fetch from all sources in parallel
   const results = await Promise.allSettled(
@@ -174,9 +202,8 @@ export async function aggregateNews(): Promise<AggregationResult> {
   const duplicatesRemoved = totalRaw - deduped.length;
 
   // Convert to NewsItem and sort by time (newest first)
-  const activeSymbols = getActiveSymbolList();
   const news = deduped
-    .map((a) => toNewsItem(a, activeSymbols))
+    .map((a) => toNewsItem(a, symbols, tickerSectorMap))
     .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 
   console.log(
@@ -192,7 +219,7 @@ export async function aggregateNews(): Promise<AggregationResult> {
         if (isValidTickerFormat(ticker)) allMentionedTickers.add(ticker);
       }
     }
-    const known = new Set(activeSymbols);
+    const known = new Set(symbols);
     const novel = [...allMentionedTickers].filter(t => !known.has(t));
 
     if (novel.length > 0) {

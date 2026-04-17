@@ -130,7 +130,7 @@ export interface UnifiedAssetAnalysis {
   wouldNotDo: string[];          // 1 acción a evitar
   narrative: string;             // 2-3 oraciones para UI (reemplaza narrativeDigest)
   macroTheme: string | null;     // tema macro asignado (ej: "Semiconductores / IA")
-  generatedBy: 'deepseek' | 'groq' | 'qwen' | 'claude' | 'openrouter';
+  generatedBy: 'deepseek' | 'groq' | 'qwen' | 'gemini' | 'openrouter';
 }
 
 export interface SectorSummary {

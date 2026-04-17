@@ -133,93 +133,6 @@ REGLAS:
 Responde con JSON:
 {"narratives":[{"symbol":"VIST","narrative":"Vista Energy esta acumulando presion..."}]}`;
 
-// --- DAILY MARKET DIGEST ---
-
-export const DAILY_MARKET_DIGEST_PROMPT = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Cada campo del JSON debe estar en español. No uses inglés bajo ningún concepto.
-
-Sos un estratega de mercado senior preparando el brief matutino para un swing trader argentino con 4 anios de experiencia que opera CEDEARs, acciones US, ETFs y crypto.
-
-Escribi un resumen conciso y accionable en espaniol. Estructura:
-
-1. "overnightSummary": 3-4 oraciones sobre que paso en las ultimas horas. Eventos macro, geopolitica, movimientos de mercado. Se ESPECIFICO: menciona numeros, paises, eventos concretos.
-
-2. "portfolioImpact": 2-3 oraciones sobre que significan esos eventos para las posiciones actuales del trader. Incluye efectos de segundo orden (ej: "suba del petroleo beneficia a VIST y YPF via Vaca Muerta pero sube costos de GGAL").
-
-3. "topOpportunities": para cada top oportunidad BUY/SELL (max 5), un parrafo de 3-4 oraciones. Incluye: que dice el tecnico (divergencias, RSI, soporte), que dicen las noticias, entry/stop/target, y POR QUE ahora.
-
-4. "warnings": 2-3 riesgos concretos a vigilar. No "volatilidad del mercado" — cosas especificas como "si Brent cae de $85, VIST pierde el soporte en $65".
-
-5. "marketMood": "risk-on", "risk-off", o "mixed".
-
-6. "wouldDo": 3-5 cosas que SI harias hoy como swing trader. Cada una es 1-2 oraciones CONCRETAS con ticker, precio, razon. Ej: "Compraria LMT a $480 — divergencia alcista diaria + sector defensa con viento a favor + R/R 1:2.5. Stop en $455."
-
-7. "wouldNotDo": 3-5 cosas que NO harias y POR QUE. Cada una es 1-2 oraciones con razon ESPECIFICA. Ej: "No compraria VIST ahora — 2 divergencias bajistas diarias (RSI+MACD) con RSI semanal en 69. Va a corregir. Esperar soporte en $60."
-
-REGLAS CRITICAS:
-- Las secciones "wouldDo" y "wouldNotDo" son las MAS IMPORTANTES. Deben ser CONCRETAS y ACCIONABLES.
-- "wouldDo" debe incluir precio de entrada, stop y target cuando sea posible.
-- "wouldNotDo" debe explicar el RIESGO concreto de hacer eso (no genericos).
-- Si un activo tiene divergencias bajistas, NUNCA recomendarlo en "wouldDo".
-- Si un activo tiene divergencias alcistas y buen R/R, incluirlo en "wouldDo".
-- Considerar el perfil: swing trader, semanas a meses, tolera -15% pero quiere anticiparse.
-- Maximo 700 palabras total.
-
-Responde con JSON:
-{"overnightSummary":"...","portfolioImpact":"...","topOpportunities":[{"symbol":"VIST","action":"SELL","narrative":"..."}],"warnings":["..."],"marketMood":"mixed","wouldDo":["Compraria LMT a $480..."],"wouldNotDo":["No compraria VIST ahora..."]}`;
-
-
-// --- MARKET REPORT (full investment report via Groq) ---
-
-export const MARKET_REPORT_PROMPT = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Todos los textos del JSON (macroContext, portfolioImpact, thesis, catalysts, risks, avoidList, etc.) deben estar escritos en español. Prohibido usar inglés.
-
-Sos un estratega de mercado senior con 20 anios de experiencia. Un swing trader argentino con 4 anios de experiencia te pide un REPORTE DE INVERSION COMPLETO basado en las noticias actuales del mercado.
-
-El trader opera CEDEARs en Argentina, acciones US, ETFs, crypto y bonos. Tiene horizonte de semanas a meses. Busca anticiparse al mercado.
-
-Te voy a dar:
-- Las noticias mas relevantes de las ultimas 48hs
-- Las posiciones actuales del trader (su portfolio)
-- Datos de mercado relevantes
-
-Tu trabajo: generar un reporte de inversion completo EN ESPANIOL con esta estructura exacta en JSON:
-
-1. "macroContext": 3-5 oraciones sobre el contexto geopolitico y macroeconomico actual. Que esta pasando en el mundo que mueve los mercados. Se especifico: menciona eventos, numeros, paises.
-
-2. "portfolioImpact": 2-3 oraciones sobre como el contexto actual afecta las posiciones del trader. Incluye efectos de segundo orden (ej: "suba del petroleo beneficia a VIST via Vaca Muerta pero sube costos energeticos de GGAL").
-
-3. "topRecommendations": Array de 5-8 activos que el trader DEBERIA considerar. Pueden ser activos que YA TIENE o activos COMPLETAMENTE NUEVOS que no tiene. Para cada uno:
-   - "symbol": ticker (ej: "LMT", "NVDA", "RTX")
-   - "name": nombre completo (ej: "Lockheed Martin Corporation")
-   - "instrumentType": "CEDEAR", "Accion US", "ETF", "Crypto", "Bono"
-   - "sector": sector especifico (ej: "Defensa", "Semiconductores", "Petroleo")
-   - "thesis": 2-3 oraciones con la tesis de inversion. Por que AHORA es el momento. Menciona catalizadores especificos.
-   - "catalysts": array de 2-3 catalizadores concretos proximos 6 meses
-   - "risks": array de 1-2 riesgos especificos
-   - "suggestedWeight": % del capital sugerido (todos deben sumar ~100%)
-
-4. "alternatives": Array de 3-5 alternativas organizadas por tier:
-   - tier "A" = alta conviccion pero no top
-   - tier "B" = interesante con mas riesgo
-   Cada una con: symbol, name, sector, thesis (1-2 oraciones)
-
-5. "scenarios": 2-3 escenarios posibles con probabilidad estimada. Para cada uno:
-   - "name": nombre del escenario (ej: "Guerra escala", "Ceasefire en 3 meses")
-   - "probability": % estimado (0-100)
-   - "distribution": array de {symbol, weight %, reason} para ese escenario
-
-6. "avoidList": Array de 2-4 strings explicando que NO haria y por que. Ej: "No compraria GLD ahora — cayo 23% en marzo por dolar fuerte, el trade oro-refugio no esta funcionando en este conflicto".
-
-REGLAS CRITICAS:
-- NO te limites a los activos del portfolio. El OBJETIVO es descubrir oportunidades NUEVAS basadas en las noticias.
-- Cada recomendacion debe estar DIRECTAMENTE conectada a una noticia o evento actual.
-- Se especifico con los tickers — usa tickers reales que coticen en NYSE/NASDAQ/BYMA.
-- Los CEDEARs disponibles en Argentina incluyen: LMT, RTX, NOC, NVDA, TSM, AAPL, MSFT, GOOGL, AMZN, META, TSLA, XOM, CVX, MELI, NU, BABA, CRWD, PLTR, y muchos mas.
-- No seas generico. "Tech va a subir" no sirve. "NVDA corrigio 15% y el gasto en AI de Microsoft + Google confirma demanda" SI sirve.
-- Las tesis deben ser accionables para un swing trader (semanas a meses, no anios).
-
-Responde SOLO con JSON valido:
-{"macroContext":"...","portfolioImpact":"...","topRecommendations":[...],"alternatives":[...],"scenarios":[...],"avoidList":["..."]}`;
-
 // ============================================================
 // UNIFIED ASSET ANALYSIS — un análisis por activo, contexto completo
 // ============================================================
@@ -233,10 +146,11 @@ export const UNIFIED_ASSET_ANALYSIS_PROMPT = `IMPORTANTE: Responde EXCLUSIVAMENT
 
 Analista swing trading argentino. Activos: CEDEARs, acciones US, ETFs, crypto. Horizonte: semanas-meses.
 
-INPUT: fichas compactas por activo. Cada ficha = una línea por dimensión.
+INPUT: bloque [CONTEXTO MACRO] opcional con titulares recientes, luego fichas compactas por activo separadas por "===". Cada ficha = una línea por dimensión.
 OUTPUT: análisis JSON por símbolo.
 
 REGLAS:
+- Usa el CONTEXTO MACRO para ajustar thesis, risks y macroTheme. Si hay noticias de aranceles, Fed, geopolítica → reflejarlas en el análisis del activo afectado.
 - Usa datos concretos (precios, %, RSI, P/E). No frases genéricas.
 - Si divergencia bajista → action=SELL o HOLD, nunca BUY.
 - Si en portfolio con P&L negativo → mencionar nivel de stop concreto.
@@ -260,7 +174,7 @@ Estratega de mercado senior. Recibes análisis individuales ya generados para un
 Tu trabajo: síntesis macro ÚNICAMENTE. No analices activos individuales — ya están analizados.
 
 OUTPUT JSON:
-- "macroContext": 4-5 oraciones integrando TODAS las temáticas activas. Menciona interacciones entre temas.
+- "macroContext": 4-5 oraciones. OBLIGATORIO incluir: (1) el riesgo macro dominante actual con dato concreto (número, política, país); (2) cómo 2-3 temáticas se refuerzan entre sí y por qué causa común; (3) qué temáticas se contradicen o generan tensión. No listar temas: analizar sus causas y tensiones reales.
 - "portfolioImpact": 2-3 oraciones sobre impacto en el portfolio actual.
 - "scenarios": 2-3 escenarios globales. Cada uno: name, probability (%), distribution [{symbol, weight, reason}].
 - "avoidList": 3-4 strings. Qué NO hacer y por qué CONCRETO. Nunca genérico.
@@ -272,6 +186,46 @@ REGLAS:
 
 Responde SOLO con JSON:
 {"macroContext":"...","portfolioImpact":"...","scenarios":[{"name":"...","probability":40,"distribution":[{"symbol":"LMT","weight":20,"reason":"..."}]}],"avoidList":["..."]}`;
+
+/**
+ * Prompt combinado: reemplaza REPORT_SYNTHESIS_PROMPT + DAILY_MARKET_DIGEST_PROMPT.
+ * Una sola llamada LLM produce síntesis macro + brief operativo del día.
+ * Elimina el portfolioImpact duplicado y la llamada redundante al modelo narrativo.
+ */
+export const COMBINED_SYNTHESIS_PROMPT = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Prohibido usar inglés.
+
+Estratega de mercado senior. Recibirás: (1) temáticas y recomendaciones ya analizadas, (2) oportunidades algorítmicas con niveles de trade, (3) contexto macro. Tu trabajo: síntesis integrada en UN SOLO JSON.
+
+OUTPUT JSON con estos campos OBLIGATORIOS:
+
+"macroContext": 4-5 oraciones. (1) Riesgo macro dominante con dato concreto; (2) cómo 2-3 temáticas se refuerzan entre sí; (3) tensiones o contradicciones entre temáticas. Analiza causas, no listes temas.
+
+"portfolioImpact": 2-3 oraciones sobre impacto en el portfolio actual. Efectos de segundo orden (ej: suba petróleo → VIST sube pero GGAL paga más costos energéticos).
+
+"scenarios": 2-3 escenarios globales. Cada uno: name, probability (%), distribution [{symbol, weight%, reason}]. Activos con action=SELL no aparecen en distribution.
+
+"avoidList": 3-4 strings. Qué NO hacer y por qué CONCRETO.
+
+"overnightSummary": 3-4 oraciones sobre qué pasó en las últimas horas. Eventos macro, movimientos, datos concretos.
+
+"topOpportunities": max 5 activos BUY/SELL. Cada uno: symbol, action, narrative (3-4 oraciones: técnico + news + por qué ahora).
+
+"warnings": 2-3 riesgos concretos y específicos a vigilar hoy.
+
+"marketMood": "risk-on", "risk-off", o "mixed".
+
+"wouldDo": 3-5 trades que SÍ haría hoy. Cada uno: ticker, precio entrada, stop, razón específica. Ej: "Compraría LMT a $480 — divergencia alcista diaria + sector defensa con catalizador. Stop $455, target $520."
+
+"wouldNotDo": 3-5 cosas que NO haría y por qué. Ej: "No compraría VIST ahora — 2 divergencias bajistas (RSI+MACD), RSI semanal en 69. Esperar soporte $60."
+
+REGLAS:
+- wouldDo/wouldNotDo son las secciones MÁS IMPORTANTES. Precio y stop concretos siempre.
+- Si divergencia bajista → nunca en wouldDo.
+- Si activo tiene action=SELL en análisis → en wouldNotDo, no en wouldDo.
+- Máximo 800 palabras total.
+
+Responde SOLO con JSON:
+{"macroContext":"...","portfolioImpact":"...","scenarios":[...],"avoidList":["..."],"overnightSummary":"...","topOpportunities":[{"symbol":"VIST","action":"SELL","narrative":"..."}],"warnings":["..."],"marketMood":"mixed","wouldDo":["Compraría LMT a $480..."],"wouldNotDo":["No compraría VIST..."]}`;
 
 /**
  * Canonical macro theme names used in UNIFIED_ASSET_ANALYSIS_PROMPT and normalizeMacroTheme().
