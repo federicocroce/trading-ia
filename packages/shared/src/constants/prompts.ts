@@ -245,7 +245,7 @@ REGLAS:
 - narrative: lenguaje coloquial de trader experimentado, 2-3 oraciones. Interpreta señales, no repite números.
 
 Responde SOLO con JSON:
-{"analyses":[{"symbol":"VIST","action":"BUY","thesis":"...","catalysts":["..."],"risks":["..."],"wouldDo":["Entrada $65, stop $61..."],"wouldNotDo":["No escalar..."],"narrative":"...","macroTheme":"Energía/Oil","generatedBy":"deepseek"}]}`;
+{"analyses":[{"symbol":"VIST","action":"BUY","thesis":"...","catalysts":["..."],"risks":["..."],"wouldDo":["Entrada $65, stop $61..."],"wouldNotDo":["No escalar..."],"narrative":"...","macroTheme":"Energía/Oil"}]}`;
 
 /**
  * Prompt para síntesis del reporte de mercado.
@@ -272,3 +272,22 @@ REGLAS:
 
 Responde SOLO con JSON:
 {"macroContext":"...","portfolioImpact":"...","scenarios":[{"name":"...","probability":40,"distribution":[{"symbol":"LMT","weight":20,"reason":"..."}]}],"avoidList":["..."]}`;
+
+/**
+ * Canonical macro theme names used in UNIFIED_ASSET_ANALYSIS_PROMPT and normalizeMacroTheme().
+ * Single source of truth — update here to change both the LLM prompt and the normalizer.
+ */
+export const CANONICAL_MACRO_THEMES = [
+  'Energía/Oil',
+  'Semiconductores/IA',
+  'Defensa/Geopolítica',
+  'Cripto',
+  'Argentina/CEDEARs',
+  'Banca US',
+  'Consumo/Retail',
+  'Salud/Biotech',
+  'Commodities',
+  'Política Monetaria',
+] as const;
+
+export type CanonicalMacroTheme = typeof CANONICAL_MACRO_THEMES[number];

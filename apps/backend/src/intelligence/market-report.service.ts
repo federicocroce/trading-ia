@@ -376,128 +376,6 @@ async function enrichWithRealData(tickers: string[]): Promise<Map<string, { pric
 }
 
 // ============================================================
-// PASADA 4: Consolidar reporte final
-// ============================================================
-
-async function consolidateFinalReport(
-  themes: ThemeAnalysis[],
-  themeAnalyses: ThemeDeepAnalysis[],
-  portfolioContext: string,
-  headlines: string[],
-): Promise<MarketReport> {
-  console.log('[MarketReport] Pasada 4: Consolidando reporte final...');
-
-  // Merge all recommendations from all themes
-  const allRecs: MarketReportRecommendation[] = [];
-  for (const analysis of themeAnalyses) {
-    for (const rec of analysis.recommendations) {
-      // Avoid duplicates
-      if (!allRecs.find(r => r.symbol === rec.symbol)) {
-        allRecs.push({
-          symbol: rec.symbol ?? '',
-          name: rec.name ?? rec.symbol ?? '',
-          instrumentType: rec.instrumentType ?? 'Accion US',
-          sector: rec.sector ?? 'Otros',
-          thesis: rec.thesis ?? '',
-          catalysts: Array.isArray(rec.catalysts) ? rec.catalysts : [],
-          risks: Array.isArray(rec.risks) ? rec.risks : [],
-          suggestedWeight: rec.suggestedWeight ?? 0,
-        });
-      }
-    }
-  }
-
-  // Build final context for consolidation
-  const themeSummaries = themes
-    .filter(t => t.relevance !== 'low')
-    .map(t => `[${t.relevance.toUpperCase()}] ${t.theme}: ${t.summary}`)
-    .join('\n');
-
-  const prompt = `Sos un estratega de mercado senior consolidando un reporte para un swing trader argentino.
-
-Ya analizamos ${themes.length} tematicas y tenemos ${allRecs.length} recomendaciones. Tu trabajo es CONSOLIDAR:
-
-1. "macroContext": 4-6 oraciones integrando TODAS las tematicas. No te enfoques en una sola — menciona la interaccion entre ellas.
-2. "portfolioImpact": como impactan estas tematicas al portfolio actual del trader.
-3. "scenarios": 2-3 escenarios globales con distribuciones. Cada escenario debe cubrir multiples tematicas.
-4. "avoidList": 3-4 cosas que NO haria, con razon especifica.
-
-Las recomendaciones ya estan generadas, no las cambies. Solo genera el contexto integrador.
-
-Responde SOLO con JSON:
-{"macroContext":"...","portfolioImpact":"...","scenarios":[{"name":"...","probability":40,"distribution":[{"symbol":"LMT","weight":20,"reason":"..."}]}],"avoidList":["..."]}`;
-
-  const userMsg = [
-    `TEMATICAS ANALIZADAS:`,
-    themeSummaries,
-    '',
-    portfolioContext,
-    '',
-    `TOP HEADLINES:`,
-    ...headlines.slice(0, 10),
-  ].join('\n');
-
-  const raw = await callAI('reasoning',userMsg, prompt, 4096);
-  const parsed = JSON.parse(raw);
-
-  // Sort recommendations: high relevance themes first, then by weight
-  const themeRelevanceMap = new Map(themes.map(t => [t.theme, t.relevance]));
-  allRecs.sort((a, b) => (b.suggestedWeight ?? 0) - (a.suggestedWeight ?? 0));
-
-  // Build alternatives from lower-weight recs
-  const topRecs = allRecs.slice(0, 8);
-  const alternatives = allRecs.slice(8).map((r, i) => ({
-    tier: (i < 3 ? 'A' : 'B') as 'A' | 'B',
-    symbol: r.symbol,
-    name: r.name,
-    sector: r.sector,
-    thesis: r.thesis,
-  }));
-
-  // Build theme sections with their own recommendations
-  const reportThemes = themes.map(t => {
-    const analysis = themeAnalyses.find(a => a.theme === t.theme);
-    const recs: MarketReportRecommendation[] = (analysis?.recommendations ?? []).map(rec => ({
-      symbol: rec.symbol ?? '',
-      name: rec.name ?? rec.symbol ?? '',
-      instrumentType: rec.instrumentType ?? 'Accion US',
-      sector: rec.sector ?? 'Otros',
-      thesis: rec.thesis ?? '',
-      catalysts: Array.isArray(rec.catalysts) ? rec.catalysts : [],
-      risks: Array.isArray(rec.risks) ? rec.risks : [],
-      suggestedWeight: rec.suggestedWeight ?? 0,
-    }));
-    return {
-      theme: t.theme,
-      relevance: t.relevance,
-      summary: t.summary,
-      sectors: t.sectors,
-      recommendations: recs,
-    };
-  });
-
-  return {
-    generatedAt: Date.now(),
-    macroContext: parsed.macroContext ?? themeSummaries,
-    portfolioImpact: parsed.portfolioImpact ?? '',
-    themes: reportThemes,
-    topRecommendations: topRecs,
-    alternatives,
-    scenarios: Array.isArray(parsed.scenarios)
-      ? parsed.scenarios.map((s: any) => ({
-          name: s.name ?? '',
-          probability: s.probability ?? 0,
-          distribution: Array.isArray(s.distribution)
-            ? s.distribution.map((d: any) => ({ symbol: d.symbol ?? '', weight: d.weight ?? 0, reason: d.reason ?? '' }))
-            : [],
-        }))
-      : [],
-    avoidList: Array.isArray(parsed.avoidList) ? parsed.avoidList : [],
-    engine: 'groq-pipeline-thematic',
-  };
-}
-
-// ============================================================
 // HELPERS
 // ============================================================
 
@@ -510,19 +388,29 @@ function normalizeMacroTheme(theme: string | null): string {
   const t = theme.toLowerCase().trim();
 
   if (t.includes('semiconductor') || t.includes('chip') || t.includes('nvda') ||
-      t.includes('ai/') || t.includes('inteligencia artificial')) return 'Semiconductores / IA';
+      t.includes('ai/') || t.includes('inteligencia artificial') || t.includes('semiconductores')) return 'Semiconductores/IA';
   if (t.includes('petróleo') || t.includes('petroleo') || t.includes('oil') ||
-      t.includes('energía') || t.includes('energia') || t.includes('opec')) return 'Energía';
+      t.includes('energía') || t.includes('energia') || t.includes('opec')) return 'Energía/Oil';
   if (t.includes('argentina') || t.includes('cedear') || t.includes('merval') ||
-      t.includes('emergente') || t.includes('latam')) return 'Argentina / Emergentes';
+      t.includes('emergente') || t.includes('latam')) return 'Argentina/CEDEARs';
   if (t.includes('crypto') || t.includes('cripto') || t.includes('bitcoin') ||
       t.includes('blockchain')) return 'Cripto';
   if (t.includes('defensa') || t.includes('defense') || t.includes('geopolít') ||
-      t.includes('guerra') || t.includes('conflicto')) return 'Defensa / Geopolítica';
-  if (t.includes('banco') || t.includes('bank') || t.includes('finanzas') ||
-      t.includes('finance')) return 'Finanzas';
+      t.includes('guerra') || t.includes('conflicto')) return 'Defensa/Geopolítica';
+  if (t.includes('banca') || t.includes('bank') || t.includes('finanzas') ||
+      t.includes('finance')) return 'Banca US';
   if (t.includes('farma') || t.includes('pharma') || t.includes('salud') ||
-      t.includes('health') || t.includes('biotech')) return 'Salud / Farmacéutica';
+      t.includes('health') || t.includes('biotech')) return 'Salud/Biotech';
+  if (t.includes('commodity') || t.includes('commodit') || t.includes('oro') ||
+      t.includes('gold') || t.includes('cobre') || t.includes('copper') ||
+      t.includes('litio') || t.includes('lithium') || t.includes('uranium') ||
+      t.includes('mineria') || t.includes('mining') || t.includes('metal')) return 'Commodities';
+  if (t.includes('política monetaria') || t.includes('politica monetaria') ||
+      t.includes('federal reserve') || t.includes('fed ') || t.includes('interest rate') ||
+      t.includes('tasa de interés') || t.includes('tasa de interes') || t.includes('inflacion') ||
+      t.includes('inflación') || t.includes('banco central')) return 'Política Monetaria';
+  if (t.includes('consumo') || t.includes('retail') || t.includes('consumer') ||
+      t.includes('minorista') || t.includes('comercio minorista')) return 'Consumo/Retail';
 
   return theme.trim();
 }
@@ -766,12 +654,14 @@ export async function generateMarketReport(
     avoidList = Array.isArray(parsedSynthesis.avoidList) ? parsedSynthesis.avoidList : [];
   } catch (err) {
     console.warn('[MarketReport] Synthesis failed, usando theme summaries como fallback:', (err as Error).message?.slice(0, 80));
+    actualEngine = 'pipeline-thematic (fallback)';
   }
 
   // Construir reporte final
   const topRecs = allRecs.slice(0, 8);
-  const alternatives = allRecs.slice(8).map((r, i) => ({
-    tier: (i < 3 ? 'A' : 'B') as 'A' | 'B',
+  // Tier A = strong buy signal (weight >= 8), Tier B = everything else
+  const alternatives = allRecs.slice(8).map((r) => ({
+    tier: ((r.suggestedWeight ?? 0) >= 8 ? 'A' : 'B') as 'A' | 'B',
     symbol: r.symbol,
     name: r.name,
     sector: r.sector,

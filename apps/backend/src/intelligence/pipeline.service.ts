@@ -102,13 +102,15 @@ async function runWebSearchStage(runId: number): Promise<StageResult> {
     updatePipelineStage(runId, 'webSearch', sr);
     return sr;
   } catch (err) {
+    const errMsg = (err as Error).message ?? String(err);
+    console.error('[pipeline] runWebSearchStage error:', errMsg);
     const sr: StageResult = {
       status: 'failed',
       startedAt,
       finishedAt: new Date().toISOString(),
       detail: 'Error en web search.',
       errors: [],
-      criticalError: (err as Error).message.slice(0, 200),
+      criticalError: errMsg.slice(0, 200),
     };
     updatePipelineStage(runId, 'webSearch', sr);
     return sr;
@@ -143,13 +145,15 @@ async function runNewsStage(runId: number): Promise<StageResult> {
     updatePipelineStage(runId, 'news', sr);
     return sr;
   } catch (err) {
+    const errMsg = (err as Error).message ?? String(err);
+    console.error('[pipeline] runNewsStage error:', errMsg);
     const sr: StageResult = {
       status: 'failed',
       startedAt,
       finishedAt: new Date().toISOString(),
       detail: 'Error en actualización de noticias.',
       errors: [],
-      criticalError: (err as Error).message.slice(0, 200),
+      criticalError: errMsg.slice(0, 200),
     };
     updatePipelineStage(runId, 'news', sr);
     return sr;
@@ -185,13 +189,15 @@ async function runFundamentalsStage(runId: number): Promise<StageResult> {
     updatePipelineStage(runId, 'fundamentals', sr);
     return sr;
   } catch (err) {
+    const errMsg = (err as Error).message ?? String(err);
+    console.error('[pipeline] runFundamentalsStage error:', errMsg);
     const sr: StageResult = {
       status: 'failed',
       startedAt,
       finishedAt: new Date().toISOString(),
       detail: 'Error actualizando fundamentales.',
       errors: [],
-      criticalError: (err as Error).message.slice(0, 200),
+      criticalError: errMsg.slice(0, 200),
     };
     updatePipelineStage(runId, 'fundamentals', sr);
     return sr;
@@ -216,13 +222,15 @@ async function runAnalysisStage(runId: number): Promise<StageResult> {
     return sr;
   } catch (err) {
     _stageUnifiedAnalyses = null;
+    const errMsg = (err as Error).message ?? String(err);
+    console.error('[pipeline] runAnalysisStage error:', errMsg);
     const sr: StageResult = {
       status: 'failed',
       startedAt,
       finishedAt: new Date().toISOString(),
       detail: 'Error en análisis.',
       errors: [],
-      criticalError: (err as Error).message.slice(0, 200),
+      criticalError: errMsg.slice(0, 200),
     };
     updatePipelineStage(runId, 'analysis', sr);
     return sr;
@@ -272,27 +280,39 @@ async function runReportStage(runId: number): Promise<StageResult> {
   try {
     // Pass precomputed Stage 3 analyses so generateMarketReport skips the full thematic pipeline
     const precomputed = _stageUnifiedAnalyses ?? undefined;
-    const report = await generateMarketReport(precomputed);
     _stageUnifiedAnalyses = null;
 
-    try {
-      const scan = getTodayOpportunityScan();
-      const intelligence = await getIntelligenceFromDB();
-      if (scan) {
-        const opportunities = JSON.parse(scan.opportunities);
-        const sectorSummary = JSON.parse(scan.sectorSummary ?? '[]');
-        const secondOrderEffects = getStoredDailyReport()?.secondOrderEffects ?? [];
-        const digest = await generateDailyDigest(
-          opportunities,
-          secondOrderEffects,
-          intelligence,
-          sectorSummary,
-          _stageQuantContext,
-        );
-        if (digest) setMarketDigest(digest);
-      }
-    } catch (digestErr) {
-      console.warn('[pipeline] Market digest generation failed (non-critical):', (digestErr as Error).message?.slice(0, 100));
+    // Prepare digest inputs before spawning parallel tasks
+    const scan = getTodayOpportunityScan();
+    const digestInputsPromise = scan
+      ? (async () => {
+          const intelligence = await getIntelligenceFromDB();
+          const opportunities = JSON.parse(scan.opportunities);
+          const sectorSummary = JSON.parse(scan.sectorSummary ?? '[]');
+          const secondOrderEffects = getStoredDailyReport()?.secondOrderEffects ?? [];
+          return { opportunities, secondOrderEffects, intelligence, sectorSummary };
+        })()
+      : Promise.resolve(null);
+
+    // Run market report and digest inputs fetch in parallel
+    const [report, digestInputs] = await Promise.all([
+      generateMarketReport(precomputed),
+      digestInputsPromise,
+    ]);
+
+    // Generate digest with pre-fetched inputs + quant context (non-critical, won't block report)
+    if (digestInputs) {
+      generateDailyDigest(
+        digestInputs.opportunities,
+        digestInputs.secondOrderEffects,
+        digestInputs.intelligence,
+        digestInputs.sectorSummary,
+        _stageQuantContext,
+      )
+        .then(digest => { if (digest) setMarketDigest(digest); })
+        .catch(digestErr => {
+          console.warn('[pipeline] Market digest generation failed (non-critical):', (digestErr as Error).message?.slice(0, 100));
+        });
     }
 
     const themeCount = report.themes?.length ?? 0;
@@ -307,13 +327,15 @@ async function runReportStage(runId: number): Promise<StageResult> {
     updatePipelineStage(runId, 'report', sr);
     return sr;
   } catch (err) {
+    const errMsg = (err as Error).message ?? String(err);
+    console.error('[pipeline] runReportStage error:', errMsg);
     const sr: StageResult = {
       status: 'failed',
       startedAt,
       finishedAt: new Date().toISOString(),
       detail: 'Error generando reporte.',
       errors: [],
-      criticalError: (err as Error).message.slice(0, 200),
+      criticalError: errMsg.slice(0, 200),
     };
     updatePipelineStage(runId, 'report', sr);
     return sr;

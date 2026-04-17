@@ -127,7 +127,7 @@ export function StrategyConfigForm({ onSubmit, loading }: Props) {
             <Input
               type="number"
               value={strategy.buyThreshold}
-              onChange={e => { const v = +e.target.value; setStrategy(s => ({ ...s, name: 'Custom', buyThreshold: v })); }}
+              onChange={e => { const v = +e.target.value; setStrategy((s: StrategyConfig) => ({ ...s, name: 'Custom', buyThreshold: v })); }}
               className="w-16"
               min={0} max={100}
             />
@@ -135,7 +135,7 @@ export function StrategyConfigForm({ onSubmit, loading }: Props) {
             <Input
               type="number"
               value={strategy.sellThreshold}
-              onChange={e => { const v = +e.target.value; setStrategy(s => ({ ...s, name: 'Custom', sellThreshold: v })); }}
+              onChange={e => { const v = +e.target.value; setStrategy((s: StrategyConfig) => ({ ...s, name: 'Custom', sellThreshold: v })); }}
               className="w-16"
               min={0} max={100}
             />
@@ -147,7 +147,7 @@ export function StrategyConfigForm({ onSubmit, loading }: Props) {
             <Input
               type="number"
               value={strategy.stopLossPercent}
-              onChange={e => { const v = +e.target.value; setStrategy(s => ({ ...s, name: 'Custom', stopLossPercent: v })); }}
+              onChange={e => { const v = +e.target.value; setStrategy((s: StrategyConfig) => ({ ...s, name: 'Custom', stopLossPercent: v })); }}
               className="w-16"
               min={0} max={50}
             />
@@ -155,7 +155,7 @@ export function StrategyConfigForm({ onSubmit, loading }: Props) {
             <Input
               type="number"
               value={strategy.takeProfitPercent}
-              onChange={e => { const v = +e.target.value; setStrategy(s => ({ ...s, name: 'Custom', takeProfitPercent: v })); }}
+              onChange={e => { const v = +e.target.value; setStrategy((s: StrategyConfig) => ({ ...s, name: 'Custom', takeProfitPercent: v })); }}
               className="w-16"
               min={0} max={100}
             />

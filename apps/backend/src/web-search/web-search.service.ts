@@ -28,9 +28,9 @@ const DISCOVERY_QUERIES = [
   'bolsa new york oportunidades acciones hoy',
 ];
 
-async function searchWithFallback(query: string): Promise<WebSearchResult[]> {
+async function searchWithFallback(query: string, searchDepth: 'basic' | 'advanced' = 'advanced'): Promise<WebSearchResult[]> {
   try {
-    return await searchTavily(query);
+    return await searchTavily(query, 5, searchDepth);
   } catch (tavilyErr) {
     console.warn(`[web-search] Tavily failed for "${query}":`, (tavilyErr as Error).message.slice(0, 80));
     return await searchExa(query);
@@ -53,11 +53,11 @@ export async function runWebSearch(date: string): Promise<WebSearchStageResult> 
   const errors: string[] = [];
   const articles: WebSearchArticle[] = [];
 
-  // --- Layer 1: Portfolio (parallel) ---
+  // --- Layer 1: Portfolio (parallel, advanced depth for precision) ---
   const portfolioResults = await Promise.allSettled(
     positions.map(async (pos) => {
       const query = `"${pos.symbol}" stock news analysis today`;
-      const results = await searchWithFallback(query);
+      const results = await searchWithFallback(query, 'advanced');
       return { symbol: pos.symbol, query, results };
     }),
   );
@@ -89,10 +89,10 @@ export async function runWebSearch(date: string): Promise<WebSearchStageResult> 
     return { articles, errors, allFailed: true };
   }
 
-  // --- Layer 2: Discovery (parallel — all queries fire at once) ---
+  // --- Layer 2: Discovery (parallel, basic depth — saves Tavily credits) ---
   const discoveryResults = await Promise.allSettled(
     DISCOVERY_QUERIES.map(async (query) => {
-      const results = await searchWithFallback(query);
+      const results = await searchWithFallback(query, 'basic');
       const discoveryArticles: WebSearchArticle[] = results.map((result) => {
         const tickers = extractTickers(result.title + ' ' + result.content);
         return {

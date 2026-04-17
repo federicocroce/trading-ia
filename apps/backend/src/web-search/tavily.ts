@@ -14,7 +14,11 @@ interface TavilyResponse {
   }>;
 }
 
-export async function searchTavily(query: string, maxResults = 5): Promise<WebSearchResult[]> {
+export async function searchTavily(
+  query: string,
+  maxResults = 5,
+  searchDepth: 'basic' | 'advanced' = 'advanced',
+): Promise<WebSearchResult[]> {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) throw new Error('TAVILY_API_KEY not set');
 
@@ -24,7 +28,7 @@ export async function searchTavily(query: string, maxResults = 5): Promise<WebSe
     body: JSON.stringify({
       api_key: apiKey,
       query,
-      search_depth: 'advanced',
+      search_depth: searchDepth,
       max_results: maxResults,
       include_raw_content: false,
     }),

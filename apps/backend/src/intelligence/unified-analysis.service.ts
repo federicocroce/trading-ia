@@ -22,6 +22,8 @@ import { callAIWithModel } from '../shared/ai-router.js';
 import { getPortfolioPositions } from '../db/repository.js';
 import type { SentimentInput } from '../opportunities/scoring.js';
 
+type PortfolioPosition = { symbol: string; quantity: number; avgCost: number };
+
 const BATCH_SIZE = 4; // DeepSeek R1 vía OpenRouter: 4 en paralelo es seguro
 
 function modelNameToProvider(name: string): UnifiedAssetAnalysis['generatedBy'] {
@@ -39,7 +41,7 @@ function modelNameToProvider(name: string): UnifiedAssetAnalysis['generatedBy'] 
  */
 function buildCompactCard(
   opp: Opportunity,
-  positions: Array<{ symbol: string; quantity: number; avgCost: number }>,
+  positions: PortfolioPosition[],
   tech?: TechnicalSummary,
   fund?: FundamentalSummary,
   sent?: SentimentInput,
@@ -91,13 +93,15 @@ function buildCompactCard(
   if (f?.forwardPE != null) fundParts.push(`fwdPE=${f.forwardPE.toFixed(1)}`);
   if (f?.priceVs52wHigh != null) fundParts.push(`vs52wH=${f.priceVs52wHigh.toFixed(1)}%`);
   if (f?.revenueGrowth != null) fundParts.push(`revGrow=${f.revenueGrowth.toFixed(1)}%`);
-  if (fundParts.length > 0) lines.push(`fund: ${fundParts.join(' ')}`);
+  lines.push(`fund: ${fundParts.length > 0 ? fundParts.join(' ') : 'N/A (sin datos)'}`);
 
   // Sentiment + conflictos
   if (sent) {
     const sentScore = Math.round(sent.score * 100);
-    const headline = sent.headlines[0] ? ` "${sent.headlines[0].slice(0, 60)}"` : '';
-    lines.push(`sent: ${sentScore} ${sent.sentiment}${headline}`);
+    const headlineStr = sent.headlines.slice(0, 3).filter(Boolean)
+      .map(h => `"${h.slice(0, 50)}"`)
+      .join('; ');
+    lines.push(`sent: ${sentScore} ${sent.sentiment}${headlineStr ? ` ${headlineStr}` : ''}`);
   }
 
   // Conflictos de señales (importantes para la narrativa)
@@ -127,10 +131,10 @@ async function analyzeBatch(
   techMap: Map<string, TechnicalSummary>,
   fundMap: Map<string, FundamentalSummary>,
   sentimentMap: Map<string, SentimentInput>,
+  positions: PortfolioPosition[],
 ): Promise<Map<string, UnifiedAssetAnalysis>> {
   const result = new Map<string, UnifiedAssetAnalysis>();
 
-  const positions = getPortfolioPositions();
   const cards = batch
     .map(o => buildCompactCard(o, positions, techMap.get(o.symbol), fundMap.get(o.symbol), sentimentMap.get(o.symbol)))
     .join('\n---\n');
@@ -195,6 +199,9 @@ export async function runUnifiedAnalysis(
 
   console.log(`[unified-analysis] Analyzing ${targets.length} assets (${portfolio.length} portfolio + ${topNonPortfolio.length} top) in batches of ${BATCH_SIZE}`);
 
+  // Fetch positions once — passed to each batch to avoid N DB calls
+  const positions = getPortfolioPositions();
+
   // Build batches
   const batches: Opportunity[][] = [];
   for (let i = 0; i < targets.length; i += BATCH_SIZE) {
@@ -203,7 +210,7 @@ export async function runUnifiedAnalysis(
 
   // Run batches in parallel
   const batchResults = await Promise.allSettled(
-    batches.map(batch => analyzeBatch(batch, techMap, fundMap, sentimentMap)),
+    batches.map(batch => analyzeBatch(batch, techMap, fundMap, sentimentMap, positions)),
   );
 
   for (const r of batchResults) {

@@ -57,7 +57,7 @@ let dbCacheInvalidated = false;
 let _lastUnifiedAnalyses: Map<string, import('@trading/shared').UnifiedAssetAnalysis> = new Map();
 
 export function getLastUnifiedAnalyses(): Map<string, import('@trading/shared').UnifiedAssetAnalysis> {
-  return _lastUnifiedAnalyses;
+  return new Map(_lastUnifiedAnalyses);
 }
 
 export function getMarketDigest(): import('@trading/shared').MarketDigest | null {
@@ -123,7 +123,7 @@ async function batchProcess<T>(
   symbols: string[],
   processor: (symbol: string) => Promise<T>,
   batchSize: number = 4,
-  delayMs: number = 1000,
+  delayMs: number = 300,
 ): Promise<Map<string, T>> {
   const results = new Map<string, T>();
 
@@ -171,7 +171,7 @@ const scanProgress: ScanProgress = {
   totalSteps: 8,
   percentComplete: 0,
   startedAt: null,
-  estimatedTotalSeconds: 90,
+  estimatedTotalSeconds: 45,
   stepsCompleted: [],
 };
 
