@@ -18,11 +18,19 @@ import type {
   UnifiedAssetAnalysis,
 } from '@trading/shared';
 import { UNIFIED_ASSET_ANALYSIS_PROMPT } from '@trading/shared';
-import { callAI } from '../shared/ai-router.js';
+import { callAIWithModel } from '../shared/ai-router.js';
 import { getPortfolioPositions } from '../db/repository.js';
 import type { SentimentInput } from '../opportunities/scoring.js';
 
 const BATCH_SIZE = 4; // DeepSeek R1 vía OpenRouter: 4 en paralelo es seguro
+
+function modelNameToProvider(name: string): UnifiedAssetAnalysis['generatedBy'] {
+  if (name.includes('Gemini')) return 'claude'; // 'claude' slot reutilizado para Gemini (mismo tipo en shared)
+  if (name.includes('DeepSeek')) return 'deepseek';
+  if (name.includes('Groq')) return 'groq';
+  if (name.includes('Qwen') || name.includes('local')) return 'qwen';
+  return 'openrouter';
+}
 
 /**
  * Builds a compact asset card for LLM input.
@@ -128,8 +136,10 @@ async function analyzeBatch(
     .join('\n---\n');
 
   try {
-    const raw = await callAI('reasoning', cards, UNIFIED_ASSET_ANALYSIS_PROMPT, 6144);
+    const { content: raw, model: usedModel } = await callAIWithModel('reasoning', cards, UNIFIED_ASSET_ANALYSIS_PROMPT, 6144);
     const parsed = JSON.parse(raw);
+
+    const generatedBy = modelNameToProvider(usedModel);
 
     for (const a of (parsed.analyses ?? [])) {
       if (!a.symbol) continue;
@@ -142,7 +152,7 @@ async function analyzeBatch(
         wouldNotDo: Array.isArray(a.wouldNotDo) ? a.wouldNotDo.slice(0, 1) : [],
         narrative: a.narrative ?? '',
         macroTheme: a.macroTheme ?? null,
-        generatedBy: 'deepseek',
+        generatedBy,
       });
     }
 

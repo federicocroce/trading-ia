@@ -10,6 +10,7 @@
 import { askGroq, askGroqLight } from './groq.js';
 import { askOpenRouter } from './openrouter.js';
 import { askLMStudio } from './lmstudio.js';
+import { askGemini, askGeminiFlash, isGeminiAvailable } from './gemini.js';
 
 export type AITask = 'reasoning' | 'classification' | 'narrative';
 
@@ -78,6 +79,26 @@ export async function callAI(
 }
 
 /**
+ * Call AI returning both the JSON content and the name of the model that succeeded.
+ * Use this where tracking which model ran matters (generatedBy, engine fields).
+ */
+export async function callAIWithModel(
+  task: AITask,
+  userMessage: string,
+  systemPrompt: string,
+  maxTokens: number = 4096,
+): Promise<{ content: string; model: string }> {
+  const providers = getProviderChain(task, userMessage, systemPrompt, maxTokens);
+
+  for (const { name, fn } of providers) {
+    const result = await tryProvider(name, fn, true);
+    if (result) return { content: result, model: name };
+  }
+
+  throw new Error(`[ai-router] All providers failed for task: ${task}`);
+}
+
+/**
  * Call AI without JSON validation (for free-text responses).
  */
 export async function callAIText(
@@ -102,6 +123,16 @@ function getProviderChain(
   systemPrompt: string,
   maxTokens: number,
 ): Array<{ name: string; fn: () => Promise<string> }> {
+  const geminiPro = {
+    name: 'Gemini 2.5 Pro',
+    fn: () => askGemini(userMessage, systemPrompt, maxTokens),
+  };
+
+  const geminiFlash = {
+    name: 'Gemini 2.5 Flash',
+    fn: () => askGeminiFlash(userMessage, systemPrompt, maxTokens),
+  };
+
   const deepseek = {
     name: 'DeepSeek R1 (OpenRouter)',
     fn: () => askOpenRouter(userMessage, systemPrompt, maxTokens),
@@ -122,17 +153,25 @@ function getProviderChain(
     fn: () => askLMStudio(userMessage, systemPrompt, Math.min(maxTokens, 4096)),
   };
 
+  const geminiAvailable = isGeminiAvailable();
+
   switch (task) {
     case 'reasoning':
-      // Deep thinking: DeepSeek R1 → Groq 70B → Qwen
-      return [deepseek, groq, qwen];
+      // Gemini Pro primero (mejor modelo, 100 req/day con 4 keys) → DeepSeek R1 → Groq 70B → Qwen
+      return geminiAvailable
+        ? [geminiPro, deepseek, groq, qwen]
+        : [deepseek, groq, qwen];
 
     case 'classification':
-      // Fast classification: light models first (preserve 70B quota) → DeepSeek → Qwen
-      return [groqLight, deepseek, qwen];
+      // Flash para tareas rapidas (2000 req/day con 4 keys) → preserva Pro quota → Groq light → DeepSeek → Qwen
+      return geminiAvailable
+        ? [geminiFlash, groqLight, deepseek, qwen]
+        : [groqLight, deepseek, qwen];
 
     case 'narrative':
-      // Short text: light models first → Qwen
-      return [groqLight, qwen];
+      // Flash suficiente para texto corto
+      return geminiAvailable
+        ? [geminiFlash, groqLight, qwen]
+        : [groqLight, qwen];
   }
 }

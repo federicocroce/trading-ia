@@ -1,6 +1,6 @@
 import type { MarketReport, MarketReportRecommendation, FundamentalData, UnifiedAssetAnalysis } from '@trading/shared';
 import { MARKET_REPORT_PROMPT, REPORT_SYNTHESIS_PROMPT } from '@trading/shared';
-import { callAI } from '../shared/ai-router.js';
+import { callAI, callAIWithModel } from '../shared/ai-router.js';
 import {
   getNewsArticlesSince,
   getNewsArticlesForToday,
@@ -11,7 +11,7 @@ import {
   getFundamentalFromCache,
   upsertFundamentalCache,
 } from '../db/repository.js';
-import { getPortfolioPositions, getActiveSymbolList } from '../db/repository.js';
+import { getPortfolioPositions, getActiveSymbolList, getAllSymbols } from '../db/repository.js';
 import { getQuotes, getFundamentals } from '../shared/yahoo.js';
 import { registerNovelTickers, getDiscoveredTickers } from '../discovery/discovery-registry.js';
 import { classifyAsset } from '../discovery/asset-classifier.js';
@@ -498,6 +498,65 @@ Responde SOLO con JSON:
 }
 
 // ============================================================
+// HELPERS
+// ============================================================
+
+/**
+ * Normalize LLM-generated macroTheme strings to canonical Spanish names.
+ * Prevents theme fragmentation across pipeline runs (e.g. "Semiconductores" vs "AI/Chips").
+ */
+function normalizeMacroTheme(theme: string | null): string {
+  if (!theme) return 'Otros';
+  const t = theme.toLowerCase().trim();
+
+  if (t.includes('semiconductor') || t.includes('chip') || t.includes('nvda') ||
+      t.includes('ai/') || t.includes('inteligencia artificial')) return 'Semiconductores / IA';
+  if (t.includes('petróleo') || t.includes('petroleo') || t.includes('oil') ||
+      t.includes('energía') || t.includes('energia') || t.includes('opec')) return 'Energía';
+  if (t.includes('argentina') || t.includes('cedear') || t.includes('merval') ||
+      t.includes('emergente') || t.includes('latam')) return 'Argentina / Emergentes';
+  if (t.includes('crypto') || t.includes('cripto') || t.includes('bitcoin') ||
+      t.includes('blockchain')) return 'Cripto';
+  if (t.includes('defensa') || t.includes('defense') || t.includes('geopolít') ||
+      t.includes('guerra') || t.includes('conflicto')) return 'Defensa / Geopolítica';
+  if (t.includes('banco') || t.includes('bank') || t.includes('finanzas') ||
+      t.includes('finance')) return 'Finanzas';
+  if (t.includes('farma') || t.includes('pharma') || t.includes('salud') ||
+      t.includes('health') || t.includes('biotech')) return 'Salud / Farmacéutica';
+
+  return theme.trim();
+}
+
+/**
+ * Normalize scenario probabilities to sum ~100% and distribution weights per scenario.
+ */
+function normalizeScenarios(scenarios: MarketReport['scenarios']): MarketReport['scenarios'] {
+  if (!scenarios || scenarios.length === 0) return scenarios;
+
+  const totalProb = scenarios.reduce((sum, s) => sum + (s.probability ?? 0), 0);
+  if (totalProb > 0 && Math.abs(totalProb - 100) > 5) {
+    scenarios = scenarios.map(s => ({
+      ...s,
+      probability: Math.round((s.probability ?? 0) / totalProb * 100),
+    }));
+  }
+
+  return scenarios.map(s => {
+    const totalWeight = (s.distribution ?? []).reduce((sum, d) => sum + (d.weight ?? 0), 0);
+    if (totalWeight > 0 && Math.abs(totalWeight - 100) > 5) {
+      return {
+        ...s,
+        distribution: s.distribution.map(d => ({
+          ...d,
+          weight: Math.round((d.weight ?? 0) / totalWeight * 100),
+        })),
+      };
+    }
+    return s;
+  });
+}
+
+// ============================================================
 // MAIN ENTRY POINT
 // ============================================================
 
@@ -537,23 +596,43 @@ export async function generateMarketReport(
   if (precomputedAnalyses && precomputedAnalyses.size > 0) {
     console.log(`[MarketReport] Usando ${precomputedAnalyses.size} análisis previos de STAGE 3`);
 
-    // Agrupar por macroTheme
+    // Build symbol metadata map from DB (sync) — fixes instrumentType always 'Accion US'
+    const allDbSymbols = getAllSymbols();
+    const symbolMetaMap = new Map<string, { name: string; instrumentType: string }>();
+    for (const s of allDbSymbols) {
+      let instrumentType = 'Accion US';
+      if (s.plaza === 'argentina-cedears') instrumentType = 'CEDEAR';
+      else if (s.type === 'crypto') instrumentType = 'Crypto';
+      else if (s.plaza === 'etfs-sectors') instrumentType = 'ETF';
+      symbolMetaMap.set(s.symbol, { name: s.name || s.symbol, instrumentType });
+    }
+
+    // Portfolio symbols — HOLD/WATCH included for portfolio positions
+    const portfolioSymbolSet = new Set(positions.map(p => p.symbol));
+
+    // Agrupar por macroTheme (normalized to avoid fragmentation)
     const themeMap = new Map<string, MarketReportRecommendation[]>();
 
     for (const [symbol, analysis] of precomputedAnalyses) {
-      if (analysis.action === 'HOLD' || analysis.action === 'WATCH') continue; // solo BUY/SELL
-      const theme = analysis.macroTheme ?? 'Otros';
+      const isInPortfolio = portfolioSymbolSet.has(symbol);
+      // Include portfolio assets even if HOLD/WATCH — exclude non-portfolio HOLD/WATCH
+      if (!isInPortfolio && (analysis.action === 'HOLD' || analysis.action === 'WATCH')) continue;
+
+      const theme = normalizeMacroTheme(analysis.macroTheme);
       if (!themeMap.has(theme)) themeMap.set(theme, []);
+
+      const meta = symbolMetaMap.get(symbol);
+      const weight = analysis.action === 'BUY' ? 10 : analysis.action === 'SELL' ? 0 : 5;
 
       themeMap.get(theme)!.push({
         symbol,
-        name: symbol,
-        instrumentType: 'Accion US',
+        name: meta?.name ?? symbol,
+        instrumentType: meta?.instrumentType ?? 'Accion US',
         sector: theme,
         thesis: analysis.thesis,
         catalysts: analysis.catalysts,
         risks: analysis.risks,
-        suggestedWeight: analysis.action === 'BUY' ? 10 : 0,
+        suggestedWeight: weight,
       });
     }
 
@@ -663,9 +742,11 @@ export async function generateMarketReport(
   let portfolioImpact = '';
   let scenarios: MarketReport['scenarios'] = [];
   let avoidList: string[] = [];
+  let actualEngine = 'pipeline-thematic';
 
   try {
-    const rawSynthesis = await callAI('reasoning', synthesisUserMsg, REPORT_SYNTHESIS_PROMPT, 3000);
+    const { content: rawSynthesis, model: synthModel } = await callAIWithModel('reasoning', synthesisUserMsg, REPORT_SYNTHESIS_PROMPT, 3000);
+    actualEngine = synthModel;
     const parsedSynthesis = JSON.parse(rawSynthesis);
     macroContext = parsedSynthesis.macroContext ?? themeSummaries;
     portfolioImpact = parsedSynthesis.portfolioImpact ?? '';
@@ -704,9 +785,9 @@ export async function generateMarketReport(
     themes,
     topRecommendations: topRecs,
     alternatives,
-    scenarios,
+    scenarios: normalizeScenarios(scenarios),
     avoidList,
-    engine: 'groq-pipeline-thematic',
+    engine: actualEngine,
   };
 
   // Auto-register discovered tickers (from themes recommendations)

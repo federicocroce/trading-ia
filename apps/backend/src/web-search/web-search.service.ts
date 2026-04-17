@@ -17,11 +17,15 @@ export interface WebSearchArticle {
 }
 
 const DISCOVERY_QUERIES = [
+  // EN — global coverage
   'best stock market opportunities today',
-  'Argentina stocks breaking news today',
-  'crypto bitcoin opportunities this week',
   'AI semiconductors stocks news today',
   'oil energy stocks opportunities today',
+  // ES — Argentine and regional coverage (primary local sources publish in Spanish)
+  'acciones argentinas oportunidades hoy merval cedears',
+  'bitcoin criptomonedas oportunidades esta semana',
+  'noticias economicas argentina inversiones hoy',
+  'bolsa new york oportunidades acciones hoy',
 ];
 
 async function searchWithFallback(query: string): Promise<WebSearchResult[]> {
@@ -85,33 +89,40 @@ export async function runWebSearch(date: string): Promise<WebSearchStageResult> 
     return { articles, errors, allFailed: true };
   }
 
-  // --- Layer 2: Discovery (sequential — respects rate limits) ---
-  let discoverySuccessCount = 0;
-  for (const query of DISCOVERY_QUERIES) {
-    try {
+  // --- Layer 2: Discovery (parallel — all queries fire at once) ---
+  const discoveryResults = await Promise.allSettled(
+    DISCOVERY_QUERIES.map(async (query) => {
       const results = await searchWithFallback(query);
-      discoverySuccessCount++;
-      for (const result of results) {
+      const discoveryArticles: WebSearchArticle[] = results.map((result) => {
         const tickers = extractTickers(result.title + ' ' + result.content);
-        articles.push({
+        return {
           date,
           symbol: null,
           query,
-          layer: 'discovery',
+          layer: 'discovery' as const,
           title: result.title,
           url: result.url,
           content: result.content,
           publishedAt: result.publishedAt,
           relatedSymbols: tickers,
-        });
-      }
+        };
+      });
       // Register novel tickers from discovery
       const allTickers = results.flatMap((r) => extractTickers(r.title + ' ' + r.content));
       if (allTickers.length > 0) {
         registerNovelTickers(allTickers, 'yahoo').catch(() => {});
       }
-    } catch (err) {
-      errors.push(`Discovery "${query}": ${(err as Error).message.slice(0, 80)}`);
+      return discoveryArticles;
+    }),
+  );
+
+  let discoverySuccessCount = 0;
+  for (const r of discoveryResults) {
+    if (r.status === 'fulfilled') {
+      discoverySuccessCount++;
+      articles.push(...r.value);
+    } else {
+      errors.push(`Discovery failed: ${(r as PromiseRejectedResult).reason?.message?.slice(0, 80)}`);
     }
   }
 

@@ -27,7 +27,8 @@ export function initPipeline() {
 }
 
 function getToday(): string {
-  return new Date().toISOString().split('T')[0];
+  // Use Buenos Aires timezone (UTC-3) — avoids date shift after 21hs local time
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
 }
 
 function isNewsStageValid(): boolean {
@@ -149,12 +150,12 @@ async function runFundamentalsStage(runId: number): Promise<StageResult> {
   const startedAt = new Date().toISOString();
   const daysOld = getFundamentalsDaysOld();
 
-  if (daysOld < 7) {
+  if (daysOld < 3) {
     const sr: StageResult = {
       status: 'skipped',
       startedAt,
       finishedAt: new Date().toISOString(),
-      detail: `Cache válido (${daysOld.toFixed(1)} días). Próxima actualización en ${(7 - daysOld).toFixed(1)} días.`,
+      detail: `Cache válido (${daysOld.toFixed(1)} días). Próxima actualización en ${(3 - daysOld).toFixed(1)} días.`,
       errors: [],
     };
     updatePipelineStage(runId, 'fundamentals', sr);
@@ -222,7 +223,9 @@ async function runReportStage(runId: number): Promise<StageResult> {
   const startedAt = new Date().toISOString();
   updatePipelineStage(runId, 'report', { status: 'running', startedAt });
   try {
-    const report = await generateMarketReport();
+    // Pass precomputed Stage 3 analyses so generateMarketReport skips the full thematic pipeline
+    const precomputed = _stageUnifiedAnalyses ?? undefined;
+    const report = await generateMarketReport(precomputed);
     _stageUnifiedAnalyses = null;
 
     try {
@@ -384,7 +387,9 @@ export async function rerunPipelineStage(
   const existingRun = getPipelineRunByDate(today);
   const run = existingRun ?? createPipelineRun(today);
   const runId = run.id;
-  _stageUnifiedAnalyses = null;
+  // For report-only re-runs, reuse analyses already in memory from Stage 3.
+  // For any other stage re-run, reset so stale data doesn't leak forward.
+  _stageUnifiedAnalyses = stage === 'report' ? (getLastUnifiedAnalyses() ?? null) : null;
   markRunAsRunning(runId);
 
   if (stage === 'webSearch') {

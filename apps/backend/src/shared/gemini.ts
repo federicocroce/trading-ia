@@ -125,3 +125,66 @@ export async function askGemini(
 export function isGeminiAvailable(): boolean {
   return getApiKeys().length > 0;
 }
+
+/**
+ * askGeminiFlash — solo usa gemini-2.5-flash, preserva quota de Pro para reasoning.
+ * Ideal para classification y narrative tasks.
+ */
+export async function askGeminiFlash(
+  userMessage: string,
+  systemPrompt: string,
+  maxTokens: number = 4096,
+): Promise<string> {
+  const keys = getApiKeys();
+  if (keys.length === 0) throw new Error('No Gemini API keys configured (GOOGLE_AI_API_KEY_1..4)');
+
+  let lastError: Error | null = null;
+  let skipped = 0;
+
+  for (let keyIndex = 0; keyIndex < keys.length; keyIndex++) {
+    const model: GeminiModel = 'gemini-2.5-flash';
+    if (isExhausted('gemini', model, keyIndex)) { skipped++; continue; }
+
+    const client = new GoogleGenerativeAI(keys[keyIndex]);
+    const genModel = client.getGenerativeModel({
+      model,
+      systemInstruction: systemPrompt + '\n\nResponde SOLO con JSON valido.',
+    });
+
+    try {
+      const result = await genModel.generateContent({
+        contents: [{ role: 'user', parts: [{ text: userMessage }] }],
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature: 0.1,
+          responseMimeType: 'application/json',
+        },
+      });
+
+      const content = result.response.text();
+      if (content) {
+        console.log(`[gemini-flash] Success — key: #${keyIndex + 1}`);
+        return content;
+      }
+    } catch (err) {
+      const msg = (err as Error).message || '';
+      const quota = isQuotaError(msg);
+      const retryable = isRetryableError(msg);
+
+      console.warn(
+        `[gemini-flash] key#${keyIndex + 1} failed${quota ? ' (quota)' : retryable ? ' (network)' : ''}: ${msg.slice(0, 120)}`,
+      );
+
+      if (quota) markExhausted('gemini', model, dailyResetAt(), keyIndex);
+
+      lastError = err as Error;
+      if (!retryable) throw err;
+    }
+  }
+
+  if (skipped > 0 && !lastError) {
+    throw new Error(`All Gemini Flash keys quota-exhausted (${skipped} skipped)`);
+  }
+
+  throw lastError ?? new Error('All Gemini Flash keys exhausted');
+}

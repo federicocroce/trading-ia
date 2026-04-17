@@ -34,10 +34,15 @@ export async function askOpenRouter(
   for (const model of OPENROUTER_FREE_MODELS) {
     if (isExhausted('openrouter', model)) continue;
 
+    // Reasoning models (DeepSeek R1, etc.) use tokens for chain-of-thought before the JSON.
+    // Double the limit so the thinking block doesn't crowd out the actual response.
+    const isReasoningModel = model.includes('r1') || model.includes('deepseek');
+    const effectiveMaxTokens = isReasoningModel ? Math.min(maxTokens * 2, 16384) : maxTokens;
+
     try {
       const response = await getClient().chat.completions.create({
         model,
-        max_tokens: maxTokens,
+        max_tokens: effectiveMaxTokens,
         messages: [
           { role: 'system', content: systemPrompt + '\n\nResponde SOLO con JSON valido.' },
           { role: 'user', content: userMessage },
