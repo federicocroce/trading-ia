@@ -76,9 +76,12 @@ export function computeCompositeScore(
   techScore: number,
   fundScore: number,
   sentScore: number,
+  overrideWeights?: { shortTerm: HorizonWeights; mediumTerm: HorizonWeights },
 ): { shortTerm: number; mediumTerm: number; composite: number } {
-  const shortTerm = computeHorizonScore(techScore, fundScore, sentScore, SHORT_TERM_WEIGHTS);
-  const mediumTerm = computeHorizonScore(techScore, fundScore, sentScore, MEDIUM_TERM_WEIGHTS);
+  const shortWeights = overrideWeights?.shortTerm ?? SHORT_TERM_WEIGHTS;
+  const medWeights = overrideWeights?.mediumTerm ?? MEDIUM_TERM_WEIGHTS;
+  const shortTerm = computeHorizonScore(techScore, fundScore, sentScore, shortWeights);
+  const mediumTerm = computeHorizonScore(techScore, fundScore, sentScore, medWeights);
   const composite = Math.round(shortTerm * 0.4 + mediumTerm * 0.6);
   return { shortTerm, mediumTerm, composite };
 }
