@@ -405,6 +405,7 @@ export async function resolveWebSearch(action: 'retry' | 'skip' | 'cancel'): Pro
 
   const runId = waitingRun.id;
   _stageUnifiedAnalyses = null;
+  _stageQuantContext = null;
 
   if (action === 'cancel') {
     finishPipelineRun(runId, 'cancelled');
