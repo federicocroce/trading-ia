@@ -1,23 +1,37 @@
 import type { OptionsExpiryData } from '../shared/yahoo.js';
 import type { OptionsFlowSignal } from '@trading/shared';
 
-const MIN_CALL_VOLUME = 500;
-const MIN_CP_RATIO = 2.0;
 const MAX_EXPIRY_DAYS = 45;
+const MIN_CP_RATIO = 2.0;
+const OTM_THRESHOLD = 1.02;   // calls must be ≥2% above current price
+const MIN_VOI_RATIO = 0.25;   // volume/openInterest — fresh positioning (not just existing contracts)
+const MIN_UNUSUAL_VOLUME = 300;  // minimum unusual OTM call volume to care about
 
-export function computeOptionsFlowSignal(optionsData: OptionsExpiryData[]): OptionsFlowSignal {
+/**
+ * Options flow signal based on UNUSUAL OTM call activity.
+ *
+ * What changed vs naive call/put ratio:
+ * - Only counts OTM calls (directional bets, not hedges)
+ * - Requires V/OI > 0.25 (fresh buying, not just existing OI sitting there)
+ * - This eliminates the constant false positives on mega-caps where raw call
+ *   volume always outweighs puts due to retail perpetual bullishness.
+ *
+ * @param currentPrice Pass 0 when price is unknown — returns no signal safely.
+ */
+export function computeOptionsFlowSignal(
+  optionsData: OptionsExpiryData[],
+  currentPrice: number,
+): OptionsFlowSignal {
   const noSignal: OptionsFlowSignal = {
     active: false, callVolume: 0, putVolume: 0, callPutRatio: 0,
-    nearestExpiry: null, dominantSentiment: 'neutral', score: 0,
+    nearestExpiry: null, dominantSentiment: 'neutral', score: 0, unusualStrikes: 0,
   };
 
-  if (!optionsData.length) return noSignal;
+  if (!optionsData.length || currentPrice <= 0) return noSignal;
 
   const now = new Date();
-  const maxExpiry = new Date();
-  maxExpiry.setDate(maxExpiry.getDate() + MAX_EXPIRY_DAYS);
+  const maxExpiry = new Date(now.getTime() + MAX_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
 
-  // Filter to expiries within 45 days
   const relevant = optionsData.filter((opt) => {
     if (!opt.expirationDate) return false;
     const expiry = new Date(opt.expirationDate);
@@ -26,44 +40,66 @@ export function computeOptionsFlowSignal(optionsData: OptionsExpiryData[]): Opti
 
   if (!relevant.length) return noSignal;
 
-  // Aggregate call + put volume across relevant expiries
+  const nearestExpiry = relevant[0].expirationDate;
+  const otmStrike = currentPrice * OTM_THRESHOLD;
+
+  let unusualCallVolume = 0;
+  let unusualStrikes = 0;
   let totalCallVolume = 0;
   let totalPutVolume = 0;
-  const nearestExpiry = relevant[0].expirationDate;
 
   for (const expiry of relevant) {
-    totalCallVolume += expiry.calls.reduce((s, c) => s + (c.volume ?? 0), 0);
-    totalPutVolume += expiry.puts.reduce((s, p) => s + (p.volume ?? 0), 0);
+    for (const call of expiry.calls) {
+      const vol = call.volume ?? 0;
+      totalCallVolume += vol;
+
+      const isOTM = call.strike > otmStrike;
+      const oi = call.openInterest ?? 0;
+      // Fresh positioning: meaningfully traded relative to existing interest
+      const isUnusual = vol > 0 && oi > 0 && vol / oi >= MIN_VOI_RATIO;
+
+      if (isOTM && isUnusual) {
+        unusualCallVolume += vol;
+        unusualStrikes++;
+      }
+    }
+    for (const put of expiry.puts) {
+      totalPutVolume += put.volume ?? 0;
+    }
   }
 
-  if (totalCallVolume < MIN_CALL_VOLUME && totalPutVolume < MIN_CALL_VOLUME) return noSignal;
+  const ratio = totalPutVolume > 0 ? totalCallVolume / totalPutVolume : totalCallVolume > 0 ? totalCallVolume : 0;
 
-  const ratio = totalPutVolume > 0 ? totalCallVolume / totalPutVolume : totalCallVolume;
-  const dominantSentiment: OptionsFlowSignal['dominantSentiment'] =
-    ratio >= 2.0 ? 'bullish' : ratio <= 0.5 ? 'bearish' : 'neutral';
-
-  // Only flag unusual CALL activity (bullish bias for swing trading)
-  if (totalCallVolume < MIN_CALL_VOLUME || ratio < MIN_CP_RATIO) {
+  if (unusualCallVolume < MIN_UNUSUAL_VOLUME || ratio < MIN_CP_RATIO) {
     return {
-      active: false, callVolume: totalCallVolume, putVolume: totalPutVolume,
+      active: false,
+      callVolume: unusualCallVolume,
+      putVolume: totalPutVolume,
       callPutRatio: Math.round(ratio * 100) / 100,
-      nearestExpiry, dominantSentiment: 'neutral', score: 0,
+      nearestExpiry,
+      dominantSentiment: 'neutral',
+      score: 0,
+      unusualStrikes,
     };
   }
 
   let score = 0;
-  if (ratio >= 5.0 && totalCallVolume >= 5_000) score = 90;
-  else if (ratio >= 5.0 || totalCallVolume >= 5_000) score = 80;
-  else if (ratio >= 3.0 || totalCallVolume >= 1_000) score = 65;
+  if (ratio >= 5.0 && unusualCallVolume >= 2000) score = 90;
+  else if (ratio >= 5.0 || unusualCallVolume >= 2000) score = 80;
+  else if (ratio >= 3.0 || unusualCallVolume >= 800) score = 65;
   else score = 50;
+
+  // Many concentrated unusual strikes = more directional conviction
+  if (unusualStrikes >= 5) score = Math.min(100, score + 5);
 
   return {
     active: true,
-    callVolume: totalCallVolume,
+    callVolume: unusualCallVolume,
     putVolume: totalPutVolume,
     callPutRatio: Math.round(ratio * 100) / 100,
     nearestExpiry,
-    dominantSentiment,
+    dominantSentiment: 'bullish',
     score,
+    unusualStrikes,
   };
 }
