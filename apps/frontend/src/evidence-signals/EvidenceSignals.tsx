@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { trpc } from '@/shared/trpc';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import type { EvidenceSignal, EvidenceConviction } from '@trading/shared';
+import type { EvidenceSignal, EvidenceConviction, EvidenceDeepAnalysis } from '@trading/shared';
 
-type Filter = 'all' | 'high' | 'medium' | 'pead' | 'insider' | 'options';
+type Filter = 'all' | 'high' | 'medium' | 'pead' | 'insider' | 'options' | 'buy';
 
 function ConvictionBadge({ conviction }: { conviction: EvidenceConviction }) {
   const styles: Record<EvidenceConviction, string> = {
@@ -19,6 +19,24 @@ function ConvictionBadge({ conviction }: { conviction: EvidenceConviction }) {
   return (
     <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${styles[conviction]}`}>
       {labels[conviction]}
+    </span>
+  );
+}
+
+function VerdictBadge({ verdict }: { verdict: EvidenceDeepAnalysis['verdict'] }) {
+  const styles: Record<EvidenceDeepAnalysis['verdict'], string> = {
+    BUY_SETUP: 'bg-green-500/20 text-green-400 border-green-500/30',
+    WAIT:      'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    PASS:      'bg-red-500/20 text-red-400 border-red-500/30',
+  };
+  const labels: Record<EvidenceDeepAnalysis['verdict'], string> = {
+    BUY_SETUP: '🟢 BUY SETUP',
+    WAIT:      '🟡 ESPERAR',
+    PASS:      '🔴 PASAR',
+  };
+  return (
+    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${styles[verdict]}`}>
+      {labels[verdict]}
     </span>
   );
 }
@@ -39,7 +57,15 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
-function SignalCard({ signal }: { signal: EvidenceSignal }) {
+function SignalCard({
+  signal,
+  analysis,
+  isAnalyzing,
+}: {
+  signal: EvidenceSignal;
+  analysis: EvidenceDeepAnalysis | null;
+  isAnalyzing: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -53,12 +79,13 @@ function SignalCard({ signal }: { signal: EvidenceSignal }) {
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="font-bold text-base">{signal.symbol}</span>
               {signal.currentPrice != null && (
                 <span className="text-sm text-muted-foreground">${signal.currentPrice.toFixed(2)}</span>
               )}
               <ConvictionBadge conviction={signal.conviction} />
+              {analysis && <VerdictBadge verdict={analysis.verdict} />}
             </div>
             <div className="flex flex-wrap gap-1 mb-2">
               <SignalPill label="PEAD" active={signal.pead.active} score={signal.pead.score} />
@@ -70,6 +97,9 @@ function SignalCard({ signal }: { signal: EvidenceSignal }) {
           <div className="text-right shrink-0">
             <div className="text-2xl font-bold text-primary">{signal.compositeScore}</div>
             <div className="text-[10px] text-muted-foreground">score</div>
+            {analysis && (
+              <div className="text-[10px] text-muted-foreground mt-0.5">{analysis.confidence}% conf.</div>
+            )}
           </div>
         </div>
 
@@ -80,12 +110,20 @@ function SignalCard({ signal }: { signal: EvidenceSignal }) {
                 <div className="text-xs font-semibold text-primary">PEAD — Post-Earnings Drift</div>
                 <div className="text-xs text-muted-foreground">
                   Beat <span className="text-foreground font-medium">{signal.pead.beatPercent.toFixed(1)}%</span>
-                  {' '}· EPS actual: <span className="text-foreground">{signal.pead.epsActual ?? '—'}</span>
-                  {' '}vs est.: <span className="text-foreground">{signal.pead.epsEstimate ?? '—'}</span>
+                  {signal.pead.epsActual != null && (
+                    <>{' '}· EPS actual: <span className="text-foreground">{signal.pead.epsActual}</span>
+                    {' '}vs est.: <span className="text-foreground">{signal.pead.epsEstimate ?? '—'}</span></>
+                  )}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {signal.pead.daysSinceEarnings}d desde earnings · {signal.pead.daysInDriftWindow}d restantes en ventana de drift
+                  {signal.pead.daysSinceEarnings}d desde earnings · {signal.pead.daysInDriftWindow}d restantes en ventana
                 </div>
+                {signal.pead.priceChangePct != null && (
+                  <div className={`text-xs font-medium ${signal.pead.priceChangePct >= 1.5 ? 'text-green-400' : 'text-red-400'}`}>
+                    Precio post-earnings: {signal.pead.priceChangePct >= 0 ? '+' : ''}{signal.pead.priceChangePct.toFixed(1)}%
+                    {' '}({signal.pead.priceConfirmed ? '✓ confirmado' : '✗ no confirmó drift'})
+                  </div>
+                )}
               </div>
             )}
             {signal.insider.active && (
@@ -105,14 +143,69 @@ function SignalCard({ signal }: { signal: EvidenceSignal }) {
             )}
             {signal.optionsFlow.active && (
               <div className="space-y-0.5">
-                <div className="text-xs font-semibold text-primary">OPTIONS — Flujo inusual</div>
+                <div className="text-xs font-semibold text-primary">OPTIONS — Flujo inusual OTM</div>
                 <div className="text-xs text-muted-foreground">
-                  C/P ratio: <span className="text-foreground font-medium">{signal.optionsFlow.callPutRatio}x</span>
-                  {' '}· {signal.optionsFlow.callVolume.toLocaleString()} calls vs {signal.optionsFlow.putVolume.toLocaleString()} puts
+                  <span className="text-foreground font-medium">{signal.optionsFlow.unusualStrikes}</span> strikes OTM con V/OI inusual
+                  {' '}· C/P ratio: <span className="text-foreground font-medium">{signal.optionsFlow.callPutRatio}x</span>
                 </div>
-                <div className="text-xs text-muted-foreground">Vencimiento: {signal.optionsFlow.nearestExpiry}</div>
+                <div className="text-xs text-muted-foreground">
+                  {signal.optionsFlow.callVolume.toLocaleString()} calls OTM inusuales · vence: {signal.optionsFlow.nearestExpiry}
+                </div>
               </div>
             )}
+
+            {/* Deep AI Analysis */}
+            <div className="border-t border-border pt-3 space-y-2">
+              <div className="text-xs font-semibold text-primary">Análisis AI</div>
+              {analysis ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <VerdictBadge verdict={analysis.verdict} />
+                    <span className="text-[10px] text-muted-foreground">
+                      confianza {analysis.confidence}% · {analysis.timeframe}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{analysis.reasoning}</p>
+                  {analysis.verdict === 'BUY_SETUP' && analysis.entryZone !== 'N/A' && (
+                    <div className="grid grid-cols-3 gap-2 text-[10px]">
+                      <div className="bg-green-500/10 rounded p-1.5 text-center">
+                        <div className="text-muted-foreground">Entrada</div>
+                        <div className="font-medium text-green-400">{analysis.entryZone}</div>
+                      </div>
+                      <div className="bg-primary/10 rounded p-1.5 text-center">
+                        <div className="text-muted-foreground">Target</div>
+                        <div className="font-medium text-primary">{analysis.target}</div>
+                      </div>
+                      <div className="bg-red-500/10 rounded p-1.5 text-center">
+                        <div className="text-muted-foreground">Stop</div>
+                        <div className="font-medium text-red-400">{analysis.stopLoss}</div>
+                      </div>
+                    </div>
+                  )}
+                  {analysis.keyRisks.length > 0 && (
+                    <div className="space-y-0.5">
+                      <div className="text-[10px] text-muted-foreground font-medium">Riesgos:</div>
+                      {analysis.keyRisks.map((r, i) => (
+                        <div key={i} className="text-[10px] text-muted-foreground pl-2 border-l border-border">
+                          {r}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="text-[10px] text-muted-foreground">
+                    R/R: {analysis.riskReward} · {analysis.model}
+                  </div>
+                </div>
+              ) : isAnalyzing ? (
+                <div className="text-[10px] text-muted-foreground animate-pulse">
+                  Analizando con AI...
+                </div>
+              ) : (
+                <div className="text-[10px] text-muted-foreground">
+                  Sin análisis — ejecutá un nuevo scan
+                </div>
+              )}
+            </div>
           </div>
         )}
       </CardContent>
@@ -158,18 +251,26 @@ function TrackedSignals() {
 export function EvidenceSignals() {
   const [filter, setFilter] = useState<Filter>('all');
 
-  // getAll reads from cache — instant response
   const { data, refetch, error } = trpc.evidenceSignals.getAll.useQuery(undefined, {
     staleTime: 30_000,
-    refetchInterval: 10_000, // poll every 10s while scan runs
+    refetchInterval: 10_000,
   });
 
-  // Scan status — polls to show progress
   const { data: status } = trpc.evidenceSignals.scanStatus.useQuery(undefined, {
     refetchInterval: 3_000,
   });
 
+  const { data: analyses } = trpc.evidenceSignals.getAllDeepAnalyses.useQuery(undefined, {
+    staleTime: 30_000,
+    refetchInterval: 15_000,
+  });
+
+  const analysisMap = new Map(
+    (analyses ?? []).map((a) => [a.symbol, a])
+  );
+
   const isScanning = status?.state === 'scanning';
+  const isAnalyzing = status?.analysisState === 'analyzing';
 
   const refreshMutation = trpc.evidenceSignals.refresh.useMutation({
     onSuccess: () => refetch(),
@@ -181,6 +282,7 @@ export function EvidenceSignals() {
     if (filter === 'pead') return s.pead.active;
     if (filter === 'insider') return s.insider.active;
     if (filter === 'options') return s.optionsFlow.active;
+    if (filter === 'buy') return analysisMap.get(s.symbol)?.verdict === 'BUY_SETUP';
     return s.activeSignals > 0;
   });
 
@@ -191,6 +293,7 @@ export function EvidenceSignals() {
     { id: 'pead', label: 'PEAD' },
     { id: 'insider', label: 'Insider' },
     { id: 'options', label: 'Options' },
+    { id: 'buy', label: '🟢 BUY Setup' },
   ];
 
   return (
@@ -200,7 +303,7 @@ export function EvidenceSignals() {
         <div>
           <h2 className="text-lg font-bold">Señales V2 — Evidence-Based</h2>
           <p className="text-xs text-muted-foreground">
-            PEAD · Insider Buying · Options Flow
+            PEAD · Insider Buying · Options Flow · Análisis AI
           </p>
         </div>
         <Button
@@ -229,6 +332,26 @@ export function EvidenceSignals() {
         </div>
       )}
 
+      {/* Analysis progress bar */}
+      {isAnalyzing && status && (
+        <div className="space-y-1">
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Analizando señales con AI (Gemini)...</span>
+            <span>{status.analyzedCount}/{status.analysisTotal}</span>
+          </div>
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-green-500 transition-all duration-500 rounded-full"
+              style={{
+                width: status.analysisTotal > 0
+                  ? `${(status.analyzedCount / status.analysisTotal) * 100}%`
+                  : '0%',
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Error */}
       {error && (
         <div className="text-center py-6 space-y-2">
@@ -239,17 +362,25 @@ export function EvidenceSignals() {
 
       {/* Stats */}
       {data && data.totalSymbols > 0 && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           <Card>
             <CardContent className="p-3 text-center">
               <div className="text-2xl font-bold text-green-400">{data.highConviction}</div>
-              <div className="text-xs text-muted-foreground">Alta convicción</div>
+              <div className="text-xs text-muted-foreground">Alta conv.</div>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-3 text-center">
               <div className="text-2xl font-bold text-yellow-400">{data.mediumConviction}</div>
-              <div className="text-xs text-muted-foreground">Media convicción</div>
+              <div className="text-xs text-muted-foreground">Media conv.</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-3 text-center">
+              <div className="text-2xl font-bold text-primary">
+                {analyses?.filter((a) => a.verdict === 'BUY_SETUP').length ?? 0}
+              </div>
+              <div className="text-xs text-muted-foreground">BUY Setup</div>
             </CardContent>
           </Card>
           <Card>
@@ -287,7 +418,7 @@ export function EvidenceSignals() {
           <Button onClick={() => refreshMutation.mutate()} disabled={refreshMutation.isPending}>
             Iniciar primer scan
           </Button>
-          <p className="text-xs text-muted-foreground">Tarda ~1-2 min. Podés seguir el progreso en el log del backend.</p>
+          <p className="text-xs text-muted-foreground">Tarda ~1-2 min. El análisis AI corre automáticamente después.</p>
         </div>
       )}
 
@@ -296,7 +427,7 @@ export function EvidenceSignals() {
         <div className="text-center py-8 space-y-1">
           <p className="text-muted-foreground text-sm">Sin señales con este filtro.</p>
           <p className="text-xs text-muted-foreground">
-            {data.totalSymbols} símbolos escaneados · ninguno activó señales PEAD/Insider/Options con los umbrales actuales.
+            {data.totalSymbols} símbolos escaneados · ninguno activó señales con los umbrales actuales.
           </p>
         </div>
       )}
@@ -305,7 +436,12 @@ export function EvidenceSignals() {
       {filtered.length > 0 && (
         <div className="space-y-3">
           {filtered.map((signal) => (
-            <SignalCard key={signal.symbol} signal={signal} />
+            <SignalCard
+              key={signal.symbol}
+              signal={signal}
+              analysis={analysisMap.get(signal.symbol) ?? null}
+              isAnalyzing={isAnalyzing}
+            />
           ))}
         </div>
       )}
