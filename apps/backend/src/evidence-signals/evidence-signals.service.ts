@@ -1,6 +1,6 @@
 import { db, schema } from '../db/index.js';
-import { eq } from 'drizzle-orm';
-import { getAllSymbols } from '../db/repository.js';
+import { eq, and, gte } from 'drizzle-orm';
+import { getAllSymbols, insertSignalTracking } from '../db/repository.js';
 import { getEarningsHistory, getInsiderTransactions, getOptionsChain } from '../shared/yahoo.js';
 import { computePEADSignal } from './pead.service.js';
 import { computeInsiderSignal } from './insider.service.js';
@@ -45,6 +45,62 @@ function setCachedSignal(symbol: string, signal: EvidenceSignal): void {
       },
     })
     .run();
+}
+
+const TRACKING_DEDUP_DAYS = 14;
+
+function hasRecentTracking(symbol: string): boolean {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - TRACKING_DEDUP_DAYS);
+  const row = db.select({ id: schema.signalTracking.id })
+    .from(schema.signalTracking)
+    .where(and(
+      eq(schema.signalTracking.symbol, symbol),
+      eq(schema.signalTracking.outcome, 'pending'),
+      gte(schema.signalTracking.signalDate, cutoff.toISOString().split('T')[0]),
+    ))
+    .get();
+  return !!row;
+}
+
+function calcTargetsForSignal(signal: EvidenceSignal): { targetPct: number; stopPct: number } {
+  const { pead, insider, optionsFlow, conviction } = signal;
+  if (conviction === 'high') return { targetPct: 0.20, stopPct: -0.08 };
+  // Medium: pick dominant signal for targets
+  if (pead.active && insider.active) return { targetPct: 0.18, stopPct: -0.07 };
+  if (pead.active && optionsFlow.active) return { targetPct: 0.15, stopPct: -0.07 };
+  if (insider.active && optionsFlow.active) return { targetPct: 0.15, stopPct: -0.06 };
+  // Single signal fallbacks (shouldn't reach here for tracking, but safety)
+  if (pead.active) return { targetPct: 0.15, stopPct: -0.07 };
+  if (insider.active) return { targetPct: 0.10, stopPct: -0.05 };
+  return { targetPct: 0.08, stopPct: -0.05 };
+}
+
+function autoTrackSignal(signal: EvidenceSignal): void {
+  if (signal.conviction !== 'high' && signal.conviction !== 'medium') return;
+  if (!signal.currentPrice || signal.currentPrice <= 0) return;
+  if (hasRecentTracking(signal.symbol)) return;
+
+  const { targetPct, stopPct } = calcTargetsForSignal(signal);
+  const entry = signal.currentPrice;
+
+  try {
+    insertSignalTracking({
+      symbol: signal.symbol,
+      signalDate: new Date().toISOString().split('T')[0],
+      action: 'BUY',
+      entryPrice: entry,
+      targetPrice: Math.round(entry * (1 + targetPct) * 100) / 100,
+      stopLoss: Math.round(entry * (1 + stopPct) * 100) / 100,
+      confidence: signal.conviction === 'high' ? 90 : 70,
+      opportunityScore: signal.compositeScore,
+      sector: 'evidence-v2',
+      predictedReturnMid: targetPct * 100,
+    });
+    console.log(`[EvidenceSignals] Auto-tracked ${signal.symbol} (${signal.conviction} conviction, score ${signal.compositeScore})`);
+  } catch (err) {
+    console.warn(`[EvidenceSignals] Failed to auto-track ${signal.symbol}:`, (err as Error).message);
+  }
 }
 
 function buildReasoning(signal: EvidenceSignal): string {
@@ -125,6 +181,7 @@ async function computeEvidenceSignal(symbol: string): Promise<EvidenceSignal> {
   signal.reasoning = buildReasoning(signal);
 
   setCachedSignal(symbol, signal);
+  autoTrackSignal(signal);
   return signal;
 }
 

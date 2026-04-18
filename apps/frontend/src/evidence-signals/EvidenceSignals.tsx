@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { trpc } from '@/shared/trpc';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import type { EvidenceSignal, EvidenceConviction } from '@trading/shared';
 
 type Filter = 'all' | 'high' | 'medium' | 'pead' | 'insider' | 'options';
@@ -129,6 +128,42 @@ function SignalCard({ signal }: { signal: EvidenceSignal }) {
   );
 }
 
+function TrackedSignals() {
+  const { data } = trpc.evidenceSignals.getTracked.useQuery({ limit: 30 });
+
+  if (!data?.length) return null;
+
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-semibold text-muted-foreground">Paper Trading Activo ({data.length})</h3>
+      <div className="space-y-1">
+        {data.map((s) => {
+          const outcome = s.outcome ?? 'pending';
+          const ret30 = s.returnAfter30d;
+          const outcomeColor = outcome === 'win' ? 'text-green-400' : outcome === 'loss' ? 'text-red-400' : 'text-muted-foreground';
+          return (
+            <div key={s.id} className="flex items-center justify-between text-xs px-3 py-2 bg-muted/30 rounded">
+              <div className="flex items-center gap-3">
+                <span className="font-bold">{s.symbol}</span>
+                <span className="text-muted-foreground">entrada ${s.entryPrice.toFixed(2)}</span>
+                <span className="text-muted-foreground">{s.signalDate}</span>
+              </div>
+              <div className="flex items-center gap-3">
+                {ret30 != null && (
+                  <span className={ret30 >= 0 ? 'text-green-400' : 'text-red-400'}>
+                    {ret30 >= 0 ? '+' : ''}{ret30.toFixed(1)}% (30d)
+                  </span>
+                )}
+                <span className={`font-medium capitalize ${outcomeColor}`}>{outcome}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function EvidenceSignals() {
   const [filter, setFilter] = useState<Filter>('all');
   const { data, isLoading, refetch, isFetching } = trpc.evidenceSignals.getAll.useQuery(undefined, {
@@ -235,6 +270,8 @@ export function EvidenceSignals() {
           Última actualización: {new Date(data.scannedAt).toLocaleString('es-AR')} · Cache 6h
         </p>
       )}
+
+      <TrackedSignals />
     </div>
   );
 }
