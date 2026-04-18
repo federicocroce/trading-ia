@@ -509,3 +509,21 @@ export const evidenceSignalsCache = sqliteTable('evidence_signals_cache', {
   fetchedAt: text('fetched_at').notNull(),
   expiresAt: text('expires_at').notNull(),
 });
+
+// --- Evidence deep analysis (AI verdict per signal — 6h TTL) ---
+export const evidenceDeepAnalysis = sqliteTable('evidence_deep_analysis', {
+  symbol: text('symbol').primaryKey(),
+  analysisDate: text('analysis_date').notNull(),
+  verdict: text('verdict', { enum: ['BUY_SETUP', 'WAIT', 'PASS'] }).notNull(),
+  reasoning: text('reasoning').notNull(),
+  entryZone: text('entry_zone').notNull(),
+  target: text('target').notNull(),
+  stopLoss: text('stop_loss').notNull(),
+  riskReward: text('risk_reward').notNull(),
+  confidence: integer('confidence').notNull(),
+  keyRisks: text('key_risks').notNull(),  // JSON array
+  timeframe: text('timeframe').notNull(),
+  model: text('model').notNull(),
+  fetchedAt: text('fetched_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+});
