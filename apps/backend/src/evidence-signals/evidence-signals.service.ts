@@ -1,12 +1,13 @@
 import { db, schema } from '../db/index.js';
 import { eq, and, gte } from 'drizzle-orm';
 import { getAllSymbols, insertSignalTracking } from '../db/repository.js';
-import { getEarningsHistory, getInsiderTransactions, getOptionsChain } from '../shared/yahoo.js';
+import { getEarningsHistory, getInsiderTransactions, getOptionsChain, getQuote, getHistoricalQuotes } from '../shared/yahoo.js';
 import { computePEADSignal } from './pead.service.js';
 import { computeInsiderSignal } from './insider.service.js';
 import { computeOptionsFlowSignal } from './options-flow.service.js';
 import type { EvidenceSignal, EvidenceScanResult } from '@trading/shared';
-import { getQuote } from '../shared/yahoo.js';
+import { getScreenedSymbols, invalidateScreenerCache, getPeadOverrides, type PeadOverride } from './symbol-screener.service.js';
+import { triggerDeepAnalysis, getAnalysisStatus, invalidateDeepAnalysisCache } from './deep-analysis.service.js';
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
@@ -107,39 +108,48 @@ function buildReasoning(signal: EvidenceSignal): string {
   const parts: string[] = [];
 
   if (signal.pead.active) {
-    parts.push(`Earnings beat ${signal.pead.beatPercent.toFixed(1)}% hace ${signal.pead.daysSinceEarnings} días — aún en ventana de drift (${signal.pead.daysInDriftWindow}d restantes)`);
+    const priceInfo = signal.pead.priceChangePct != null
+      ? ` · precio confirmó +${signal.pead.priceChangePct.toFixed(1)}% post-earnings`
+      : '';
+    parts.push(`Earnings beat ${signal.pead.beatPercent.toFixed(1)}% hace ${signal.pead.daysSinceEarnings}d${priceInfo} · drift restante: ${signal.pead.daysInDriftWindow}d`);
   }
   if (signal.insider.active) {
     const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 });
-    parts.push(`${signal.insider.numberOfBuyers} insider(s) compraron ${fmt.format(signal.insider.totalValue)} — última compra: ${signal.insider.mostRecentBuyDate}`);
+    parts.push(`${signal.insider.numberOfBuyers} insider(s) compraron ${fmt.format(signal.insider.totalValue)} — última: ${signal.insider.mostRecentBuyDate}`);
   }
   if (signal.optionsFlow.active) {
-    parts.push(`Call/Put ratio ${signal.optionsFlow.callPutRatio}x con ${signal.optionsFlow.callVolume.toLocaleString()} contratos call`);
+    parts.push(`${signal.optionsFlow.unusualStrikes} strikes OTM con actividad inusual · C/P ${signal.optionsFlow.callPutRatio}x · ${signal.optionsFlow.callVolume.toLocaleString()} contratos`);
   }
 
   if (!parts.length) return 'Sin señales activas en este momento';
   return parts.join(' | ');
 }
 
-async function computeEvidenceSignal(symbol: string): Promise<EvidenceSignal> {
+async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride): Promise<EvidenceSignal> {
   const cached = getCachedSignal(symbol);
   if (cached) return cached;
 
-  const [earningsHistory, insiderTransactions, optionsData, quoteResult] = await Promise.allSettled([
+  const [earningsHistory, insiderTransactions, optionsData, quoteResult, ohlcHistory] = await Promise.allSettled([
     getEarningsHistory(symbol),
     getInsiderTransactions(symbol),
     getOptionsChain(symbol),
     getQuote(symbol),
+    getHistoricalQuotes(symbol, '3mo', '1d'),
   ]);
 
+  const currentPrice = quoteResult.status === 'fulfilled' ? quoteResult.value.current : 0;
+
   const pead = computePEADSignal(
-    earningsHistory.status === 'fulfilled' ? earningsHistory.value : []
+    earningsHistory.status === 'fulfilled' ? earningsHistory.value : [],
+    ohlcHistory.status === 'fulfilled' ? ohlcHistory.value : [],
+    peadOverride,
   );
   const insider = computeInsiderSignal(
     insiderTransactions.status === 'fulfilled' ? insiderTransactions.value : []
   );
   const optionsFlow = computeOptionsFlowSignal(
-    optionsData.status === 'fulfilled' ? optionsData.value : []
+    optionsData.status === 'fulfilled' ? optionsData.value : [],
+    currentPrice,
   );
 
   const activeCount = [pead.active, insider.active, optionsFlow.active].filter(Boolean).length;
@@ -149,8 +159,10 @@ async function computeEvidenceSignal(symbol: string): Promise<EvidenceSignal> {
     optionsFlow.active ? optionsFlow.score : null,
   ].filter((s): s is number => s !== null);
 
+  // Conviction multiplier: lone signals are less reliable than corroborated ones
+  const convictionMultiplier = activeCount >= 3 ? 1.0 : activeCount === 2 ? 0.9 : 0.7;
   const compositeScore = activeScores.length
-    ? Math.round(activeScores.reduce((a, b) => a + b, 0) / activeScores.length)
+    ? Math.round(activeScores.reduce((a, b) => a + b, 0) / activeScores.length * convictionMultiplier)
     : 0;
 
   const conviction: EvidenceSignal['conviction'] =
@@ -175,7 +187,7 @@ async function computeEvidenceSignal(symbol: string): Promise<EvidenceSignal> {
     compositeScore,
     recommendation,
     reasoning: '',
-    currentPrice: quoteResult.status === 'fulfilled' ? quoteResult.value.current : undefined,
+    currentPrice: currentPrice > 0 ? currentPrice : undefined,
   };
 
   signal.reasoning = buildReasoning(signal);
@@ -193,7 +205,16 @@ let scannedCount = 0;
 let totalCount = 0;
 
 export function getScanStatus() {
-  return { state: scanState, lastScanAt, scannedCount, totalCount };
+  const analysis = getAnalysisStatus();
+  return {
+    state: scanState,
+    lastScanAt,
+    scannedCount,
+    totalCount,
+    analysisState: analysis.analysisState,
+    analyzedCount: analysis.analyzedCount,
+    analysisTotal: analysis.analysisTotal,
+  };
 }
 
 function readAllFromCache(): EvidenceScanResult {
@@ -219,11 +240,15 @@ async function runScan(forceRefresh: boolean) {
   try {
     if (forceRefresh) {
       db.delete(schema.evidenceSignalsCache).run();
+      invalidateScreenerCache();
+      invalidateDeepAnalysisCache();
     }
 
-    const symbols = getAllSymbols()
+    const portfolioSymbols = getAllSymbols()
       .filter((s) => s.type === 'us' || s.type === 'adr')
       .map((s) => s.symbol);
+
+    const { symbols, peadOverrides } = await getScreenedSymbols(portfolioSymbols);
 
     totalCount = symbols.length;
     scannedCount = 0;
@@ -232,7 +257,9 @@ async function runScan(forceRefresh: boolean) {
     for (let i = 0; i < symbols.length; i += CONCURRENCY) {
       const batch = symbols.slice(i, i + CONCURRENCY);
       console.log(`[EvidenceSignals] Batch ${Math.floor(i / CONCURRENCY) + 1}: ${batch.join(', ')}`);
-      const results = await Promise.allSettled(batch.map((s) => computeEvidenceSignal(s)));
+      const results = await Promise.allSettled(
+        batch.map((s) => computeEvidenceSignal(s, peadOverrides.get(s)))
+      );
       for (const r of results) {
         scannedCount++;
         if (r.status === 'fulfilled') {
@@ -248,7 +275,11 @@ async function runScan(forceRefresh: boolean) {
 
     lastScanAt = new Date().toISOString();
     const cached = readAllFromCache();
-    console.log(`[EvidenceSignals] Scan completo — ${cached.signals.filter(s => s.activeSignals > 0).length}/${cached.totalSymbols} con señales activas`);
+    const withSignals = cached.signals.filter((s) => s.activeSignals > 0);
+    console.log(`[EvidenceSignals] Scan completo — ${withSignals.length}/${cached.totalSymbols} con señales activas`);
+
+    // Fire deep analysis for HIGH/MEDIUM conviction signals (non-blocking)
+    triggerDeepAnalysis(withSignals);
   } finally {
     scanState = 'idle';
   }
@@ -266,7 +297,7 @@ export function triggerScan(forceRefresh = false): void {
 }
 
 export async function getEvidenceSignalForSymbol(symbol: string): Promise<EvidenceSignal> {
-  return computeEvidenceSignal(symbol);
+  return computeEvidenceSignal(symbol, getPeadOverrides().get(symbol));
 }
 
 export function invalidateEvidenceCache(): void {
