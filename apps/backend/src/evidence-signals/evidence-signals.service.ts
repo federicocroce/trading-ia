@@ -187,46 +187,82 @@ async function computeEvidenceSignal(symbol: string): Promise<EvidenceSignal> {
 
 const CONCURRENCY = 5;
 
-export async function getAllEvidenceSignals(forceRefresh = false): Promise<EvidenceScanResult> {
-  if (forceRefresh) {
-    db.delete(schema.evidenceSignalsCache).run();
-  }
+let scanState: 'idle' | 'scanning' = 'idle';
+let lastScanAt: string | null = null;
+let scannedCount = 0;
+let totalCount = 0;
 
-  const symbols = getAllSymbols()
-    .filter((s) => s.type === 'us' || s.type === 'adr')
-    .map((s) => s.symbol);
+export function getScanStatus() {
+  return { state: scanState, lastScanAt, scannedCount, totalCount };
+}
 
-  console.log(`[EvidenceSignals] Escaneando ${symbols.length} símbolos: ${symbols.join(', ')}`);
-
-  const signals: EvidenceSignal[] = [];
-
-  for (let i = 0; i < symbols.length; i += CONCURRENCY) {
-    const batch = symbols.slice(i, i + CONCURRENCY);
-    console.log(`[EvidenceSignals] Batch ${Math.floor(i / CONCURRENCY) + 1}: ${batch.join(', ')}`);
-    const results = await Promise.allSettled(batch.map((s) => computeEvidenceSignal(s)));
-    for (const r of results) {
-      if (r.status === 'fulfilled') {
-        signals.push(r.value);
-        const s = r.value;
-        if (s.activeSignals > 0) {
-          console.log(`[EvidenceSignals] ✓ ${s.symbol} — conviction: ${s.conviction}, score: ${s.compositeScore}, señales: ${[s.pead.active && 'PEAD', s.insider.active && 'INSIDER', s.optionsFlow.active && 'OPTIONS'].filter(Boolean).join('+')}`);
-        }
-      } else {
-        console.warn(`[EvidenceSignals] ✗ Error en batch:`, r.reason?.message);
-      }
-    }
-  }
-
-  signals.sort((a, b) => b.compositeScore - a.compositeScore);
-  console.log(`[EvidenceSignals] Scan completo — ${signals.filter(s => s.activeSignals > 0).length}/${signals.length} con señales activas`);
+function readAllFromCache(): EvidenceScanResult {
+  const rows = db.select().from(schema.evidenceSignalsCache).all();
+  const signals: EvidenceSignal[] = rows
+    .filter((r) => new Date(r.expiresAt) > new Date())
+    .map((r) => JSON.parse(r.data) as EvidenceSignal)
+    .sort((a, b) => b.compositeScore - a.compositeScore);
 
   return {
-    scannedAt: new Date().toISOString(),
+    scannedAt: lastScanAt ?? new Date().toISOString(),
     totalSymbols: signals.length,
     highConviction: signals.filter((s) => s.conviction === 'high').length,
     mediumConviction: signals.filter((s) => s.conviction === 'medium').length,
     signals,
   };
+}
+
+async function runScan(forceRefresh: boolean) {
+  if (scanState === 'scanning') return;
+  scanState = 'scanning';
+
+  try {
+    if (forceRefresh) {
+      db.delete(schema.evidenceSignalsCache).run();
+    }
+
+    const symbols = getAllSymbols()
+      .filter((s) => s.type === 'us' || s.type === 'adr')
+      .map((s) => s.symbol);
+
+    totalCount = symbols.length;
+    scannedCount = 0;
+    console.log(`[EvidenceSignals] Escaneando ${symbols.length} símbolos: ${symbols.join(', ')}`);
+
+    for (let i = 0; i < symbols.length; i += CONCURRENCY) {
+      const batch = symbols.slice(i, i + CONCURRENCY);
+      console.log(`[EvidenceSignals] Batch ${Math.floor(i / CONCURRENCY) + 1}: ${batch.join(', ')}`);
+      const results = await Promise.allSettled(batch.map((s) => computeEvidenceSignal(s)));
+      for (const r of results) {
+        scannedCount++;
+        if (r.status === 'fulfilled') {
+          const s = r.value;
+          if (s.activeSignals > 0) {
+            console.log(`[EvidenceSignals] ✓ ${s.symbol} — ${s.conviction}, score: ${s.compositeScore}, señales: ${[s.pead.active && 'PEAD', s.insider.active && 'INSIDER', s.optionsFlow.active && 'OPTIONS'].filter(Boolean).join('+')}`);
+          }
+        } else {
+          console.warn(`[EvidenceSignals] ✗ Error:`, r.reason?.message);
+        }
+      }
+    }
+
+    lastScanAt = new Date().toISOString();
+    const cached = readAllFromCache();
+    console.log(`[EvidenceSignals] Scan completo — ${cached.signals.filter(s => s.activeSignals > 0).length}/${cached.totalSymbols} con señales activas`);
+  } finally {
+    scanState = 'idle';
+  }
+}
+
+export function getCachedScanResult(): EvidenceScanResult {
+  return readAllFromCache();
+}
+
+export function triggerScan(forceRefresh = false): void {
+  // Fire and forget — non-blocking
+  runScan(forceRefresh).catch((err) =>
+    console.error('[EvidenceSignals] Scan error:', err)
+  );
 }
 
 export async function getEvidenceSignalForSymbol(symbol: string): Promise<EvidenceSignal> {
