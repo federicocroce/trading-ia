@@ -196,17 +196,29 @@ export async function getAllEvidenceSignals(forceRefresh = false): Promise<Evide
     .filter((s) => s.type === 'us' || s.type === 'adr')
     .map((s) => s.symbol);
 
+  console.log(`[EvidenceSignals] Escaneando ${symbols.length} símbolos: ${symbols.join(', ')}`);
+
   const signals: EvidenceSignal[] = [];
 
   for (let i = 0; i < symbols.length; i += CONCURRENCY) {
     const batch = symbols.slice(i, i + CONCURRENCY);
+    console.log(`[EvidenceSignals] Batch ${Math.floor(i / CONCURRENCY) + 1}: ${batch.join(', ')}`);
     const results = await Promise.allSettled(batch.map((s) => computeEvidenceSignal(s)));
     for (const r of results) {
-      if (r.status === 'fulfilled') signals.push(r.value);
+      if (r.status === 'fulfilled') {
+        signals.push(r.value);
+        const s = r.value;
+        if (s.activeSignals > 0) {
+          console.log(`[EvidenceSignals] ✓ ${s.symbol} — conviction: ${s.conviction}, score: ${s.compositeScore}, señales: ${[s.pead.active && 'PEAD', s.insider.active && 'INSIDER', s.optionsFlow.active && 'OPTIONS'].filter(Boolean).join('+')}`);
+        }
+      } else {
+        console.warn(`[EvidenceSignals] ✗ Error en batch:`, r.reason?.message);
+      }
     }
   }
 
   signals.sort((a, b) => b.compositeScore - a.compositeScore);
+  console.log(`[EvidenceSignals] Scan completo — ${signals.filter(s => s.activeSignals > 0).length}/${signals.length} con señales activas`);
 
   return {
     scannedAt: new Date().toISOString(),

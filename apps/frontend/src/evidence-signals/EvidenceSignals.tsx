@@ -166,8 +166,9 @@ function TrackedSignals() {
 
 export function EvidenceSignals() {
   const [filter, setFilter] = useState<Filter>('all');
-  const { data, isLoading, refetch, isFetching } = trpc.evidenceSignals.getAll.useQuery(undefined, {
+  const { data, isLoading, isFetching, error, refetch } = trpc.evidenceSignals.getAll.useQuery(undefined, {
     staleTime: 5 * 60_000,
+    retry: 1,
   });
   const refreshMutation = trpc.evidenceSignals.refresh.useMutation({
     onSuccess: () => refetch(),
@@ -249,13 +250,26 @@ export function EvidenceSignals() {
         ))}
       </div>
 
-      {isLoading ? (
-        <div className="text-center py-12 text-muted-foreground text-sm">
-          Escaneando señales... puede tardar 1-2 minutos la primera vez.
+      {error ? (
+        <div className="text-center py-12 space-y-2">
+          <p className="text-red-400 text-sm font-medium">Error al conectar con el backend</p>
+          <p className="text-xs text-muted-foreground">{(error as any)?.message ?? 'Verificá que el backend esté corriendo y reinicialo si acabás de actualizar el código.'}</p>
+          <Button size="sm" variant="outline" onClick={() => refetch()}>Reintentar</Button>
+        </div>
+      ) : isLoading || isFetching ? (
+        <div className="text-center py-12 space-y-3">
+          <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full mx-auto" />
+          <p className="text-muted-foreground text-sm">Escaneando señales en Yahoo Finance...</p>
+          <p className="text-xs text-muted-foreground">Primera vez puede tardar 1-2 minutos. Mirá los logs del backend.</p>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground text-sm">
-          Sin señales activas con el filtro seleccionado.
+        <div className="text-center py-12 space-y-2">
+          <p className="text-muted-foreground text-sm">Sin señales activas con este filtro.</p>
+          <p className="text-xs text-muted-foreground">
+            {data?.totalSymbols
+              ? `Se escanearon ${data.totalSymbols} símbolos — ninguno activó señales PEAD/Insider/Options.`
+              : 'Hacé click en Actualizar para iniciar el scan.'}
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
