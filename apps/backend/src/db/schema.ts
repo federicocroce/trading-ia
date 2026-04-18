@@ -413,6 +413,22 @@ export const backtestRuns = sqliteTable('backtest_runs', {
   equityCurve: text('equity_curve'),
   status: text('status').notNull().default('running'),
   error: text('error'),
+  assetClass: text('asset_class'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Per-asset-class scoring thresholds (calibrated from backtests) ---
+export const assetClassThresholds = sqliteTable('asset_class_thresholds', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  assetClass: text('asset_class').notNull().unique(),
+  scoreBuy: integer('score_buy').notNull().default(58),
+  scoreStrongBuy: integer('score_strong_buy').notNull().default(72),
+  scoreSell: integer('score_sell').notNull().default(52),
+  scoreWatchMin: integer('score_watch_min').notNull().default(42),
+  calibratedAt: text('calibrated_at').notNull(),
+  backtestWinRate: real('backtest_win_rate'),
+  backtestNumTrades: integer('backtest_num_trades'),
+  source: text('source').notNull().default('manual'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 

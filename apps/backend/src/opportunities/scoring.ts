@@ -16,9 +16,12 @@ import type {
   ConvictionTier,
 } from '@trading/shared';
 import { OPPORTUNITY_UNIVERSE, getSectorForSymbol } from '@trading/shared';
-import { getActiveWeights } from '../intelligence/weight-adjustment.service.js';
+import { getActiveWeights, hasApprovedWeights } from '../intelligence/weight-adjustment.service.js';
+import { getLatestCalibratedWeights } from '../quant/backtest.repository.js';
 import { getSectorForSymbolDynamic, getSectorLabelDynamic, getClassificationForSymbol } from '../discovery/discovery-registry.js';
 import { detectSignalConflicts } from './signal-conflicts.js';
+import { getThresholdsForAssetClass, type AssetClassThreshold } from '../quant/threshold-calibrator.service.js';
+import { getPlazaForSymbol } from '@trading/shared';
 
 // --- Normalización a escala 0-100 ---
 
@@ -54,6 +57,19 @@ export const MEDIUM_TERM_WEIGHTS: HorizonWeights = {
   fundamental: 0.45,
 };
 
+// Action decision thresholds
+export const SCORE_STRONG_BUY = 72;    // BUY with high confidence + no conflicts → 'strong' conviction
+export const SCORE_BUY = 58;           // Was 62; lowered for volatile market conditions
+export const SCORE_HOLD = 52;          // Hold if in portfolio, WATCH if not
+export const SCORE_WATCH_MIN = 42;     // Below this → SELL in portfolio, WATCH otherwise
+export const CONFIDENCE_STRONG = 70;   // Required confidence for 'strong' conviction tier
+export const SCORE_SPECULATIVE_HIGH = 62; // Upper bound for 'speculative' conviction range
+
+export function getThresholdsForSymbol(symbol: string): AssetClassThreshold | null {
+  const plaza = getPlazaForSymbol(symbol);
+  return getThresholdsForAssetClass(plaza);
+}
+
 // --- Scoring ---
 
 export function computeHorizonScore(
@@ -85,13 +101,17 @@ export function computeCompositeScore(
   if (overrideWeights) {
     shortWeights = overrideWeights.shortTerm;
     medWeights = overrideWeights.mediumTerm;
+  } else if (hasApprovedWeights()) {
+    const w = getActiveWeights();
+    shortWeights = { technical: w.shortTerm.technical, fundamental: w.shortTerm.fundamental, sentiment: w.shortTerm.sentiment };
+    medWeights = { technical: w.mediumTerm.technical, fundamental: w.mediumTerm.fundamental, sentiment: w.mediumTerm.sentiment };
   } else {
-    try {
-      const w = getActiveWeights();
-      shortWeights = { technical: w.shortTerm.technical, fundamental: w.shortTerm.fundamental, sentiment: w.shortTerm.sentiment };
-      medWeights = { technical: w.mediumTerm.technical, fundamental: w.mediumTerm.fundamental, sentiment: w.mediumTerm.sentiment };
-    } catch {
-      // Fall back to static defaults if DB not available
+    // No user-approved weights — use calibrated weights from quant stage if available
+    const calibrated = getLatestCalibratedWeights();
+    if (calibrated) {
+      shortWeights = { technical: calibrated.shortTerm.technical, fundamental: calibrated.shortTerm.fundamental, sentiment: calibrated.shortTerm.sentiment };
+      medWeights = { technical: calibrated.mediumTerm.technical, fundamental: calibrated.mediumTerm.fundamental, sentiment: calibrated.mediumTerm.sentiment };
+    } else {
       shortWeights = SHORT_TERM_WEIGHTS;
       medWeights = MEDIUM_TERM_WEIGHTS;
     }
@@ -307,19 +327,6 @@ function computeConfluence(
   };
 }
 
-/** Legacy wrapper — returns simple confidence number */
-export function computeConfidence(
-  _techScore: number,
-  _fundScore: number,
-  _sentScore: number,
-  tech?: TechnicalSummary,
-  fund?: FundamentalSummary,
-  sent?: SentimentInput,
-): number {
-  const detail = computeConfluence(tech, fund, sent);
-  return detail.confluencePercent;
-}
-
 /** Full confluence detail for enriched opportunities */
 export function computeConfluenceDetail(
   tech: TechnicalSummary | undefined,
@@ -341,18 +348,23 @@ export function computeConfluenceDetail(
  * - Score 62-71 sin conflictos → BUY
  * - Score 62-71 con conflictos → WATCH (no entrar cuando hay contradicción)
  */
-export function scoreToAction(score: number, inPortfolio: boolean, confidence?: number, hasConflicts?: boolean): SignalAction {
-  if (score >= 72 && (confidence ?? 0) >= 70 && !hasConflicts) return 'BUY'; // STRONG BUY tier
-  if (score >= 72) return hasConflicts ? 'WATCH' : 'BUY';
-  if (score >= 58) return hasConflicts ? 'WATCH' : 'BUY'; // bajado de 62 → más señales en mercado volátil
-  if (score >= 52 && inPortfolio) return 'HOLD';
-  if (score >= 42) return inPortfolio ? 'HOLD' : 'WATCH';
-  return inPortfolio ? 'SELL' : 'WATCH'; // <42 en portfolio = SELL
+export function scoreToAction(score: number, inPortfolio: boolean, confidence?: number, hasConflicts?: boolean, thresholds?: AssetClassThreshold | null): SignalAction {
+  const strongBuy = thresholds?.scoreStrongBuy ?? SCORE_STRONG_BUY;
+  const buy = thresholds?.scoreBuy ?? SCORE_BUY;
+  const hold = thresholds?.scoreSell ?? SCORE_HOLD;
+  const watchMin = thresholds?.scoreWatchMin ?? SCORE_WATCH_MIN;
+
+  if (score >= strongBuy && (confidence ?? 0) >= CONFIDENCE_STRONG && !hasConflicts) return 'BUY'; // STRONG BUY tier
+  if (score >= strongBuy) return hasConflicts ? 'WATCH' : 'BUY';
+  if (score >= buy) return hasConflicts ? 'WATCH' : 'BUY';
+  if (score >= hold && inPortfolio) return 'HOLD';
+  if (score >= watchMin) return inPortfolio ? 'HOLD' : 'WATCH';
+  return inPortfolio ? 'SELL' : 'WATCH';
 }
 
 export function getConvictionTier(score: number, confidence: number, hasConflicts: boolean, hasBullishDivergence: boolean): ConvictionTier {
-  if (score >= 72 && confidence >= 70 && !hasConflicts) return 'strong';
-  if (score >= 52 && score < 62 && hasBullishDivergence) return 'speculative';
+  if (score >= SCORE_STRONG_BUY && confidence >= CONFIDENCE_STRONG && !hasConflicts) return 'strong';
+  if (score >= SCORE_HOLD && score < SCORE_SPECULATIVE_HIGH && hasBullishDivergence) return 'speculative';
   return 'standard';
 }
 
@@ -1197,14 +1209,14 @@ export function buildAlgorithmicOpportunity(
   const sector = getSectorForSymbolDynamic(symbol);
   if (!sector) return null;
 
-  // TODO(V2): pass calibrated weights from quant stage via getLatestCalibratedWeights()
-  // The quant stage runs after analysis, so only previous-run weights are available here.
+  const assetThresholds = getThresholdsForSymbol(symbol);
+
   const { shortTerm, mediumTerm, composite } = computeCompositeScore(techScore, fundScore, sentScore);
   const confluenceDetail = computeConfluenceDetail(tech, fund, sent);
   const confidence = confluenceDetail.confluencePercent;
 
   // Pre-calcular acción base sin conflictos para pasarla como contexto al detector
-  const baseActionForConflicts = scoreToAction(composite, inPortfolio, confidence, false);
+  const baseActionForConflicts = scoreToAction(composite, inPortfolio, confidence, false, assetThresholds);
 
   const conflictOptions = {
     weeklyDivergences: tech?.weekly?.divergences,
@@ -1216,7 +1228,7 @@ export function buildAlgorithmicOpportunity(
     baseAction: baseActionForConflicts as 'BUY' | 'SELL' | 'HOLD' | 'WATCH',
   };
   const hasConflicts = tech ? detectSignalConflicts(tech.indicators, sent ? { score: sent.score } : undefined, conflictOptions).length > 0 : false;
-  const action = scoreToAction(composite, inPortfolio, confidence, hasConflicts);
+  const action = scoreToAction(composite, inPortfolio, confidence, hasConflicts, assetThresholds);
   const technicalAction = techScoreToAction(techScore, inPortfolio);
   const fundamentalAction = fundScoreToAction(fundScore, inPortfolio);
   const sentimentAction = sentScoreToAction(sentScore, inPortfolio);
@@ -1310,8 +1322,39 @@ export function buildAlgorithmicOpportunity(
       ? `${symbol}: ${reasonParts.join(', ')}. Score ${composite}/100.`
       : `${symbol}: datos mixtos, requiere mas analisis. Score ${composite}/100.`;
 
+  // Pre-compute smart overrides before building result — avoids multiple tradeLevels/conflict recalculations
+  const preTradeLevels = computeTradeLevels(tech, action, portfolioValue, portfolioQuantity);
+  const smart = smartAction(action, composite, tech, fund, preTradeLevels, inPortfolio, symbol);
+  let resolvedAction: SignalAction = smart.action;
+
+  // If smartAction promoted to BUY, verify no signal conflicts block it
+  if (resolvedAction === 'BUY' && tech) {
+    const buyConflicts = detectSignalConflicts(tech.indicators, sent ? { score: sent.score } : undefined, {
+      ...conflictOptions,
+      baseAction: 'BUY',
+    });
+    if (buyConflicts.length > 0) resolvedAction = 'WATCH';
+  }
+
+  const resolvedTradeLevels = computeTradeLevels(tech, resolvedAction, portfolioValue, portfolioQuantity);
+  const resolvedConflicts = tech
+    ? detectSignalConflicts(tech.indicators, sent ? { score: sent.score } : undefined, {
+        ...conflictOptions,
+        baseAction: resolvedAction as 'BUY' | 'SELL' | 'HOLD' | 'WATCH',
+      })
+    : undefined;
+
+  const actionChanged = resolvedAction !== action && smart.reason != null && resolvedAction === smart.action;
+  if (actionChanged && smart.reason) {
+    const shortReason = smart.reason.split('.')[0];
+    catalysts.unshift(shortReason);
+    catalysts.splice(3);
+  }
+
   // Simple Reasoning (lenguaje humano, sin jerga)
-  const simpleReasoning = buildSimpleReasoning(action, composite, confidence, confluenceDetail, techScore, fundScore, sentScaled, rsi, pe, distToSma50, inPortfolio);
+  const simpleReasoning = actionChanged && smart.reason
+    ? smart.reason
+    : buildSimpleReasoning(resolvedAction, composite, confidence, confluenceDetail, techScore, fundScore, sentScaled, rsi, pe, distToSma50, inPortfolio);
 
   const result: Opportunity = {
     symbol,
@@ -1319,7 +1362,7 @@ export function buildAlgorithmicOpportunity(
     sectorLabel: getSectorLabelDynamic(symbol, sector),
     currentPrice,
     opportunityScore: composite,
-    action,
+    action: resolvedAction,
     technicalAction,
     fundamentalAction,
     sentimentAction,
@@ -1376,41 +1419,13 @@ export function buildAlgorithmicOpportunity(
     scoringMethod: 'hybrid',
     horizonScores: { shortTerm, mediumTerm },
     confluenceDetail,
-    tradeLevels: computeTradeLevels(tech, action, portfolioValue, portfolioQuantity),
+    tradeLevels: resolvedTradeLevels,
     timingView: buildTimingView(tech),
     classification: getClassificationForSymbol(symbol),
     divergences: tech?.divergences,
     weekly: tech?.weekly,
-    signalConflicts: tech ? detectSignalConflicts(tech.indicators, sent ? { score: sent.score } : undefined, conflictOptions) : undefined,
+    signalConflicts: resolvedConflicts,
   };
-
-  // === SMART ACTION: override based on divergences + trade levels ===
-  const levels = result.tradeLevels;
-  const smart = smartAction(result.action, composite, tech, fund, levels, inPortfolio, symbol);
-  if (smart.action !== result.action) {
-    result.action = smart.action;
-    // Recalculate trade levels with new action
-    result.tradeLevels = computeTradeLevels(tech, smart.action, portfolioValue, portfolioQuantity);
-    // Replace reasoning with the coloquial smart reason
-    if (smart.reason) {
-      result.simpleReasoning = smart.reason;
-      const shortReason = smart.reason.split('.')[0];
-      result.catalysts = [shortReason, ...result.catalysts.filter(c => c !== shortReason)].slice(0, 3);
-    }
-  }
-
-  // Post-smartAction safety: si smartAction subió a BUY, re-chequear conflictos con la acción final
-  if (result.action === 'BUY' && tech) {
-    const postConflicts = detectSignalConflicts(tech.indicators, sent ? { score: sent.score } : undefined, {
-      ...conflictOptions,
-      baseAction: 'BUY',
-    });
-    if (postConflicts.length > 0) {
-      result.signalConflicts = postConflicts;
-      result.action = 'WATCH';
-      result.tradeLevels = computeTradeLevels(tech, 'WATCH', portfolioValue, portfolioQuantity);
-    }
-  }
 
   // Compute conviction tier based on final state
   const hasBullishDivergence = tech?.divergences?.some(d => d.type === 'bullish') ?? false;

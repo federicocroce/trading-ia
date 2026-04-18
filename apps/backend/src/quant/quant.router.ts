@@ -1,8 +1,9 @@
 import { router, publicProcedure } from '../trpc.js';
 import { z } from 'zod';
-import { runBacktest } from './backtest.service.js';
-import { getBacktestRun, listBacktestRuns } from './backtest.repository.js';
+import { runBacktest, runBulkBacktest, getBulkBacktestStatus } from './backtest.service.js';
+import { getBacktestRun, listBacktestRuns, getLatestBacktestForSymbol, getBacktestSummaryByClass } from './backtest.repository.js';
 import { getStageQuantContext } from '../intelligence/pipeline.service.js';
+import { calibrateThresholdsFromBacktests, getAllAssetClassThresholds } from './threshold-calibrator.service.js';
 
 const strategyConfigSchema = z.object({
   name: z.string(),
@@ -45,4 +46,26 @@ export const quantRouter = router({
 
   getQuantContext: publicProcedure
     .query(() => getStageQuantContext()),
+
+  triggerBulkBacktest: publicProcedure
+    .mutation(() => {
+      void runBulkBacktest();
+      return { started: true };
+    }),
+
+  bulkBacktestStatus: publicProcedure
+    .query(() => getBulkBacktestStatus()),
+
+  getBacktestForSymbol: publicProcedure
+    .input(z.object({ symbol: z.string().min(1) }))
+    .query(({ input }) => getLatestBacktestForSymbol(input.symbol)),
+
+  backtestSummaryByClass: publicProcedure
+    .query(() => getBacktestSummaryByClass()),
+
+  calibrateThresholds: publicProcedure
+    .mutation(() => calibrateThresholdsFromBacktests()),
+
+  getThresholdsByClass: publicProcedure
+    .query(() => getAllAssetClassThresholds()),
 });

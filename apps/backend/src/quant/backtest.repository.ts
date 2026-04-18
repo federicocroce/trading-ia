@@ -1,6 +1,6 @@
 import { db } from '../db/index.js';
 import { backtestRuns, calibratedWeightsTable } from '../db/schema.js';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and } from 'drizzle-orm';
 import type {
   BacktestRun,
   BacktestMetrics,
@@ -15,6 +15,7 @@ export function insertBacktestRun(params: {
   startDate: string;
   endDate: string;
   strategy: StrategyConfig;
+  assetClass?: string;
 }): number {
   const result = db.insert(backtestRuns).values({
     symbol: params.symbol,
@@ -22,6 +23,7 @@ export function insertBacktestRun(params: {
     endDate: params.endDate,
     strategy: JSON.stringify(params.strategy),
     status: 'running',
+    assetClass: params.assetClass ?? null,
   }).returning({ id: backtestRuns.id }).get();
   return result.id;
 }
@@ -55,6 +57,70 @@ export function listBacktestRuns(limit = 20): BacktestRun[] {
   return rows.map(deserialize);
 }
 
+export function getLatestBacktestForSymbol(symbol: string): BacktestRun | null {
+  const row = db.select().from(backtestRuns)
+    .where(and(eq(backtestRuns.symbol, symbol), eq(backtestRuns.status, 'completed')))
+    .orderBy(desc(backtestRuns.createdAt))
+    .limit(1)
+    .get();
+  return row ? deserialize(row) : null;
+}
+
+export interface BacktestClassSummary {
+  assetClass: string;
+  symbolCount: number;
+  winRate: number;
+  sharpeRatio: number;
+  maxDrawdownPercent: number;
+  numTrades: number;
+}
+
+export function getBacktestSummaryByClass(): BacktestClassSummary[] {
+  const rows = db.select().from(backtestRuns)
+    .where(eq(backtestRuns.status, 'completed'))
+    .all();
+
+  const byClass = new Map<string, { winRates: number[]; sharpes: number[]; drawdowns: number[]; trades: number[] }>();
+
+  for (const row of rows) {
+    const cls = row.assetClass ?? 'unknown';
+    if (!row.metrics) continue;
+    const m = JSON.parse(row.metrics) as BacktestMetrics;
+    if (!byClass.has(cls)) byClass.set(cls, { winRates: [], sharpes: [], drawdowns: [], trades: [] });
+    const entry = byClass.get(cls)!;
+    entry.winRates.push(m.winRate);
+    entry.sharpes.push(m.sharpeRatio);
+    entry.drawdowns.push(m.maxDrawdownPercent);
+    entry.trades.push(m.numTrades);
+  }
+
+  return Array.from(byClass.entries()).map(([assetClass, data]) => {
+    const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+    return {
+      assetClass,
+      symbolCount: data.winRates.length,
+      winRate: Math.round(avg(data.winRates) * 100) / 100,
+      sharpeRatio: Math.round(avg(data.sharpes) * 100) / 100,
+      maxDrawdownPercent: Math.round(avg(data.drawdowns) * 100) / 100,
+      numTrades: Math.round(avg(data.trades)),
+    };
+  }).sort((a, b) => b.symbolCount - a.symbolCount);
+}
+
+export function getRecentBacktestForSymbol(symbol: string, withinDays: number): BacktestRun | null {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - withinDays);
+  const cutoffStr = cutoff.toISOString();
+  const rows = db.select().from(backtestRuns)
+    .where(and(eq(backtestRuns.symbol, symbol), eq(backtestRuns.status, 'completed')))
+    .orderBy(desc(backtestRuns.createdAt))
+    .limit(1)
+    .all();
+  const row = rows[0];
+  if (!row || row.createdAt < cutoffStr) return null;
+  return deserialize(row);
+}
+
 function deserialize(row: typeof backtestRuns.$inferSelect): BacktestRun {
   return {
     id: row.id,
@@ -68,6 +134,7 @@ function deserialize(row: typeof backtestRuns.$inferSelect): BacktestRun {
     createdAt: row.createdAt,
     status: row.status as BacktestRun['status'],
     error: row.error ?? undefined,
+    assetClass: row.assetClass ?? null,
   };
 }
 

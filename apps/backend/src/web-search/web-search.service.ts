@@ -28,6 +28,11 @@ const FALLBACK_DISCOVERY_QUERIES = [
   'bitcoin criptomonedas oportunidades esta semana',
   'noticias economicas argentina inversiones hoy',
   'bolsa new york oportunidades acciones hoy',
+  // Macro — Fed, tariffs, geopolitical (always relevant, zero ticker mentions expected)
+  'Federal Reserve interest rate decision policy today',
+  'US tariffs trade war China announcement today',
+  'geopolitical risk market impact conflict escalation',
+  'inflation CPI data economic recession indicators',
 ];
 
 async function searchWithFallback(query: string, searchDepth: 'basic' | 'advanced' = 'advanced'): Promise<WebSearchResult[]> {

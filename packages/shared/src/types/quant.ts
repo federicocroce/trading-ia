@@ -90,4 +90,5 @@ export interface BacktestRun {
   createdAt: string;
   status: 'running' | 'completed' | 'failed';
   error?: string;
+  assetClass?: string | null;
 }

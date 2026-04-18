@@ -69,6 +69,15 @@ export function AccuracyDashboard() {
     onSuccess: () => { void refetchProposal(); },
   });
 
+  const { data: backtestSummary, refetch: refetchBtSummary } = trpc.quant.backtestSummaryByClass.useQuery();
+  const { data: bulkStatus, refetch: refetchBulkStatus } = trpc.quant.bulkBacktestStatus.useQuery(undefined, { refetchInterval: 5000 });
+  const triggerBulk = trpc.quant.triggerBulkBacktest.useMutation({
+    onSuccess: () => { void refetchBulkStatus(); },
+  });
+  const calibrateThresholds = trpc.quant.calibrateThresholds.useMutation({
+    onSuccess: () => { void refetchBtSummary(); },
+  });
+
   if (isLoading) return <div className="p-4 text-muted-foreground">Cargando accuracy...</div>;
   if (!data) return <div className="p-4 text-muted-foreground">Sin datos de accuracy aún. Necesitás al menos algunas señales resueltas.</div>;
 
@@ -147,6 +156,7 @@ export function AccuracyDashboard() {
           <TabsTrigger value="sector">Por Sector</TabsTrigger>
           <TabsTrigger value="confidence">Por Confianza</TabsTrigger>
           <TabsTrigger value="missed">Perdidas</TabsTrigger>
+          <TabsTrigger value="validation">Validación</TabsTrigger>
         </TabsList>
 
         <TabsContent value="action">
@@ -309,6 +319,111 @@ export function AccuracyDashboard() {
                   )}
                 </tbody>
               </table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="validation" className="space-y-4">
+          {/* System Trust Score */}
+          {(() => {
+            const liveWinRate = summary.winRate ?? 0;
+            const btWinRate = backtestSummary && backtestSummary.length > 0
+              ? backtestSummary.reduce((s, r) => s + r.winRate, 0) / backtestSummary.length
+              : null;
+            const sampleScore = Math.min(100, (summary.totalSignals ?? 0) / 2);
+            const trustScore = btWinRate != null
+              ? Math.round(liveWinRate * 40 + btWinRate * 100 * 40 + sampleScore * 20) / 100
+              : Math.round(liveWinRate * 60 + sampleScore * 40) / 100;
+            const trustColor = trustScore >= 60 ? 'text-green-400' : trustScore >= 40 ? 'text-yellow-400' : 'text-red-400';
+            return (
+              <Card>
+                <CardHeader><CardTitle className="text-sm">System Trust Score</CardTitle></CardHeader>
+                <CardContent className="flex items-center gap-4">
+                  <span className={`text-4xl font-bold font-mono ${trustColor}`}>{trustScore}</span>
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <div>Live win rate: {Math.round(liveWinRate * 100)}% (peso 40%)</div>
+                    <div>Backtest win rate: {btWinRate != null ? `${Math.round(btWinRate * 100)}%` : 'sin datos'} (peso 40%)</div>
+                    <div>Tamaño muestra: {summary.totalSignals ?? 0} señales (peso 20%)</div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          {/* Signal Resolution Status */}
+          <Card>
+            <CardHeader><CardTitle className="text-sm">Estado Resolución de Señales</CardTitle></CardHeader>
+            <CardContent className="text-xs text-muted-foreground space-y-1">
+              <div>Total señales: <span className="text-foreground font-mono">{summary.totalSignals ?? 0}</span></div>
+              <div>Resueltas: <span className="text-green-400 font-mono">{summary.resolvedSignals ?? 0}</span></div>
+              <div>Pendientes: <span className="text-yellow-400 font-mono">{(summary.totalSignals ?? 0) - (summary.resolvedSignals ?? 0)}</span></div>
+              <div className="text-[10px] pt-1 opacity-60">Se auto-resuelven al expirar el horizonte temporal (7 días)</div>
+            </CardContent>
+          </Card>
+
+          {/* Backtest by Asset Class */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm">Backtest por Clase de Activo</CardTitle>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline"
+                    onClick={() => calibrateThresholds.mutate()}
+                    disabled={calibrateThresholds.isPending}
+                  >
+                    {calibrateThresholds.isPending ? 'Calibrando...' : 'Calibrar Thresholds'}
+                  </Button>
+                  <Button size="sm"
+                    onClick={() => triggerBulk.mutate()}
+                    disabled={triggerBulk.isPending || bulkStatus?.running}
+                  >
+                    {bulkStatus?.running ? `Corriendo... ${bulkStatus.completed}/${bulkStatus.total}` : 'Correr Backtests'}
+                  </Button>
+                </div>
+              </div>
+              {bulkStatus?.running && (
+                <div className="text-xs text-muted-foreground">
+                  {bulkStatus.completed} completados · {bulkStatus.failed} fallidos · {bulkStatus.total - bulkStatus.completed - bulkStatus.failed} pendientes
+                </div>
+              )}
+            </CardHeader>
+            <CardContent>
+              {!backtestSummary || backtestSummary.length === 0 ? (
+                <div className="text-xs text-muted-foreground py-4">
+                  Sin backtests aún. Hacé clic en "Correr Backtests" para analizar el historial de todos los símbolos.
+                </div>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-muted-foreground border-b border-border">
+                      <th className="text-left py-1 font-medium">Clase</th>
+                      <th className="text-right py-1 font-medium">Símbolos</th>
+                      <th className="text-right py-1 font-medium">Win Rate</th>
+                      <th className="text-right py-1 font-medium">Sharpe</th>
+                      <th className="text-right py-1 font-medium">Max DD</th>
+                      <th className="text-right py-1 font-medium">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backtestSummary.map((s) => {
+                      const pct = Math.round(s.winRate * 100);
+                      const status = pct >= 60 ? { label: 'Confiable', cls: 'text-green-400' }
+                        : pct >= 45 ? { label: 'Marginal', cls: 'text-yellow-400' }
+                        : { label: 'No confiable', cls: 'text-red-400' };
+                      return (
+                        <tr key={s.assetClass} className="border-b border-border/50">
+                          <td className="py-1.5 font-mono">{s.assetClass}</td>
+                          <td className="text-right py-1.5">{s.symbolCount}</td>
+                          <td className={`text-right py-1.5 font-mono font-bold ${status.cls}`}>{pct}%</td>
+                          <td className="text-right py-1.5 font-mono">{s.sharpeRatio.toFixed(2)}</td>
+                          <td className="text-right py-1.5 font-mono text-red-400">{s.maxDrawdownPercent.toFixed(1)}%</td>
+                          <td className={`text-right py-1.5 ${status.cls}`}>{status.label}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

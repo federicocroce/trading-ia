@@ -108,9 +108,19 @@ export interface Opportunity {
   deepAnalysis?: DeepAnalysis;
   convictionTier?: ConvictionTier;
   unifiedAnalysis?: UnifiedAssetAnalysis;
+  backtestConfidence?: BacktestConfidence;
 }
 
 export type ConvictionTier = 'strong' | 'standard' | 'speculative';
+
+export interface BacktestConfidence {
+  winRate: number;           // 0–1 (e.g. 0.67 = 67%)
+  numTrades: number;
+  sharpeRatio: number;
+  assetClass: string;
+  periodYears: number;
+  isBelowMinSample: boolean; // true if numTrades < 10
+}
 
 export interface DeepAnalysis {
   positives: string[];

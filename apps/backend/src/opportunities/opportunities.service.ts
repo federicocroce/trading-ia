@@ -20,6 +20,8 @@ import { getIntelligence, getIntelligenceFromDB } from '../news/news-intelligenc
 import { analyzeSecondOrderEffects } from '../analysis/sector-correlation.service.js';
 import { persistDailyReport } from '../intelligence/daily-report.service.js';
 import { recordSignals, resolveExpiredSignals, recordMissedOpportunities } from './signal-tracking.service.js';
+import { getLatestBacktestForSymbol } from '../quant/backtest.repository.js';
+import type { BacktestConfidence } from '@trading/shared';
 import { runUnifiedAnalysis } from '../intelligence/unified-analysis.service.js';
 import { getSectorForSymbolDynamic, getDiscoveredTickers, pruneExpiredDiscoveries } from '../discovery/discovery-registry.js';
 import { classifyAssets } from '../discovery/asset-classifier.js';
@@ -509,6 +511,22 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
   } catch (err) {
     console.warn('[opportunities] Unified analysis failed (non-critical):', (err as Error).message?.slice(0, 100));
     engineDetail = 'Algoritmico (análisis unificado no disponible)';
+  }
+
+  // Batch-attach historical backtest confidence to each opportunity
+  for (const opp of opportunities) {
+    const bt = getLatestBacktestForSymbol(opp.symbol);
+    if (bt?.metrics) {
+      const conf: BacktestConfidence = {
+        winRate: bt.metrics.winRate,
+        numTrades: bt.metrics.numTrades,
+        sharpeRatio: bt.metrics.sharpeRatio,
+        assetClass: bt.assetClass ?? 'unknown',
+        periodYears: 2,
+        isBelowMinSample: bt.metrics.numTrades < 10,
+      };
+      opp.backtestConfidence = conf;
+    }
   }
 
   cachedResult = {

@@ -8,15 +8,73 @@ import type {
 import { computeIndicators, scoreTechnical } from '../technical/technical-analysis.service.js';
 import { computeHorizonScore, SHORT_TERM_WEIGHTS } from '../opportunities/scoring.js';
 import { getHistoricalQuotes } from '../shared/yahoo.js';
-import { insertBacktestRun, updateBacktestRun } from './backtest.repository.js';
+import { insertBacktestRun, updateBacktestRun, getRecentBacktestForSymbol } from './backtest.repository.js';
+import { getActiveSymbolList } from '../db/repository.js';
+import { getPlazaForSymbol } from '@trading/shared';
 
 const WARMUP_DAYS = 50;
+
+const DEFAULT_BULK_STRATEGY: StrategyConfig = {
+  name: 'default',
+  buyThreshold: 58,
+  sellThreshold: 52,
+  stopLossPercent: 8,
+  takeProfitPercent: 15,
+};
+
+export interface BulkBacktestResult {
+  total: number;
+  completed: number;
+  skipped: number;
+  failed: number;
+}
+
+let _bulkRunning = false;
+let _bulkStatus: BulkBacktestResult = { total: 0, completed: 0, skipped: 0, failed: 0 };
+
+export function getBulkBacktestStatus(): BulkBacktestResult & { running: boolean } {
+  return { ..._bulkStatus, running: _bulkRunning };
+}
+
+export async function runBulkBacktest(): Promise<BulkBacktestResult> {
+  if (_bulkRunning) return _bulkStatus;
+  _bulkRunning = true;
+
+  const symbols = getActiveSymbolList();
+  const twoYearsAgo = new Date();
+  twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+  const startDate = twoYearsAgo.toISOString().split('T')[0];
+  const endDate = new Date().toISOString().split('T')[0];
+
+  _bulkStatus = { total: symbols.length, completed: 0, skipped: 0, failed: 0 };
+
+  for (const symbol of symbols) {
+    try {
+      const recent = getRecentBacktestForSymbol(symbol, 30);
+      if (recent) {
+        _bulkStatus.skipped++;
+        continue;
+      }
+      const assetClass = getPlazaForSymbol(symbol) ?? 'unknown';
+      await runBacktest({ symbol, startDate, endDate, strategy: DEFAULT_BULK_STRATEGY, assetClass });
+      _bulkStatus.completed++;
+    } catch {
+      _bulkStatus.failed++;
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  _bulkRunning = false;
+  console.log(`[backtest] Bulk run complete: ${_bulkStatus.completed} completed, ${_bulkStatus.skipped} skipped, ${_bulkStatus.failed} failed`);
+  return _bulkStatus;
+}
 
 export async function runBacktest(params: {
   symbol: string;
   startDate: string;
   endDate: string;
   strategy: StrategyConfig;
+  assetClass?: string;
 }): Promise<number> {
   const runId = insertBacktestRun(params);
   try {

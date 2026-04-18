@@ -148,6 +148,13 @@
       "when": 1776437200000,
       "tag": "0020_scoring_weights",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1776437300000,
+      "tag": "0021_backtest_trust",
+      "breakpoints": true
     }
   ]
 }

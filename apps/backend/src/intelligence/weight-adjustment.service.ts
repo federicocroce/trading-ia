@@ -34,6 +34,10 @@ export function invalidateWeightsCache(): void {
   _cacheExpiry = 0;
 }
 
+export function hasApprovedWeights(): boolean {
+  return !!db.select({ id: scoringWeightHistory.id }).from(scoringWeightHistory).limit(1).get();
+}
+
 function pearson(xs: number[], ys: number[]): number {
   if (xs.length !== ys.length || xs.length < 3) return 0;
   const n = xs.length;

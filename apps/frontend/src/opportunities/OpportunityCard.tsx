@@ -138,6 +138,14 @@ interface Opportunity {
   scoringMethod?: string;
   horizonScores?: { shortTerm: number; mediumTerm: number };
   passedAntiHype?: boolean;
+  backtestConfidence?: {
+    winRate: number;
+    numTrades: number;
+    sharpeRatio: number;
+    assetClass: string;
+    periodYears: number;
+    isBelowMinSample: boolean;
+  };
 }
 
 const actionConfig: Record<SignalAction, { label: string; emoji: string; borderColor: string; bgClass: string; textClass: string; description: string }> = {
@@ -229,6 +237,26 @@ function ScoreBar({ score, tooltip }: { score: number; tooltip: string }) {
             {score > 0 ? '+' : ''}{score}
           </span>
         </div>
+      </TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function BacktestConfidenceBadge({ bt }: { bt: NonNullable<Opportunity['backtestConfidence']> }) {
+  const pct = Math.round(bt.winRate * 100);
+  const color = pct >= 60 ? 'text-green-400 border-green-500/40' :
+    pct >= 45 ? 'text-yellow-400 border-yellow-500/40' :
+    'text-red-400 border-red-500/40';
+  const tooltip = bt.isBelowMinSample
+    ? `Menos de 10 operaciones históricas — muestra insuficiente`
+    : `${pct}% win rate en backtesting (${bt.periodYears}yr, ${bt.numTrades} trades, ${bt.assetClass})`;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={`text-[9px] px-1.5 py-0.5 rounded border cursor-help shrink-0 ${color} ${bt.isBelowMinSample ? 'opacity-60' : ''}`}>
+          {bt.isBelowMinSample ? `~${pct}% hist.` : `${pct}% hist.`}
+        </span>
       </TooltipTrigger>
       <TooltipContent>{tooltip}</TooltipContent>
     </Tooltip>
@@ -329,6 +357,11 @@ export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
                  'Señales moderadas, riesgo estándar.'}
               </TooltipContent>
             </Tooltip>
+          )}
+
+          {/* Backtest confidence badge */}
+          {opportunity.backtestConfidence && (
+            <BacktestConfidenceBadge bt={opportunity.backtestConfidence} />
           )}
         </div>
 

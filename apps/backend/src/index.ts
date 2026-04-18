@@ -14,6 +14,17 @@ initDatabase();
 import { initPipeline } from './intelligence/pipeline.service.js';
 initPipeline();
 
+import { resolveExpiredSignals } from './opportunities/signal-tracking.service.js';
+// Resolve signals that have crossed the 7d/30d threshold since last run
+void resolveExpiredSignals().then(n => {
+  if (n > 0) console.log(`[startup] Resolved ${n} pending signals`);
+});
+setInterval(() => {
+  void resolveExpiredSignals().then(n => {
+    if (n > 0) console.log(`[scheduler] Resolved ${n} signals`);
+  });
+}, 6 * 60 * 60 * 1000);
+
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { trpcServer } from '@hono/trpc-server';

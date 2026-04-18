@@ -158,6 +158,8 @@ export async function askGeminiFlash(
           maxOutputTokens: maxTokens,
           temperature: 0.1,
           responseMimeType: 'application/json',
+          // @ts-ignore — thinkingBudget: 0 disables thinking so the full token budget goes to JSON output
+          thinkingConfig: { thinkingBudget: 0 },
         },
       });
 

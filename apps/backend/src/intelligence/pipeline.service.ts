@@ -19,6 +19,7 @@ import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, ge
 import { getIntelligenceFromDB } from '../news/news-intelligence.service.js';
 import { runWebSearch } from '../web-search/web-search.service.js';
 import { generateWeightProposal, shouldGenerateProposal } from './weight-adjustment.service.js';
+import { resolveExpiredSignals } from '../opportunities/signal-tracking.service.js';
 import type { PipelineRun, StageResult, QuantContext } from '@trading/shared';
 import { getToday } from '../shared/date-utils.js';
 import { detectRegime } from '../quant/regime-detector.service.js';
@@ -367,6 +368,9 @@ async function runRemainingStages(runId: number): Promise<void> {
   const fundResult = await runFundamentalsStage(runId);
   recordStageArtifact(runId, 'fundamentals', fundResult);
 
+  // Quant runs before analysis so calibrated weights are persisted to DB before scoring
+  await runQuantStage(runId);
+
   if (!isAnalysisStageValid()) {
     const analysisResult = await runAnalysisStage(runId);
     recordStageArtifact(runId, 'analysis', analysisResult);
@@ -381,9 +385,6 @@ async function runRemainingStages(runId: number): Promise<void> {
       detail: 'Análisis del día ya disponible.', errors: [],
     });
   }
-
-  // Quant stage: non-blocking (failure doesn't stop pipeline)
-  await runQuantStage(runId);
 
   const reportResult = await runReportStage(runId);
   recordStageArtifact(runId, 'report', reportResult);
@@ -401,6 +402,11 @@ async function runRemainingStages(runId: number): Promise<void> {
       console.log(`[pipeline] Weight adjustment proposal #${proposal.id} generated — pending user approval`);
     }
   }
+
+  // Resolve signals that crossed 7d/30d threshold during this pipeline run
+  void resolveExpiredSignals().then(n => {
+    if (n > 0) console.log(`[pipeline] Resolved ${n} signals post-run`);
+  });
 }
 
 export async function checkOrRunPipeline(force = false): Promise<PipelineRun> {

@@ -70,6 +70,7 @@ export function OpportunityDashboard() {
   const [symbolFilter, setSymbolFilter] = useState('');
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.opportunities.scan.useQuery(undefined);
+  const { data: backtestSummary } = trpc.quant.backtestSummaryByClass.useQuery();
   const { isRunning } = usePipeline();
   const refresh = trpc.opportunities.refresh.useMutation({
     onSuccess: () => utils.opportunities.scan.invalidate(),
@@ -267,6 +268,29 @@ export function OpportunityDashboard() {
 
       {/* Sector filter */}
       <SectorFilter selected={selectedSectors} onChange={setSelectedSectors} />
+
+      {/* Backtest win-rate strip */}
+      {backtestSummary && backtestSummary.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap text-[10px] text-muted-foreground border border-border rounded px-3 py-1.5">
+          <span className="font-medium text-foreground/60">Histórico:</span>
+          {backtestSummary.map((s) => {
+            const pct = Math.round(s.winRate * 100);
+            const color = pct >= 60 ? 'text-green-400' : pct >= 45 ? 'text-yellow-400' : 'text-red-400';
+            return (
+              <Tooltip key={s.assetClass}>
+                <TooltipTrigger asChild>
+                  <span className={`cursor-help font-mono ${color}`}>
+                    {s.assetClass}: {pct}%
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {s.assetClass} — {pct}% win rate, Sharpe {s.sharpeRatio.toFixed(2)}, {s.numTrades} trades/símbolo avg ({s.symbolCount} símbolos)
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
+        </div>
+      )}
 
       {/* Sector summaries */}
       {sectorSummaries.length > 0 && (

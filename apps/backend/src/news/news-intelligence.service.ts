@@ -35,15 +35,19 @@ let _sentimentCache: {
   negative: Set<string>;
   highImpact: Set<string>;
 } | null = null;
+let _sentimentCacheTs = 0;
+const SENTIMENT_CACHE_TTL = 60 * 60 * 1000; // 1 hour — matches keyword update cadence
 
 function getSentimentSets(): { positive: Set<string>; negative: Set<string>; highImpact: Set<string> } {
-  if (_sentimentCache) return _sentimentCache;
+  const now = Date.now();
+  if (_sentimentCache && now - _sentimentCacheTs < SENTIMENT_CACHE_TTL) return _sentimentCache;
   const keywords = getActiveSentimentKeywords();
   _sentimentCache = {
     positive: new Set(keywords.filter((k) => k.sentiment === 'positive').map((k) => k.keyword.toLowerCase())),
     negative: new Set(keywords.filter((k) => k.sentiment === 'negative').map((k) => k.keyword.toLowerCase())),
     highImpact: new Set(keywords.filter((k) => k.impactLevel === 'high').map((k) => k.keyword.toLowerCase())),
   };
+  _sentimentCacheTs = now;
   return _sentimentCache;
 }
 
