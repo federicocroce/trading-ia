@@ -7,6 +7,10 @@ export interface PEADSignal {
   epsActual: number | null;
   epsEstimate: number | null;
   earningsDate: string | null;
+  /** Price moved up ≥1.5% within 5 trading days of earnings announcement */
+  priceConfirmed: boolean;
+  /** Max close % change in 5 days post-earnings vs pre-earnings close */
+  priceChangePct: number | null;
 }
 
 export interface InsiderTransaction {
@@ -35,6 +39,8 @@ export interface OptionsFlowSignal {
   nearestExpiry: string | null;
   dominantSentiment: 'bullish' | 'bearish' | 'neutral';
   score: number;
+  /** Number of OTM call strikes with unusual V/OI ratio (fresh positioning) */
+  unusualStrikes: number;
 }
 
 export type EvidenceConviction = 'high' | 'medium' | 'low' | 'none';
@@ -60,4 +66,22 @@ export interface EvidenceScanResult {
   highConviction: number;
   mediumConviction: number;
   signals: EvidenceSignal[];
+}
+
+export type DeepVerdict = 'BUY_SETUP' | 'WAIT' | 'PASS';
+
+export interface EvidenceDeepAnalysis {
+  symbol: string;
+  analysisDate: string;
+  verdict: DeepVerdict;
+  reasoning: string;
+  entryZone: string;
+  target: string;
+  stopLoss: string;
+  riskReward: string;
+  confidence: number;
+  keyRisks: string[];
+  timeframe: string;
+  model: string;
+  fetchedAt: string;
 }
