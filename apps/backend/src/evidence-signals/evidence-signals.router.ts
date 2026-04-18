@@ -7,6 +7,7 @@ import {
   getEvidenceSignalForSymbol,
 } from './evidence-signals.service.js';
 import { getSignalTrackingHistory } from '../db/repository.js';
+import { getCachedAnalysis, getAllCachedAnalyses } from './deep-analysis.service.js';
 
 export const evidenceSignalsRouter = router({
   // Returns cached results immediately (fast). Empty if scan hasn't run yet.
@@ -36,4 +37,11 @@ export const evidenceSignalsRouter = router({
     .query(({ input }) =>
       getSignalTrackingHistory(input.limit).filter((s) => s.sector === 'evidence-v2')
     ),
+
+  getDeepAnalysis: publicProcedure
+    .input(z.object({ symbol: z.string() }))
+    .query(({ input }) => getCachedAnalysis(input.symbol)),
+
+  getAllDeepAnalyses: publicProcedure
+    .query(() => getAllCachedAnalyses()),
 });
