@@ -21,6 +21,7 @@ import { usePipeline } from '@/pipeline/usePipeline';
 import { WebSearchBlockedModal } from '@/pipeline/WebSearchBlockedModal';
 import { PipelineConfig } from './intelligence/PipelineConfig.js';
 import { AccuracyDashboard } from './intelligence/AccuracyDashboard.js';
+import { EvidenceSignals } from './evidence-signals/EvidenceSignals.js';
 
 function getSymbolFromURL(): string | null {
   const params = new URLSearchParams(window.location.search);
@@ -108,6 +109,7 @@ export function App() {
                   <TabsTrigger value="transactions">Operaciones</TabsTrigger>
                   <TabsTrigger value="backtest">Backtest</TabsTrigger>
                   <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
+                  <TabsTrigger value="evidence">Señales V2</TabsTrigger>
                   <TabsTrigger value="config">Config</TabsTrigger>
                 </TabsList>
 
@@ -131,6 +133,9 @@ export function App() {
                 </TabsContent>
                 <TabsContent value="accuracy" className="flex-1 overflow-y-auto">
                   <AccuracyDashboard />
+                </TabsContent>
+                <TabsContent value="evidence" className="flex-1 overflow-y-auto">
+                  <EvidenceSignals />
                 </TabsContent>
                 <TabsContent value="config" className="flex-1 overflow-y-auto">
                   <PipelineConfig />

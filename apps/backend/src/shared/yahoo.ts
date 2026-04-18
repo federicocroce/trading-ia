@@ -535,3 +535,156 @@ export async function getAssetProfile(symbol: string): Promise<YahooAssetProfile
 
   return tryFetch('https://query1.finance.yahoo.com', YAHOO_HEADERS);
 }
+
+// --- Earnings History (for PEAD signal) ---
+
+export interface EarningsHistoryEntry {
+  epsActual: number | null;
+  epsEstimate: number | null;
+  epsDifference: number | null;
+  surprisePercent: number | null;
+  quarter: string | null; // YYYY-MM-DD
+  period: string | null;
+}
+
+export async function getEarningsHistory(symbol: string): Promise<EarningsHistoryEntry[]> {
+  const modules = 'earningsHistory';
+  const auth = await ensureCrumb();
+
+  const tryFetch = async (baseUrl: string, headers: Record<string, string>): Promise<EarningsHistoryEntry[] | null> => {
+    try {
+      const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : '';
+      const url = `${baseUrl}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${crumbParam}`;
+      const res = await fetch(url, { headers });
+      if (!res.ok) return null;
+
+      const data = (await res.json()) as any;
+      const history = data?.quoteSummary?.result?.[0]?.earningsHistory?.history;
+      if (!Array.isArray(history)) return null;
+
+      return history.map((h: any) => ({
+        epsActual: h?.epsActual?.raw ?? null,
+        epsEstimate: h?.epsEstimate?.raw ?? null,
+        epsDifference: h?.epsDifference?.raw ?? null,
+        surprisePercent: h?.surprisePercent?.raw ?? null,
+        quarter: h?.quarter?.raw ? new Date(h.quarter.raw * 1000).toISOString().split('T')[0] : null,
+        period: h?.period ?? null,
+      }));
+    } catch {
+      return null;
+    }
+  };
+
+  if (auth) {
+    const result = await tryFetch('https://query2.finance.yahoo.com', { ...YAHOO_HEADERS, Cookie: auth.cookie });
+    if (result) return result;
+  }
+  const result = await tryFetch('https://query1.finance.yahoo.com', YAHOO_HEADERS);
+  return result ?? [];
+}
+
+// --- Insider Transactions (for Insider Buying signal) ---
+
+export interface YahooInsiderTransaction {
+  filerName: string;
+  relation: string;
+  transactionText: string;
+  startDate: string | null; // YYYY-MM-DD
+  value: number | null;
+}
+
+export async function getInsiderTransactions(symbol: string): Promise<YahooInsiderTransaction[]> {
+  const modules = 'insiderTransactions';
+  const auth = await ensureCrumb();
+
+  const tryFetch = async (baseUrl: string, headers: Record<string, string>): Promise<YahooInsiderTransaction[] | null> => {
+    try {
+      const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : '';
+      const url = `${baseUrl}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${crumbParam}`;
+      const res = await fetch(url, { headers });
+      if (!res.ok) return null;
+
+      const data = (await res.json()) as any;
+      const transactions = data?.quoteSummary?.result?.[0]?.insiderTransactions?.transactions;
+      if (!Array.isArray(transactions)) return null;
+
+      return transactions.map((t: any) => ({
+        filerName: t?.filerName ?? '',
+        relation: t?.relation ?? '',
+        transactionText: t?.transactionText ?? '',
+        startDate: t?.startDate?.raw ? new Date(t.startDate.raw * 1000).toISOString().split('T')[0] : null,
+        value: t?.value?.raw ?? null,
+      }));
+    } catch {
+      return null;
+    }
+  };
+
+  if (auth) {
+    const result = await tryFetch('https://query2.finance.yahoo.com', { ...YAHOO_HEADERS, Cookie: auth.cookie });
+    if (result) return result;
+  }
+  const result = await tryFetch('https://query1.finance.yahoo.com', YAHOO_HEADERS);
+  return result ?? [];
+}
+
+// --- Options Chain (for Options Flow signal) ---
+
+export interface OptionsContract {
+  contractSymbol: string;
+  strike: number;
+  lastPrice: number;
+  volume: number | null;
+  openInterest: number | null;
+  impliedVolatility: number | null;
+}
+
+export interface OptionsExpiryData {
+  expirationDate: string; // YYYY-MM-DD
+  calls: OptionsContract[];
+  puts: OptionsContract[];
+}
+
+export async function getOptionsChain(symbol: string): Promise<OptionsExpiryData[]> {
+  const auth = await ensureCrumb();
+
+  const tryFetch = async (baseUrl: string, headers: Record<string, string>): Promise<OptionsExpiryData[] | null> => {
+    try {
+      const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : '';
+      const url = `${baseUrl}/v7/finance/options/${encodeURIComponent(symbol)}?straddle=false${crumbParam}`;
+      const res = await fetch(url, { headers });
+      if (!res.ok) return null;
+
+      const data = (await res.json()) as any;
+      const optionsList = data?.optionChain?.result?.[0]?.options;
+      if (!Array.isArray(optionsList)) return null;
+
+      const parseContracts = (contracts: any[]): OptionsContract[] =>
+        contracts.map((c: any) => ({
+          contractSymbol: c.contractSymbol ?? '',
+          strike: c.strike ?? 0,
+          lastPrice: c.lastPrice ?? 0,
+          volume: c.volume ?? null,
+          openInterest: c.openInterest ?? null,
+          impliedVolatility: c.impliedVolatility ?? null,
+        }));
+
+      return optionsList.map((opt: any) => ({
+        expirationDate: opt.expirationDate
+          ? new Date(opt.expirationDate * 1000).toISOString().split('T')[0]
+          : '',
+        calls: parseContracts(opt.calls ?? []),
+        puts: parseContracts(opt.puts ?? []),
+      }));
+    } catch {
+      return null;
+    }
+  };
+
+  if (auth) {
+    const result = await tryFetch('https://query2.finance.yahoo.com', { ...YAHOO_HEADERS, Cookie: auth.cookie });
+    if (result) return result;
+  }
+  const result = await tryFetch('https://query1.finance.yahoo.com', YAHOO_HEADERS);
+  return result ?? [];
+}

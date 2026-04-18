@@ -501,3 +501,11 @@ export const scoringWeightHistory = sqliteTable('scoring_weight_history', {
   accuracyBefore: real('accuracy_before'),
   accuracyAfter: real('accuracy_after'),
 });
+
+// --- Evidence signals cache (V2 system — 6h TTL per symbol) ---
+export const evidenceSignalsCache = sqliteTable('evidence_signals_cache', {
+  symbol: text('symbol').primaryKey(),
+  data: text('data').notNull(),
+  fetchedAt: text('fetched_at').notNull(),
+  expiresAt: text('expires_at').notNull(),
+});
