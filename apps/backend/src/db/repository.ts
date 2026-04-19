@@ -538,6 +538,22 @@ export function insertSignalTracking(data: {
   });
 }
 
+export function updateSignalTargets(symbol: string, data: {
+  targetPrice?: number;
+  stopLoss?: number;
+  confidence?: number;
+  enrichedByLlm?: boolean;
+}) {
+  return db.update(schema.signalTracking)
+    .set(data)
+    .where(and(
+      eq(schema.signalTracking.symbol, symbol),
+      eq(schema.signalTracking.outcome, 'pending'),
+      eq(schema.signalTracking.sector, 'evidence-v2'),
+    ))
+    .run();
+}
+
 export function getPendingSignals() {
   return db.select().from(schema.signalTracking)
     .where(eq(schema.signalTracking.outcome, 'pending'))

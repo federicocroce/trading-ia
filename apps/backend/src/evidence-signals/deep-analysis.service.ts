@@ -1,5 +1,6 @@
 import { db, schema } from '../db/index.js';
 import { eq } from 'drizzle-orm';
+import { updateSignalTargets } from '../db/repository.js';
 import { callAIWithModel } from '../shared/ai-router.js';
 import { searchTavily } from '../web-search/tavily.js';
 import { getHistoricalQuotes, getFundamentals } from '../shared/yahoo.js';
@@ -281,6 +282,40 @@ function parseAIResponse(raw: string, symbol: string, model: string): EvidenceDe
   }
 }
 
+// ─── Price zone parser ────────────────────────────────────────────────────────
+
+/**
+ * Parses AI-provided price string into a number. Validates it's within 30% of
+ * current price (reject hallucinated values). Returns null if unparseable or invalid.
+ * Supports: "$820", "$820-835" (returns midpoint), "N/A"
+ */
+function parsePriceZone(raw: string, currentPrice: number): number | null {
+  if (!raw || raw === 'N/A' || raw.trim() === '') return null;
+
+  const cleaned = raw.replace(/[$,\s]/g, '');
+
+  // Range like "820-835"
+  const rangeMatch = cleaned.match(/^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/);
+  if (rangeMatch) {
+    const lo = parseFloat(rangeMatch[1]);
+    const hi = parseFloat(rangeMatch[2]);
+    if (!isNaN(lo) && !isNaN(hi)) {
+      const mid = (lo + hi) / 2;
+      const deviation = Math.abs((mid - currentPrice) / currentPrice);
+      return deviation <= 0.30 ? Math.round(mid * 100) / 100 : null;
+    }
+  }
+
+  // Single number like "890"
+  const single = parseFloat(cleaned);
+  if (!isNaN(single) && single > 0) {
+    const deviation = Math.abs((single - currentPrice) / currentPrice);
+    return deviation <= 0.30 ? Math.round(single * 100) / 100 : null;
+  }
+
+  return null;
+}
+
 // ─── Per-symbol analysis ──────────────────────────────────────────────────────
 
 async function analyzeSignal(signal: EvidenceSignal): Promise<void> {
@@ -319,6 +354,23 @@ async function analyzeSignal(signal: EvidenceSignal): Promise<void> {
 
   setCachedAnalysis(analysis);
   console.log(`[DeepAnalysis] ✓ ${signal.symbol} — ${analysis.verdict} (confianza: ${analysis.confidence}%, modelo: ${model})`);
+
+  // Sync AI-provided price targets to signal_tracking for more accurate outcome resolution
+  if (analysis.verdict === 'BUY_SETUP' && signal.currentPrice && signal.currentPrice > 0) {
+    const currentPrice = signal.currentPrice;
+    const target = parsePriceZone(analysis.target, currentPrice);
+    const stop = parsePriceZone(analysis.stopLoss, currentPrice);
+
+    if (target || stop) {
+      updateSignalTargets(signal.symbol, {
+        ...(target != null ? { targetPrice: target } : {}),
+        ...(stop != null ? { stopLoss: stop } : {}),
+        confidence: analysis.confidence,
+        enrichedByLlm: true,
+      });
+      console.log(`[DeepAnalysis] → Targets actualizados: ${signal.symbol} target=$${target ?? 'N/A'} stop=$${stop ?? 'N/A'}`);
+    }
+  }
 }
 
 // ─── Main trigger ─────────────────────────────────────────────────────────────

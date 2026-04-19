@@ -475,6 +475,51 @@ export function EvidenceSignals() {
         </div>
       )}
 
+      {/* Top Picks — highest actionable score + BUY_SETUP */}
+      {(() => {
+        const topPicks = (data?.signals ?? [])
+          .filter((s) => analysisMap.get(s.symbol)?.verdict === 'BUY_SETUP')
+          .sort((a, b) => actionableScore(b) - actionableScore(a))
+          .slice(0, 3);
+        if (topPicks.length === 0) return null;
+        return (
+          <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-4 space-y-3">
+            <div className="text-xs font-semibold text-green-400 uppercase tracking-wide">
+              ⭐ Top Picks — BUY SETUP más accionables ahora
+            </div>
+            <div className="grid gap-2">
+              {topPicks.map((signal) => {
+                const analysis = analysisMap.get(signal.symbol)!;
+                const as = actionableScore(signal);
+                return (
+                  <div key={signal.symbol} className="flex items-center gap-3 bg-background/60 rounded-md px-3 py-2">
+                    <div className="font-bold text-sm w-16 shrink-0">{signal.symbol}</div>
+                    {signal.currentPrice && (
+                      <div className="text-xs text-muted-foreground w-16 shrink-0">${signal.currentPrice.toFixed(2)}</div>
+                    )}
+                    <div className="flex gap-2 flex-1 min-w-0 text-xs flex-wrap">
+                      {analysis.entryZone !== 'N/A' && (
+                        <span className="text-muted-foreground">Entrada: <span className="text-foreground font-medium">{analysis.entryZone}</span></span>
+                      )}
+                      {analysis.target !== 'N/A' && (
+                        <span className="text-muted-foreground">Target: <span className="text-green-400 font-medium">{analysis.target}</span></span>
+                      )}
+                      {analysis.stopLoss !== 'N/A' && (
+                        <span className="text-muted-foreground">Stop: <span className="text-red-400 font-medium">{analysis.stopLoss}</span></span>
+                      )}
+                      {analysis.riskReward !== 'N/A' && (
+                        <span className="text-muted-foreground">R/R: <span className="text-yellow-400 font-medium">{analysis.riskReward}</span></span>
+                      )}
+                    </div>
+                    <div className={`text-xs font-bold shrink-0 ${as >= 8 ? 'text-green-400' : 'text-yellow-400'}`}>{as}/10</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Stats */}
       {data && data.totalSymbols > 0 && (
         <div className="grid grid-cols-4 gap-3">
