@@ -6,10 +6,11 @@ import { computePEADSignal } from './pead.service.js';
 import { computeInsiderSignal } from './insider.service.js';
 import { computeOptionsFlowSignal } from './options-flow.service.js';
 import type { EvidenceSignal, EvidenceScanResult } from '@trading/shared';
-import { getScreenedSymbols, invalidateScreenerCache, getPeadOverrides, type PeadOverride } from './symbol-screener.service.js';
+import { getScreenedSymbols, invalidateScreenerCache, getPeadOverrides, CURATED_ETF_SYMBOLS, type PeadOverride } from './symbol-screener.service.js';
 import { triggerDeepAnalysis, getAnalysisStatus, invalidateDeepAnalysisCache } from './deep-analysis.service.js';
 import { triggerSignalResolver } from './signal-resolver.service.js';
 import { getMarketRegime, invalidateMarketRegimeCache } from './market-regime.service.js';
+import { getSectorMomentum } from './sector-momentum.service.js';
 import type { MarketRegimeData } from '@trading/shared';
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -143,12 +144,14 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
 
   const currentPrice = quoteResult.status === 'fulfilled' ? quoteResult.value.current : 0;
 
-  const pead = computePEADSignal(
+  // ETFs have no earnings beats or insider buying — skip those signals to avoid noise
+  const isEtf = CURATED_ETF_SYMBOLS.includes(symbol);
+  const pead = isEtf ? { active: false, beatPercent: 0, daysSinceEarnings: 0, daysInDriftWindow: 0, score: 0, epsActual: null, epsEstimate: null, earningsDate: null, priceConfirmed: false, priceChangePct: null, consecutiveBeats: 0 } : computePEADSignal(
     earningsHistory.status === 'fulfilled' ? earningsHistory.value : [],
     ohlcHistory.status === 'fulfilled' ? ohlcHistory.value : [],
     peadOverride,
   );
-  const insider = computeInsiderSignal(
+  const insider = isEtf ? { active: false, recentBuys: [], totalValue: 0, numberOfBuyers: 0, mostRecentBuyDate: null, score: 0 } : computeInsiderSignal(
     insiderTransactions.status === 'fulfilled' ? insiderTransactions.value : []
   );
   const optionsFlow = computeOptionsFlowSignal(
@@ -193,6 +196,15 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
     : activeCount === 1 ? 'INTERESTING'
     : 'NO_SIGNAL';
 
+  // Fetch sector trend (cached per ETF, cheap)
+  const sectorData = await getSectorMomentum(symbol).catch(() => null);
+  const sectorTrend = sectorData ? {
+    etf: sectorData.sectorEtf,
+    name: sectorData.sectorName,
+    trend: sectorData.trend,
+    priceVsSma50Pct: sectorData.priceVsSma50Pct,
+  } : undefined;
+
   const signal: EvidenceSignal = {
     symbol,
     scannedAt: new Date().toISOString(),
@@ -206,6 +218,7 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
     recommendation,
     reasoning: '',
     currentPrice: currentPrice > 0 ? currentPrice : undefined,
+    sectorTrend,
   };
 
   signal.reasoning = buildReasoning(signal);

@@ -62,6 +62,13 @@ export interface EvidenceSignal {
   recommendation: EvidenceRecommendation;
   reasoning: string;
   currentPrice?: number;
+  /** Sector ETF momentum context */
+  sectorTrend?: {
+    etf: string;
+    name: string;
+    trend: 'outperforming' | 'underperforming' | 'neutral';
+    priceVsSma50Pct: number;
+  };
 }
 
 export type EvidenceMarketRegime = 'bull' | 'bear' | 'neutral';

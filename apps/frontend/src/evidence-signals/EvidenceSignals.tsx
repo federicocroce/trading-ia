@@ -97,6 +97,15 @@ function SignalCard({
               <SignalPill label="INSIDER" active={signal.insider.active} score={signal.insider.score} />
               <SignalPill label="OPTIONS" active={signal.optionsFlow.active} score={signal.optionsFlow.score} />
             </div>
+            {signal.sectorTrend && (
+              <div className={`text-[10px] font-medium mb-1 ${
+                signal.sectorTrend.trend === 'outperforming' ? 'text-green-400' :
+                signal.sectorTrend.trend === 'underperforming' ? 'text-red-400' : 'text-muted-foreground'
+              }`}>
+                {signal.sectorTrend.trend === 'outperforming' ? '📈' : signal.sectorTrend.trend === 'underperforming' ? '📉' : '➡️'}{' '}
+                {signal.sectorTrend.name} ({signal.sectorTrend.etf}): {signal.sectorTrend.priceVsSma50Pct > 0 ? '+' : ''}{signal.sectorTrend.priceVsSma50Pct.toFixed(1)}% vs SMA50
+              </div>
+            )}
             <p className="text-xs text-muted-foreground leading-relaxed">{signal.reasoning}</p>
           </div>
           <div className="text-right shrink-0">
@@ -492,26 +501,41 @@ export function EvidenceSignals() {
                 const analysis = analysisMap.get(signal.symbol)!;
                 const as = actionableScore(signal);
                 return (
-                  <div key={signal.symbol} className="flex items-center gap-3 bg-background/60 rounded-md px-3 py-2">
-                    <div className="font-bold text-sm w-16 shrink-0">{signal.symbol}</div>
-                    {signal.currentPrice && (
-                      <div className="text-xs text-muted-foreground w-16 shrink-0">${signal.currentPrice.toFixed(2)}</div>
-                    )}
-                    <div className="flex gap-2 flex-1 min-w-0 text-xs flex-wrap">
-                      {analysis.entryZone !== 'N/A' && (
-                        <span className="text-muted-foreground">Entrada: <span className="text-foreground font-medium">{analysis.entryZone}</span></span>
+                  <div key={signal.symbol} className="bg-background/60 rounded-md px-3 py-2 space-y-1.5">
+                    <div className="flex items-center gap-3">
+                      <div className="font-bold text-sm w-16 shrink-0">{signal.symbol}</div>
+                      {signal.currentPrice && (
+                        <div className="text-xs text-muted-foreground w-16 shrink-0">${signal.currentPrice.toFixed(2)}</div>
                       )}
-                      {analysis.target !== 'N/A' && (
-                        <span className="text-muted-foreground">Target: <span className="text-green-400 font-medium">{analysis.target}</span></span>
-                      )}
-                      {analysis.stopLoss !== 'N/A' && (
-                        <span className="text-muted-foreground">Stop: <span className="text-red-400 font-medium">{analysis.stopLoss}</span></span>
-                      )}
-                      {analysis.riskReward !== 'N/A' && (
-                        <span className="text-muted-foreground">R/R: <span className="text-yellow-400 font-medium">{analysis.riskReward}</span></span>
-                      )}
+                      <div className="flex gap-2 flex-1 min-w-0 text-xs flex-wrap">
+                        {analysis.entryZone !== 'N/A' && (
+                          <span className="text-muted-foreground">Entrada: <span className="text-foreground font-medium">{analysis.entryZone}</span></span>
+                        )}
+                        {analysis.target !== 'N/A' && (
+                          <span className="text-muted-foreground">Target: <span className="text-green-400 font-medium">{analysis.target}</span></span>
+                        )}
+                        {analysis.stopLoss !== 'N/A' && (
+                          <span className="text-muted-foreground">Stop: <span className="text-red-400 font-medium">{analysis.stopLoss}</span></span>
+                        )}
+                        {analysis.riskReward !== 'N/A' && (
+                          <span className="text-muted-foreground">R/R: <span className="text-yellow-400 font-medium">{analysis.riskReward}</span></span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[10px] text-muted-foreground">{analysis.timeframe}</span>
+                        <div className={`text-xs font-bold ${as >= 8 ? 'text-green-400' : 'text-yellow-400'}`}>{as}/10</div>
+                      </div>
                     </div>
-                    <div className={`text-xs font-bold shrink-0 ${as >= 8 ? 'text-green-400' : 'text-yellow-400'}`}>{as}/10</div>
+                    {analysis.reasoning && (
+                      <div className="text-xs text-muted-foreground leading-relaxed border-t border-border/50 pt-1.5">
+                        {analysis.reasoning}
+                      </div>
+                    )}
+                    {analysis.keyRisks && analysis.keyRisks.length > 0 && (
+                      <div className="text-[10px] text-red-400/80">
+                        ⚠️ {analysis.keyRisks.slice(0, 2).join(' · ')}
+                      </div>
+                    )}
                   </div>
                 );
               })}
