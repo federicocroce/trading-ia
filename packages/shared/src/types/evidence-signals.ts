@@ -52,6 +52,8 @@ export interface EvidenceSignal {
   symbol: string;
   scannedAt: string;
   conviction: EvidenceConviction;
+  /** Conviction after applying market regime (bear downgrades high→medium, medium→low) */
+  regimeAdjustedConviction: EvidenceConviction;
   activeSignals: number;
   pead: PEADSignal;
   insider: InsiderSignal;

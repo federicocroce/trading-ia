@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import type { EvidenceSignal, EvidenceConviction, EvidenceDeepAnalysis } from '@trading/shared';
 
-type Filter = 'all' | 'high' | 'medium' | 'pead' | 'insider' | 'options' | 'buy';
+type Filter = 'all' | 'high' | 'medium' | 'pead' | 'insider' | 'options' | 'buy' | 'actionable';
 
 function ConvictionBadge({ conviction }: { conviction: EvidenceConviction }) {
   const styles: Record<EvidenceConviction, string> = {
@@ -61,10 +61,12 @@ function SignalCard({
   signal,
   analysis,
   isAnalyzing,
+  aScore,
 }: {
   signal: EvidenceSignal;
   analysis: EvidenceDeepAnalysis | null;
   isAnalyzing: boolean;
+  aScore: number;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -84,7 +86,10 @@ function SignalCard({
               {signal.currentPrice != null && (
                 <span className="text-sm text-muted-foreground">${signal.currentPrice.toFixed(2)}</span>
               )}
-              <ConvictionBadge conviction={signal.conviction} />
+              <ConvictionBadge conviction={signal.regimeAdjustedConviction ?? signal.conviction} />
+              {signal.regimeAdjustedConviction && signal.regimeAdjustedConviction !== signal.conviction && (
+                <span className="text-[10px] text-red-400 font-medium">⬇ mkt</span>
+              )}
               {analysis && <VerdictBadge verdict={analysis.verdict} />}
             </div>
             <div className="flex flex-wrap gap-1 mb-2">
@@ -96,10 +101,16 @@ function SignalCard({
           </div>
           <div className="text-right shrink-0">
             <div className="text-2xl font-bold text-primary">{signal.compositeScore}</div>
-            <div className="text-[10px] text-muted-foreground">score</div>
+            <div className="text-[10px] text-muted-foreground">score señal</div>
             {analysis && (
-              <div className="text-[10px] text-muted-foreground mt-0.5">{analysis.confidence}% conf.</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">{analysis.confidence}% conf. AI</div>
             )}
+            {(() => {
+              const color = aScore >= 8 ? 'text-green-400' : aScore >= 5 ? 'text-yellow-400' : 'text-muted-foreground';
+              return (
+                <div className={`text-[10px] font-semibold mt-1 ${color}`}>{aScore}/10 accionable</div>
+              );
+            })()}
           </div>
         </div>
 
@@ -287,15 +298,42 @@ export function EvidenceSignals() {
     onSuccess: () => refetch(),
   });
 
-  const filtered = (data?.signals ?? []).filter((s) => {
-    if (filter === 'high') return s.conviction === 'high';
-    if (filter === 'medium') return s.conviction === 'medium' || s.conviction === 'high';
-    if (filter === 'pead') return s.pead.active;
-    if (filter === 'insider') return s.insider.active;
-    if (filter === 'options') return s.optionsFlow.active;
-    if (filter === 'buy') return analysisMap.get(s.symbol)?.verdict === 'BUY_SETUP';
-    return s.activeSignals > 0;
-  });
+  // Composite actionable score 0-10: regime + sector + conviction + AI verdict
+  // Used to sort signals from most to least actionable for a 3-6m hold
+  function actionableScore(s: EvidenceSignal): number {
+    const regime = data?.marketRegime?.regime ?? 'neutral';
+    const analysis = analysisMap.get(s.symbol);
+    let score = 0;
+    // Market regime (0-3)
+    if (regime === 'bull') score += 3;
+    else if (regime === 'neutral') score += 1;
+    // regime bear = 0 (no bonus)
+    // Regime-adjusted conviction (0-3)
+    if (s.regimeAdjustedConviction === 'high') score += 3;
+    else if (s.regimeAdjustedConviction === 'medium') score += 2;
+    else if (s.regimeAdjustedConviction === 'low') score += 1;
+    // AI verdict (0-2)
+    if (analysis?.verdict === 'BUY_SETUP') score += 2;
+    else if (analysis?.verdict === 'WAIT') score += 1;
+    // Consecutive beats bonus (0-1)
+    if (s.pead.active && s.pead.consecutiveBeats >= 2) score += 1;
+    // Insider recent buy bonus (0-1)
+    if (s.insider.active && s.insider.numberOfBuyers >= 2) score += 1;
+    return score;
+  }
+
+  const filtered = (data?.signals ?? [])
+    .filter((s) => {
+      if (filter === 'high') return s.conviction === 'high';
+      if (filter === 'medium') return s.conviction === 'medium' || s.conviction === 'high';
+      if (filter === 'pead') return s.pead.active;
+      if (filter === 'insider') return s.insider.active;
+      if (filter === 'options') return s.optionsFlow.active;
+      if (filter === 'buy') return analysisMap.get(s.symbol)?.verdict === 'BUY_SETUP';
+    if (filter === 'actionable') return actionableScore(s) >= 7;
+      return s.activeSignals > 0;
+    })
+    .sort((a, b) => actionableScore(b) - actionableScore(a));
 
   const filters: { id: Filter; label: string }[] = [
     { id: 'all', label: 'Con señales' },
@@ -305,6 +343,7 @@ export function EvidenceSignals() {
     { id: 'insider', label: 'Insider' },
     { id: 'options', label: 'Options' },
     { id: 'buy', label: '🟢 BUY Setup' },
+    { id: 'actionable', label: '⭐ Accionable (7+/10)' },
   ];
 
   return (
@@ -517,6 +556,7 @@ export function EvidenceSignals() {
               signal={signal}
               analysis={analysisMap.get(signal.symbol) ?? null}
               isAnalyzing={isAnalyzing}
+              aScore={actionableScore(signal)}
             />
           ))}
         </div>

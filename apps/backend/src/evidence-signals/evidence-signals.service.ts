@@ -68,16 +68,17 @@ function hasRecentTracking(symbol: string): boolean {
 }
 
 function calcTargetsForSignal(signal: EvidenceSignal): { targetPct: number; stopPct: number } {
+  // Targets calibrated for 3-6 month hold timeframe
   const { pead, insider, optionsFlow, conviction } = signal;
-  if (conviction === 'high') return { targetPct: 0.20, stopPct: -0.08 };
-  // Medium: pick dominant signal for targets
-  if (pead.active && insider.active) return { targetPct: 0.18, stopPct: -0.07 };
-  if (pead.active && optionsFlow.active) return { targetPct: 0.15, stopPct: -0.07 };
-  if (insider.active && optionsFlow.active) return { targetPct: 0.15, stopPct: -0.06 };
-  // Single signal fallbacks (shouldn't reach here for tracking, but safety)
-  if (pead.active) return { targetPct: 0.15, stopPct: -0.07 };
-  if (insider.active) return { targetPct: 0.10, stopPct: -0.05 };
-  return { targetPct: 0.08, stopPct: -0.05 };
+  if (conviction === 'high') return { targetPct: 0.30, stopPct: -0.10 };
+  // Medium: pick dominant signal combination
+  if (pead.active && insider.active) return { targetPct: 0.25, stopPct: -0.09 };
+  if (pead.active && optionsFlow.active) return { targetPct: 0.20, stopPct: -0.09 };
+  if (insider.active && optionsFlow.active) return { targetPct: 0.20, stopPct: -0.08 };
+  // Single signal fallbacks
+  if (pead.active) return { targetPct: 0.18, stopPct: -0.08 };
+  if (insider.active) return { targetPct: 0.15, stopPct: -0.07 };
+  return { targetPct: 0.12, stopPct: -0.06 };
 }
 
 function autoTrackSignal(signal: EvidenceSignal): void {
@@ -180,6 +181,13 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
     : activeCount === 1 ? 'low'
     : 'none';
 
+  // Downgrade conviction when market is in bear regime: high→medium, medium→low
+  const regime = lastMarketRegime?.regime ?? 'neutral';
+  const regimeAdjustedConviction: EvidenceSignal['conviction'] =
+    regime === 'bear' && conviction === 'high' ? 'medium'
+    : regime === 'bear' && conviction === 'medium' ? 'low'
+    : conviction;
+
   const recommendation: EvidenceSignal['recommendation'] =
     activeCount >= 2 ? 'WATCH_CLOSELY'
     : activeCount === 1 ? 'INTERESTING'
@@ -189,6 +197,7 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
     symbol,
     scannedAt: new Date().toISOString(),
     conviction,
+    regimeAdjustedConviction,
     activeSignals: activeCount,
     pead,
     insider,
