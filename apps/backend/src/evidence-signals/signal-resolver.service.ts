@@ -50,6 +50,18 @@ function firstHitDate(
   return { targetHitAt, stopHitAt };
 }
 
+/** Compute max drawdown from entry price across an OHLC window. */
+function maxDrawdownPct(
+  ohlc: Array<{ date: string; low: number }>,
+  signalTs: number,
+  entryPrice: number,
+): number | null {
+  const window = ohlc.filter((c) => new Date(c.date).getTime() >= signalTs);
+  if (!window.length || entryPrice <= 0) return null;
+  const worstLow = Math.min(...window.map((c) => c.low));
+  return Math.round(((worstLow - entryPrice) / entryPrice) * 10000) / 100;
+}
+
 async function resolveOne(signal: ReturnType<typeof getPendingSignals>[0]): Promise<void> {
   // Only resolve evidence-v2 signals
   if (signal.sector !== 'evidence-v2') return;
@@ -64,10 +76,45 @@ async function resolveOne(signal: ReturnType<typeof getPendingSignals>[0]): Prom
   const is30dOld = ageMs >= DAYS_30;
 
   try {
-    if (is30dOld) {
-      // Fetch 3mo historical OHLC to reconstruct 30d window
-      const ohlc = await getHistoricalQuotes(signal.symbol, '3mo', '1d');
+    // Fetch OHLC regardless of age — needed for early hit detection
+    const ohlc = await getHistoricalQuotes(signal.symbol, '3mo', '1d');
 
+    // EARLY RESOLUTION: check if target/stop already hit before 30 days
+    if (!is30dOld && (signal.targetPrice || signal.stopLoss)) {
+      const { targetHitAt, stopHitAt } = firstHitDate(ohlc, signalTs, signal.targetPrice ?? null, signal.stopLoss ?? null);
+      if (targetHitAt || stopHitAt) {
+        const firstTarget = targetHitAt ? new Date(targetHitAt) : null;
+        const firstStop = stopHitAt ? new Date(stopHitAt) : null;
+        const bothHit = firstTarget && firstStop;
+        const targetWins = bothHit ? firstTarget! < firstStop! : !!firstTarget;
+        const hitTs = (targetWins ? firstTarget : firstStop)!.getTime();
+        const priceAtHit = priceAtDate(ohlc, new Date(hitTs));
+        const returnAtHit = priceAtHit != null
+          ? Math.round(((priceAtHit - signal.entryPrice) / signal.entryPrice) * 10000) / 100
+          : null;
+
+        resolveSignal(signal.id, {
+          priceAfter30d: priceAtHit,
+          returnAfter30d: returnAtHit,
+          hitTarget: targetWins,
+          hitStop: !targetWins,
+          outcome: targetWins ? 'win' : 'loss',
+        });
+        console.log(`[SignalResolver] ⚡ Early exit ${signal.symbol} → ${targetWins ? 'WIN (target)' : 'LOSS (stop)'} hit on ${targetHitAt ?? stopHitAt}`);
+        return;
+      }
+      // No hit yet — just update 7d price if not set
+      if (signal.priceAfter7d == null) {
+        const quote = await getQuote(signal.symbol);
+        if (quote.current > 0) {
+          const returnAfter7d = Math.round(((quote.current - signal.entryPrice) / signal.entryPrice) * 10000) / 100;
+          resolveSignal(signal.id, { priceAfter7d: quote.current, returnAfter7d, outcome: 'pending' });
+        }
+      }
+      return;
+    }
+
+    if (is30dOld) {
       const price7d = priceAtDate(ohlc, new Date(signalTs + DAYS_7));
       const price30d = priceAtDate(ohlc, new Date(signalTs + DAYS_30));
       const returnAfter7d = price7d != null
@@ -119,24 +166,6 @@ async function resolveOne(signal: ReturnType<typeof getPendingSignals>[0]): Prom
       });
 
       console.log(`[SignalResolver] ✓ ${signal.symbol} (${signal.signalDate}) → ${outcome.toUpperCase()} | 30d return: ${returnAfter30d != null ? (returnAfter30d > 0 ? '+' : '') + returnAfter30d + '%' : 'N/A'}`);
-    } else {
-      // 7+ days but < 30 — just update priceAfter7d if not set
-      if (signal.priceAfter7d != null) return;
-
-      const quote = await getQuote(signal.symbol);
-      const currentPrice = quote.current;
-      if (!currentPrice || currentPrice <= 0) return;
-
-      const daysSince7 = Math.abs(ageMs - DAYS_7);
-      // Only update if we're within 3 days of the 7d mark (good approximation)
-      if (daysSince7 > 3 * 24 * 60 * 60 * 1000) return;
-
-      const returnAfter7d = Math.round(((currentPrice - signal.entryPrice) / signal.entryPrice) * 10000) / 100;
-      resolveSignal(signal.id, {
-        priceAfter7d: currentPrice,
-        returnAfter7d,
-        outcome: 'pending',
-      });
     }
   } catch (err) {
     console.warn(`[SignalResolver] Error resolving ${signal.symbol}:`, (err as Error).message?.slice(0, 80));
