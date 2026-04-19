@@ -268,8 +268,12 @@ export function EvidenceSignals() {
     refetchInterval: 15_000,
   });
 
-  const { data: accuracyStats } = trpc.evidenceSignals.getAccuracyStats.useQuery(undefined, {
+  const { data: accuracyStats, refetch: refetchStats } = trpc.evidenceSignals.getAccuracyStats.useQuery(undefined, {
     staleTime: 60_000,
+  });
+
+  const resolveMutation = trpc.evidenceSignals.resolveSignals.useMutation({
+    onSuccess: () => refetchStats(),
   });
 
   const analysisMap = new Map(
@@ -392,24 +396,43 @@ export function EvidenceSignals() {
       )}
 
       {/* Accuracy Stats */}
-      {accuracyStats && accuracyStats.totalTracked > 0 && (
+      {accuracyStats && (
         <div className="rounded-lg border border-border bg-muted/30 px-4 py-2 flex items-center gap-4 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">Historial señales:</span>
-          <span>{accuracyStats.totalTracked} rastreadas</span>
-          {accuracyStats.resolved > 0 && (
+          <span className="font-medium text-foreground">Historial:</span>
+          {accuracyStats.totalTracked === 0 ? (
+            <span>Sin señales rastreadas aún — ejecuta un scan para empezar a medir</span>
+          ) : (
             <>
-              <span className={accuracyStats.winRate != null && accuracyStats.winRate >= 50 ? 'text-green-400 font-medium' : 'text-red-400 font-medium'}>
-                {accuracyStats.winRate}% win rate
-              </span>
-              <span>({accuracyStats.wins}W / {accuracyStats.losses}L)</span>
-              {accuracyStats.avgReturn30d != null && (
-                <span className={accuracyStats.avgReturn30d >= 0 ? 'text-green-400' : 'text-red-400'}>
-                  Avg 30d: {accuracyStats.avgReturn30d > 0 ? '+' : ''}{accuracyStats.avgReturn30d}%
+              <span>{accuracyStats.totalTracked} rastreadas</span>
+              {accuracyStats.resolved > 0 ? (
+                <>
+                  <span className={accuracyStats.winRate != null && accuracyStats.winRate >= 50 ? 'text-green-400 font-semibold' : 'text-red-400 font-semibold'}>
+                    {accuracyStats.winRate}% win rate
+                  </span>
+                  <span>({accuracyStats.wins}G / {accuracyStats.losses}P)</span>
+                  {accuracyStats.avgReturn30d != null && (
+                    <span className={accuracyStats.avgReturn30d >= 0 ? 'text-green-400' : 'text-red-400'}>
+                      Avg 30d: {accuracyStats.avgReturn30d > 0 ? '+' : ''}{accuracyStats.avgReturn30d}%
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="text-yellow-500">
+                  {accuracyStats.pending} pendiente{accuracyStats.pending !== 1 ? 's' : ''} — esperando 30 días para resolver
                 </span>
+              )}
+              {accuracyStats.pending > 0 && accuracyStats.resolved > 0 && (
+                <span>{accuracyStats.pending} pendientes</span>
               )}
             </>
           )}
-          {accuracyStats.pending > 0 && <span>{accuracyStats.pending} pendientes</span>}
+          <button
+            className="ml-auto text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 disabled:opacity-50"
+            onClick={() => resolveMutation.mutate()}
+            disabled={resolveMutation.isPending}
+          >
+            {resolveMutation.isPending ? 'Resolviendo...' : 'Resolver ahora'}
+          </button>
         </div>
       )}
 

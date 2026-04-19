@@ -8,6 +8,7 @@ import {
 } from './evidence-signals.service.js';
 import { getSignalTrackingHistory, getSignalAccuracyStats } from '../db/repository.js';
 import { getCachedAnalysis, getAllCachedAnalyses } from './deep-analysis.service.js';
+import { runSignalResolver } from './signal-resolver.service.js';
 
 export const evidenceSignalsRouter = router({
   // Returns cached results immediately (fast). Empty if scan hasn't run yet.
@@ -44,6 +45,9 @@ export const evidenceSignalsRouter = router({
 
   getAllDeepAnalyses: publicProcedure
     .query(() => getAllCachedAnalyses()),
+
+  resolveSignals: publicProcedure
+    .mutation(() => runSignalResolver()),
 
   getAccuracyStats: publicProcedure
     .query(() => {

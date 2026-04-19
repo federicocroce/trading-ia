@@ -8,6 +8,7 @@ import { computeOptionsFlowSignal } from './options-flow.service.js';
 import type { EvidenceSignal, EvidenceScanResult } from '@trading/shared';
 import { getScreenedSymbols, invalidateScreenerCache, getPeadOverrides, type PeadOverride } from './symbol-screener.service.js';
 import { triggerDeepAnalysis, getAnalysisStatus, invalidateDeepAnalysisCache } from './deep-analysis.service.js';
+import { triggerSignalResolver } from './signal-resolver.service.js';
 import { getMarketRegime, invalidateMarketRegimeCache } from './market-regime.service.js';
 import type { MarketRegimeData } from '@trading/shared';
 
@@ -297,6 +298,9 @@ async function runScan(forceRefresh: boolean) {
 
     // Fire deep analysis for HIGH/MEDIUM conviction signals (non-blocking)
     triggerDeepAnalysis(withSignals);
+
+    // Auto-resolve pending signal outcomes (non-blocking)
+    triggerSignalResolver();
   } finally {
     scanState = 'idle';
   }
