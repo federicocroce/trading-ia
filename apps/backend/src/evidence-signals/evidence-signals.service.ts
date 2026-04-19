@@ -159,14 +159,22 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
     currentPrice,
   );
 
-  const activeCount = [pead.active, insider.active, optionsFlow.active].filter(Boolean).length;
+  // Hard prerequisite: bear regime blocks all LONG signals (SPY < SMA200)
+  // ETFs are exempt since they can serve as hedges / sector shorts context
+  const regime = lastMarketRegime?.regime ?? 'neutral';
+  const bearBlock = !isEtf && regime === 'bear';
+  const peadActive = bearBlock ? false : pead.active;
+  const insiderActive = bearBlock ? false : insider.active;
+  const optionsActive = optionsFlow.active;
+
+  const activeCount = [peadActive, insiderActive, optionsActive].filter(Boolean).length;
 
   // Options flow is a short-term signal (0-45d expiry). For 3-6m holds, weight it less
   // than PEAD (quality filter) and Insider (3-6m visibility into fundamentals).
   const weightedScores: Array<{ score: number; weight: number }> = [
-    pead.active ? { score: pead.score, weight: 1.0 } : null,
-    insider.active ? { score: insider.score, weight: 1.0 } : null,
-    optionsFlow.active ? { score: optionsFlow.score, weight: 0.75 } : null,
+    peadActive ? { score: pead.score, weight: 1.0 } : null,
+    insiderActive ? { score: insider.score, weight: 1.0 } : null,
+    optionsActive ? { score: optionsFlow.score, weight: 0.5 } : null,
   ].filter((s): s is { score: number; weight: number } => s !== null);
 
   const totalWeight = weightedScores.reduce((a, b) => a + b.weight, 0);
@@ -185,7 +193,6 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
     : 'none';
 
   // Downgrade conviction when market is in bear regime: high→medium, medium→low
-  const regime = lastMarketRegime?.regime ?? 'neutral';
   const regimeAdjustedConviction: EvidenceSignal['conviction'] =
     regime === 'bear' && conviction === 'high' ? 'medium'
     : regime === 'bear' && conviction === 'medium' ? 'low'
@@ -211,8 +218,8 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
     conviction,
     regimeAdjustedConviction,
     activeSignals: activeCount,
-    pead,
-    insider,
+    pead: { ...pead, active: peadActive },
+    insider: { ...insider, active: insiderActive },
     optionsFlow,
     compositeScore,
     recommendation,
