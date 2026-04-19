@@ -297,6 +297,10 @@ export function EvidenceSignals() {
     staleTime: 60_000,
   });
 
+  const { data: scanHistory } = trpc.evidenceSignals.getScanHistory.useQuery(undefined, {
+    staleTime: 30_000,
+  });
+
   const resolveMutation = trpc.evidenceSignals.resolveSignals.useMutation({
     onSuccess: () => { refetchStats(); setMutationError(null); },
     onError: (e) => setMutationError(`Error al resolver señales: ${e.message}`),
@@ -718,6 +722,36 @@ export function EvidenceSignals() {
         <p className="text-[10px] text-muted-foreground text-center">
           Última actualización: {new Date(data.scannedAt).toLocaleString('es-AR')} · Cache 6h
         </p>
+      )}
+
+      {/* Scan history */}
+      {scanHistory && scanHistory.length > 0 && (
+        <details className="text-[10px] text-muted-foreground">
+          <summary className="cursor-pointer hover:text-foreground select-none">
+            Historial de scans ({scanHistory.length})
+          </summary>
+          <div className="mt-2 space-y-1">
+            {scanHistory.map((run) => (
+              <div key={run.id} className={`flex items-center gap-3 px-2 py-1 rounded text-[10px] ${run.errorMessage ? 'bg-red-500/10 text-red-400' : 'bg-muted/30'}`}>
+                <span className={run.errorMessage ? 'text-red-400' : run.completedAt ? 'text-green-400' : 'text-yellow-400'}>
+                  {run.errorMessage ? '✗' : run.completedAt ? '✓' : '⟳'}
+                </span>
+                <span>{run.startedAt ? new Date(run.startedAt).toLocaleString('es-AR') : '—'}</span>
+                {run.completedAt && run.totalSymbols && (
+                  <span>{run.scannedOk}/{run.totalSymbols} ok {run.failedCount ? `· ${run.failedCount} errores` : ''}</span>
+                )}
+                {run.withSignals != null && <span>· {run.withSignals} señales</span>}
+                {run.marketRegime && (
+                  <span className={run.marketRegime === 'bull' ? 'text-green-400' : run.marketRegime === 'bear' ? 'text-red-400' : 'text-yellow-400'}>
+                    {run.marketRegime}
+                  </span>
+                )}
+                {run.durationMs && <span>{(run.durationMs / 1000).toFixed(0)}s</span>}
+                {run.errorMessage && <span className="truncate max-w-xs">{run.errorMessage}</span>}
+              </div>
+            ))}
+          </div>
+        </details>
       )}
 
       <TrackedSignals />

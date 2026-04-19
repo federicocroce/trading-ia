@@ -538,3 +538,20 @@ export const evidenceDeepAnalysis = sqliteTable('evidence_deep_analysis', {
   fetchedAt: text('fetched_at').notNull(),
   expiresAt: text('expires_at').notNull(),
 });
+
+export const evidenceScanRuns = sqliteTable('evidence_scan_runs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  startedAt: text('started_at').notNull(),
+  completedAt: text('completed_at'),
+  totalSymbols: integer('total_symbols'),
+  scannedOk: integer('scanned_ok'),
+  failedCount: integer('failed_count'),
+  highConviction: integer('high_conviction'),
+  mediumConviction: integer('medium_conviction'),
+  withSignals: integer('with_signals'),
+  marketRegime: text('market_regime'),    // 'bull' | 'bear' | 'neutral'
+  spyPrice: real('spy_price'),
+  forceRefresh: integer('force_refresh', { mode: 'boolean' }),
+  errorMessage: text('error_message'),    // set if scan crashed
+  durationMs: integer('duration_ms'),
+});

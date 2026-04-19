@@ -1,5 +1,5 @@
 import { db, schema } from '../db/index.js';
-import { eq, and, gte } from 'drizzle-orm';
+import { eq, and, gte, sql } from 'drizzle-orm';
 import { getAllSymbols, insertSignalTracking } from '../db/repository.js';
 import { getEarningsHistory, getInsiderTransactions, getOptionsChain, getQuote, getHistoricalQuotes, getFundamentals } from '../shared/yahoo.js';
 import { computePEADSignal } from './pead.service.js';
@@ -308,7 +308,20 @@ async function runScan(forceRefresh: boolean) {
   if (scanState === 'scanning') return;
   scanState = 'scanning';
 
+  const scanStartedAt = new Date().toISOString();
+  const scanStartMs = Date.now();
+  let scanRunId: number | null = null;
+  let scanFailed = false;
+  let failedCount = 0;
+
   try {
+    // Create scan run record
+    const insertResult = db.insert(schema.evidenceScanRuns).values({
+      startedAt: scanStartedAt,
+      forceRefresh,
+    }).run();
+    scanRunId = Number(insertResult.lastInsertRowid);
+
     if (forceRefresh) {
       db.delete(schema.evidenceSignalsCache).run();
       invalidateScreenerCache();
@@ -346,6 +359,7 @@ async function runScan(forceRefresh: boolean) {
             console.log(`[EvidenceSignals] ✓ ${s.symbol} — ${s.conviction}, score: ${s.compositeScore}, señales: ${[s.pead.active && 'PEAD', s.insider.active && 'INSIDER', s.optionsFlow.active && 'OPTIONS'].filter(Boolean).join('+')}`);
           }
         } else {
+          failedCount++;
           console.warn(`[EvidenceSignals] ✗ Error:`, r.reason?.message);
         }
       }
@@ -356,13 +370,40 @@ async function runScan(forceRefresh: boolean) {
     const withSignals = cached.signals.filter((s) => s.activeSignals > 0);
     console.log(`[EvidenceSignals] Scan completo — ${withSignals.length}/${cached.totalSymbols} con señales activas`);
 
+    // Update scan run with results
+    if (scanRunId != null) {
+      db.update(schema.evidenceScanRuns).set({
+        completedAt: new Date().toISOString(),
+        totalSymbols: totalCount,
+        scannedOk: totalCount - failedCount,
+        failedCount,
+        highConviction: cached.highConviction,
+        mediumConviction: cached.mediumConviction,
+        withSignals: withSignals.length,
+        marketRegime: lastMarketRegime?.regime ?? null,
+        spyPrice: lastMarketRegime?.spyPrice ?? null,
+        durationMs: Date.now() - scanStartMs,
+      }).where(eq(schema.evidenceScanRuns.id, scanRunId)).run();
+    }
+
     // Fire deep analysis for HIGH/MEDIUM conviction signals (non-blocking)
     triggerDeepAnalysis(withSignals);
 
     // Auto-resolve pending signal outcomes (non-blocking)
     triggerSignalResolver();
+  } catch (err) {
+    scanFailed = true;
+    if (scanRunId != null) {
+      db.update(schema.evidenceScanRuns).set({
+        completedAt: new Date().toISOString(),
+        errorMessage: (err as Error).message?.slice(0, 500) ?? 'Unknown error',
+        durationMs: Date.now() - scanStartMs,
+      }).where(eq(schema.evidenceScanRuns.id, scanRunId)).run();
+    }
+    throw err;
   } finally {
     scanState = 'idle';
+    void scanFailed; // used above
   }
 }
 
@@ -383,4 +424,11 @@ export async function getEvidenceSignalForSymbol(symbol: string): Promise<Eviden
 
 export function invalidateEvidenceCache(): void {
   db.delete(schema.evidenceSignalsCache).run();
+}
+
+export function getLastScanRuns(limit = 10) {
+  return db.select().from(schema.evidenceScanRuns)
+    .orderBy(sql`id DESC`)
+    .limit(limit)
+    .all();
 }

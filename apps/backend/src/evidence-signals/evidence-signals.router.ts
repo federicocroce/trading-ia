@@ -5,6 +5,7 @@ import {
   triggerScan,
   getScanStatus,
   getEvidenceSignalForSymbol,
+  getLastScanRuns,
 } from './evidence-signals.service.js';
 import { getSignalTrackingHistory, getSignalAccuracyStats } from '../db/repository.js';
 import { getCachedAnalysis, getAllCachedAnalyses } from './deep-analysis.service.js';
@@ -48,6 +49,9 @@ export const evidenceSignalsRouter = router({
 
   resolveSignals: publicProcedure
     .mutation(() => runSignalResolver()),
+
+  getScanHistory: publicProcedure
+    .query(() => getLastScanRuns(10)),
 
   getAccuracyStats: publicProcedure
     .query(() => {
