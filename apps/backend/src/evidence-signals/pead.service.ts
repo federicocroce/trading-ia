@@ -2,7 +2,7 @@ import type { EarningsHistoryEntry } from '../shared/yahoo.js';
 import type { OHLC, PEADSignal } from '@trading/shared';
 import type { PeadOverride } from './symbol-screener.service.js';
 
-const DRIFT_WINDOW_DAYS = 45; // reduced: most drift is captured in 45d
+const DRIFT_WINDOW_DAYS = 15; // fresh earnings only: PEAD signal is strongest in first 15d
 const MIN_BEAT_PERCENT = 10;
 const MIN_PRICE_MOVE_PCT = 1.5; // must close ≥+1.5% within 5 trading days of earnings
 
