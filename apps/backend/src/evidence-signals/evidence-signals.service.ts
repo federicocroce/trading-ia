@@ -82,7 +82,7 @@ function calcTargetsForSignal(signal: EvidenceSignal): { targetPct: number; stop
   return { targetPct: 0.12, stopPct: -0.06 };
 }
 
-function autoTrackSignal(signal: EvidenceSignal): void {
+function autoTrackSignal(signal: EvidenceSignal, extras?: { fundamentalsMultiplier?: number }): void {
   if (signal.conviction !== 'high' && signal.conviction !== 'medium') return;
   if (!signal.currentPrice || signal.currentPrice <= 0) return;
   if (hasRecentTracking(signal.symbol)) return;
@@ -108,6 +108,7 @@ function autoTrackSignal(signal: EvidenceSignal): void {
       optionsScore: signal.optionsFlow.active ? signal.optionsFlow.score : null,
       activeSignalsCount: signal.activeSignals,
       marketRegimeAtSignal: lastMarketRegime?.regime ?? null,
+      fundamentalsMultiplier: extras?.fundamentalsMultiplier ?? null,
       beatPercent: signal.pead.active ? signal.pead.beatPercent : null,
       consecutiveBeats: signal.pead.active ? signal.pead.consecutiveBeats : null,
     });
@@ -193,6 +194,9 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
   const convictionMultiplier = activeCount >= 3 ? 1.0 : activeCount === 2 ? 0.9 : 0.7;
 
   // Fundamentals quality multiplier (skip for ETFs which have no earnings)
+  if (!isEtf && fundamentalsResult.status === 'rejected') {
+    console.warn(`[EvidenceSignals] Fundamentals fetch failed for ${symbol}: ${(fundamentalsResult.reason as Error)?.message?.slice(0, 80)}`);
+  }
   const fundamentals = !isEtf && fundamentalsResult.status === 'fulfilled' ? fundamentalsResult.value : null;
   let fundamentalsMultiplier = 1.0;
   let fundamentalsNote = '';
@@ -235,7 +239,10 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
     : 'NO_SIGNAL';
 
   // Fetch sector trend (cached per ETF, cheap)
-  const sectorData = await getSectorMomentum(symbol).catch(() => null);
+  const sectorData = await getSectorMomentum(symbol).catch((err) => {
+    console.warn(`[EvidenceSignals] Sector fetch failed for ${symbol}: ${(err as Error)?.message?.slice(0, 60)}`);
+    return null;
+  });
   const sectorTrend = sectorData ? {
     etf: sectorData.sectorEtf,
     name: sectorData.sectorName,
@@ -262,7 +269,7 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
   signal.reasoning = buildReasoning(signal) + (fundamentalsNote ? ` | ${fundamentalsNote}` : '');
 
   setCachedSignal(symbol, signal);
-  autoTrackSignal(signal);
+  autoTrackSignal(signal, { fundamentalsMultiplier });
   return signal;
 }
 
