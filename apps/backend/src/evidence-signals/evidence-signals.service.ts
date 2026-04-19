@@ -1,7 +1,7 @@
 import { db, schema } from '../db/index.js';
 import { eq, and, gte } from 'drizzle-orm';
 import { getAllSymbols, insertSignalTracking } from '../db/repository.js';
-import { getEarningsHistory, getInsiderTransactions, getOptionsChain, getQuote, getHistoricalQuotes } from '../shared/yahoo.js';
+import { getEarningsHistory, getInsiderTransactions, getOptionsChain, getQuote, getHistoricalQuotes, getFundamentals } from '../shared/yahoo.js';
 import { computePEADSignal } from './pead.service.js';
 import { computeInsiderSignal } from './insider.service.js';
 import { computeOptionsFlowSignal } from './options-flow.service.js';
@@ -134,12 +134,13 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
   const cached = getCachedSignal(symbol);
   if (cached) return cached;
 
-  const [earningsHistory, insiderTransactions, optionsData, quoteResult, ohlcHistory] = await Promise.allSettled([
+  const [earningsHistory, insiderTransactions, optionsData, quoteResult, ohlcHistory, fundamentalsResult] = await Promise.allSettled([
     getEarningsHistory(symbol),
     getInsiderTransactions(symbol),
     getOptionsChain(symbol),
     getQuote(symbol),
     getHistoricalQuotes(symbol, '3mo', '1d'),
+    getFundamentals(symbol),
   ]);
 
   const currentPrice = quoteResult.status === 'fulfilled' ? quoteResult.value.current : 0;
@@ -182,8 +183,30 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
 
   // Conviction multiplier: lone signals are less reliable than corroborated ones
   const convictionMultiplier = activeCount >= 3 ? 1.0 : activeCount === 2 ? 0.9 : 0.7;
+
+  // Fundamentals quality multiplier (skip for ETFs which have no earnings)
+  const fundamentals = !isEtf && fundamentalsResult.status === 'fulfilled' ? fundamentalsResult.value : null;
+  let fundamentalsMultiplier = 1.0;
+  let fundamentalsNote = '';
+  if (fundamentals && activeCount > 0) {
+    const revGrowth = fundamentals.revenueGrowth;
+    const opMargin = fundamentals.operatingMargin;
+    if (revGrowth != null && opMargin != null) {
+      if (revGrowth < -10 && opMargin < -15) {
+        fundamentalsMultiplier = 0.6; // revenue shrinking + deeply unprofitable
+        fundamentalsNote = `⚠️ Fundamentos débiles: revenue ${revGrowth.toFixed(1)}% YoY, margen op. ${opMargin.toFixed(1)}%`;
+      } else if (revGrowth < -5 || opMargin < -20) {
+        fundamentalsMultiplier = 0.8; // one bad metric
+        fundamentalsNote = `⚠️ Fundamentos: revenue ${revGrowth.toFixed(1)}% YoY, margen op. ${opMargin.toFixed(1)}%`;
+      } else if (revGrowth > 15 && opMargin > 10) {
+        fundamentalsMultiplier = 1.1; // strong growth + profitable
+        fundamentalsNote = `✓ Fundamentos sólidos: revenue +${revGrowth.toFixed(1)}% YoY, margen op. ${opMargin.toFixed(1)}%`;
+      }
+    }
+  }
+
   const compositeScore = weightedScores.length
-    ? Math.round((weightedSum / totalWeight) * convictionMultiplier)
+    ? Math.min(100, Math.round((weightedSum / totalWeight) * convictionMultiplier * fundamentalsMultiplier))
     : 0;
 
   const conviction: EvidenceSignal['conviction'] =
@@ -228,7 +251,7 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
     sectorTrend,
   };
 
-  signal.reasoning = buildReasoning(signal);
+  signal.reasoning = buildReasoning(signal) + (fundamentalsNote ? ` | ${fundamentalsNote}` : '');
 
   setCachedSignal(symbol, signal);
   autoTrackSignal(signal);
