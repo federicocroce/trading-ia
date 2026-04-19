@@ -467,6 +467,7 @@ export function EvidenceSignals() {
 
       {/* Accuracy Stats */}
       {accuracyStats && (
+        <>
         <div className="rounded-lg border border-border bg-muted/30 px-4 py-2 flex items-center gap-4 text-xs text-muted-foreground">
           <span className="font-medium text-foreground">Historial:</span>
           {accuracyStats.totalTracked === 0 ? (
@@ -494,6 +495,12 @@ export function EvidenceSignals() {
               {accuracyStats.pending > 0 && accuracyStats.resolved > 0 && (
                 <span>{accuracyStats.pending} pendientes</span>
               )}
+              {/* AI verdict win rate */}
+              {accuracyStats.aiStats?.buySetup?.count > 0 && (
+                <span className="text-green-400">
+                  🤖 BUY_SETUP: {accuracyStats.aiStats.buySetup.winRate}% ({accuracyStats.aiStats.buySetup.count})
+                </span>
+              )}
             </>
           )}
           <button
@@ -504,6 +511,30 @@ export function EvidenceSignals() {
             {resolveMutation.isPending ? 'Resolviendo...' : 'Resolver ahora'}
           </button>
         </div>
+        {/* Component signal breakdown */}
+        {accuracyStats && accuracyStats.componentStats?.some((c) => c.count > 0) && (
+          <div className="mt-1 flex flex-wrap gap-3 text-[10px] text-muted-foreground px-4 pb-2">
+            {accuracyStats.componentStats.filter((c) => c.count > 0).map((c) => (
+              <span key={c.signal}>
+                <span className="text-foreground font-medium uppercase">{c.signal}</span>:{' '}
+                <span className={c.winRate != null && c.winRate >= 50 ? 'text-green-400' : 'text-red-400'}>
+                  {c.winRate ?? '—'}%
+                </span>{' '}
+                ({c.count})
+              </span>
+            ))}
+            {accuracyStats.regimeStats?.filter((r) => r.count > 0).map((r) => (
+              <span key={r.regime}>
+                <span className={`font-medium ${r.regime === 'bull' ? 'text-green-400' : r.regime === 'bear' ? 'text-red-400' : 'text-yellow-400'}`}>{r.regime}</span>:{' '}
+                <span className={r.winRate != null && r.winRate >= 50 ? 'text-green-400' : 'text-red-400'}>
+                  {r.winRate ?? '—'}%
+                </span>{' '}
+                ({r.count})
+              </span>
+            ))}
+          </div>
+        )}
+        </>
       )}
 
       {/* Top Picks — highest actionable score + BUY_SETUP */}
