@@ -166,28 +166,28 @@ function computeTechSummary(
 
 // ─── AI prompt ────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `Eres un analista de posición. Evaluás si un candidato identificado por señales evidence-based (PEAD, insider buying, options flow) tiene un setup válido para una posición de 3 a 6 meses.
+const SYSTEM_PROMPT = `Eres un analista de posición. Evaluás si un candidato identificado por señales evidence-based (PEAD, insider buying, options flow) tiene un setup válido para comprar y mantener 3-6 meses.
 
-Criterios clave para BUY_SETUP:
-- La empresa tiene fundamentos sólidos: crecimiento de revenue, márgenes positivos
-- La señal es fresh (PEAD < 20 días, o insider comprando recientemente)
-- Los técnicos no muestran distribución (no RSI > 80, no breakdown reciente)
-- El risk/reward mínimo aceptable es 2:1
+REGLAS DE VEREDICTO:
+- BUY_SETUP: revenue creciendo YoY, margen operativo > -5%, señal PEAD < 15 días O insider comprando, RSI < 75, R/R ≥ 2:1
+- WAIT: fundamentos ok pero la señal tiene > 10 días o el técnico está sobrecomprado — esperar pullback
+- PASS: revenue cayendo > 5% YoY, margen < -15%, breakdown técnico confirmado, o señal ya dentro de resistencia clave sin espacio
 
-Sé directo y brutal: si los fundamentos son débiles, la empresa pierde plata, o el setup técnico está agotado, devolvé PASS o WAIT. No infles la confianza por tener muchas señales.
+REGLAS DE PRECIOS (MUY IMPORTANTE):
+- entryZone, target, stopLoss DEBEN estar dentro de ±30% del precio actual. Si no podés calcular un nivel razonable, usá "N/A"
+- No inventes precios redondos ($100, $200) — usá el precio actual como base
+- Si el precio actual es $150, entryZone debe estar entre $105-$195, target entre $105-$195, stopLoss entre $105-$195
 
-Devolvé SOLO JSON válido con exactamente estos campos:
-{
-  "verdict": "BUY_SETUP" | "WAIT" | "PASS",
-  "reasoning": "string en español, 2-3 oraciones con datos concretos incluyendo fundamentos",
-  "entryZone": "string como '$820-835' o 'N/A'",
-  "target": "string como '$890' o 'N/A'",
-  "stopLoss": "string como '$780' o 'N/A'",
-  "riskReward": "string como '2.4:1' o 'N/A'",
-  "confidence": número entero entre 0 y 100,
-  "keyRisks": ["riesgo 1", "riesgo 2"],
-  "timeframe": "string como '3-6 meses'"
-}`;
+CRITERIOS ESTRICTOS:
+- Confianza > 75 solo cuando: señal fresh (< 5 días), fundamentals sólidos, sector outperforming, RSI 40-65
+- Si hay dudas sobre fundamentos (datos faltantes), bajá confianza a < 60 y usá WAIT
+- R/R = (target - entry) / (entry - stop). Solo BUY_SETUP si R/R ≥ 2.0
+
+Devolvé ÚNICAMENTE JSON válido (sin markdown, sin texto extra):
+{"verdict":"BUY_SETUP","reasoning":"2-3 oraciones con datos numéricos concretos","entryZone":"$X-Y","target":"$Z","stopLoss":"$W","riskReward":"X.X:1","confidence":70,"keyRisks":["riesgo 1","riesgo 2"],"timeframe":"3-6 meses"}
+
+Ejemplo BUY_SETUP: {"verdict":"BUY_SETUP","reasoning":"NVDA reportó EPS beat de 22% hace 3 días, revenue +84% YoY, margen op. 62%. RSI en 58, SMA20 > SMA50. R/R 2.8:1 con target histórico en zona $950.","entryZone":"$850-865","target":"$950","stopLoss":"$810","riskReward":"2.8:1","confidence":78,"keyRisks":["concentración en datacenter","regulación China"],"timeframe":"3-5 meses"}
+Ejemplo PASS: {"verdict":"PASS","reasoning":"Revenue -8% YoY, margen operativo -22%. Aunque hay insider buying, los fundamentos no justifican posición larga 3-6m. Setup de deuda, no de crecimiento.","entryZone":"N/A","target":"N/A","stopLoss":"N/A","riskReward":"N/A","confidence":25,"keyRisks":["quema de caja acelerada","dilución probable"],"timeframe":"N/A"}`;
 
 function buildFundamentalsSection(f: FundamentalData | null): string {
   if (!f) return 'Sin datos fundamentales disponibles.';
@@ -254,11 +254,26 @@ ${newsHeadlines}`;
 
 // ─── Parse AI response ────────────────────────────────────────────────────────
 
+function extractJSON(raw: string): string {
+  // Strip markdown code fences if present
+  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) return fenceMatch[1].trim();
+  // Find first { … } block
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start !== -1 && end > start) return raw.slice(start, end + 1);
+  return raw.trim();
+}
+
 function parseAIResponse(raw: string, symbol: string, model: string): EvidenceDeepAnalysis | null {
   try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const json = extractJSON(raw);
+    const parsed = JSON.parse(json) as Record<string, unknown>;
     const verdict = String(parsed.verdict ?? '');
-    if (!['BUY_SETUP', 'WAIT', 'PASS'].includes(verdict)) return null;
+    if (!['BUY_SETUP', 'WAIT', 'PASS'].includes(verdict)) {
+      console.warn(`[DeepAnalysis] Veredicto inválido para ${symbol}: "${verdict}" — raw: ${raw.slice(0, 200)}`);
+      return null;
+    }
 
     return {
       symbol,
@@ -273,11 +288,12 @@ function parseAIResponse(raw: string, symbol: string, model: string): EvidenceDe
       keyRisks: Array.isArray(parsed.keyRisks)
         ? (parsed.keyRisks as unknown[]).map(String).slice(0, 3)
         : [],
-      timeframe: String(parsed.timeframe ?? '2-4 semanas'),
+      timeframe: String(parsed.timeframe ?? '3-6 meses'),
       model,
       fetchedAt: new Date().toISOString(),
     };
-  } catch {
+  } catch (err) {
+    console.warn(`[DeepAnalysis] JSON parse fallido para ${symbol}: ${(err as Error).message}. Raw: ${raw.slice(0, 300)}`);
     return null;
   }
 }
@@ -355,22 +371,25 @@ async function analyzeSignal(signal: EvidenceSignal): Promise<void> {
   setCachedAnalysis(analysis);
   console.log(`[DeepAnalysis] ✓ ${signal.symbol} — ${analysis.verdict} (confianza: ${analysis.confidence}%, modelo: ${model})`);
 
-  // Sync AI-provided price targets to signal_tracking for more accurate outcome resolution
-  if (analysis.verdict === 'BUY_SETUP' && signal.currentPrice && signal.currentPrice > 0) {
-    const currentPrice = signal.currentPrice;
-    const target = parsePriceZone(analysis.target, currentPrice);
-    const stop = parsePriceZone(analysis.stopLoss, currentPrice);
-
-    if (target || stop) {
-      updateSignalTargets(signal.symbol, {
-        ...(target != null ? { targetPrice: target } : {}),
-        ...(stop != null ? { stopLoss: stop } : {}),
-        confidence: analysis.confidence,
-        enrichedByLlm: true,
-      });
-      console.log(`[DeepAnalysis] → Targets actualizados: ${signal.symbol} target=$${target ?? 'N/A'} stop=$${stop ?? 'N/A'}`);
-    }
-  }
+  // Always sync AI verdict + confidence to tracking. Sync price targets only for BUY_SETUP.
+  updateSignalTargets(signal.symbol, {
+    aiVerdict: analysis.verdict,
+    aiConfidence: analysis.confidence,
+    enrichedByLlm: true,
+    ...(analysis.verdict === 'BUY_SETUP' && signal.currentPrice && signal.currentPrice > 0
+      ? (() => {
+          const target = parsePriceZone(analysis.target, signal.currentPrice!);
+          const stop = parsePriceZone(analysis.stopLoss, signal.currentPrice!);
+          if (target || stop) {
+            console.log(`[DeepAnalysis] → Targets actualizados: ${signal.symbol} target=$${target ?? 'N/A'} stop=$${stop ?? 'N/A'}`);
+          }
+          return {
+            ...(target != null ? { targetPrice: target } : {}),
+            ...(stop != null ? { stopLoss: stop } : {}),
+          };
+        })()
+      : {}),
+  });
 }
 
 // ─── Main trigger ─────────────────────────────────────────────────────────────

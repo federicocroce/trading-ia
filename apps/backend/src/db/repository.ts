@@ -554,6 +554,8 @@ export function updateSignalTargets(symbol: string, data: {
   stopLoss?: number;
   confidence?: number;
   enrichedByLlm?: boolean;
+  aiVerdict?: string;
+  aiConfidence?: number;
 }) {
   return db.update(schema.signalTracking)
     .set(data)
