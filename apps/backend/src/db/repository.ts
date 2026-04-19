@@ -520,6 +520,17 @@ export function insertSignalTracking(data: {
   mediumTermScore?: number | null;
   rsiAtSignal?: number | null;
   predictedReturnMid?: number | null;
+  // Evidence V2 component scores
+  peadScore?: number | null;
+  insiderScore?: number | null;
+  optionsScore?: number | null;
+  activeSignalsCount?: number | null;
+  marketRegimeAtSignal?: string | null;
+  fundamentalsMultiplier?: number | null;
+  beatPercent?: number | null;
+  consecutiveBeats?: number | null;
+  aiVerdict?: string | null;
+  aiConfidence?: number | null;
 }) {
   // Atomic upsert: delete pending + insert new in single transaction
   return db.transaction((trx) => {

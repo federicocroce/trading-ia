@@ -102,6 +102,14 @@ function autoTrackSignal(signal: EvidenceSignal): void {
       opportunityScore: signal.compositeScore,
       sector: 'evidence-v2',
       predictedReturnMid: targetPct * 100,
+      // Evidence V2 component scores for future analysis
+      peadScore: signal.pead.active ? signal.pead.score : null,
+      insiderScore: signal.insider.active ? signal.insider.score : null,
+      optionsScore: signal.optionsFlow.active ? signal.optionsFlow.score : null,
+      activeSignalsCount: signal.activeSignals,
+      marketRegimeAtSignal: lastMarketRegime?.regime ?? null,
+      beatPercent: signal.pead.active ? signal.pead.beatPercent : null,
+      consecutiveBeats: signal.pead.active ? signal.pead.consecutiveBeats : null,
     });
     console.log(`[EvidenceSignals] Auto-tracked ${signal.symbol} (${signal.conviction} conviction, score ${signal.compositeScore})`);
   } catch (err) {

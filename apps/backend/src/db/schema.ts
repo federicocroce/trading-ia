@@ -189,6 +189,17 @@ export const signalTracking = sqliteTable('signal_tracking', {
   stopDeviation: real('stop_deviation'),
   stopTriggeredAt: text('stop_triggered_at'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  // Evidence V2 signal components (for future accuracy analysis by component)
+  peadScore: integer('pead_score'),
+  insiderScore: integer('insider_score'),
+  optionsScore: integer('options_score'),
+  activeSignalsCount: integer('active_signals_count'),
+  marketRegimeAtSignal: text('market_regime_at_signal'),
+  fundamentalsMultiplier: real('fundamentals_multiplier'),
+  beatPercent: real('beat_percent'),
+  consecutiveBeats: integer('consecutive_beats'),
+  aiVerdict: text('ai_verdict'),
+  aiConfidence: integer('ai_confidence'),
 });
 
 // --- Historical price cache (1 day TTL daily, 1 week TTL weekly) ---
