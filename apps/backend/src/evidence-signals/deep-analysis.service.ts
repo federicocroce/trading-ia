@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { callAIWithModel } from '../shared/ai-router.js';
 import { searchTavily } from '../web-search/tavily.js';
 import { getHistoricalQuotes, getFundamentals } from '../shared/yahoo.js';
+import { getSectorMomentum } from './sector-momentum.service.js';
 import type { FundamentalData } from '@trading/shared';
 import type { EvidenceSignal, EvidenceDeepAnalysis } from '@trading/shared';
 
@@ -201,13 +202,20 @@ function buildFundamentalsSection(f: FundamentalData | null): string {
   return lines.join('\n');
 }
 
-function buildPrompt(signal: EvidenceSignal, tech: TechSummary, newsHeadlines: string, fundamentals: FundamentalData | null): string {
+function buildPrompt(
+  signal: EvidenceSignal,
+  tech: TechSummary,
+  newsHeadlines: string,
+  fundamentals: FundamentalData | null,
+  sectorLine: string,
+): string {
   const price = signal.currentPrice ? `$${signal.currentPrice.toFixed(2)}` : 'N/A';
 
   const signalLines: string[] = [];
   if (signal.pead.active) {
     const priceMove = signal.pead.priceChangePct != null ? `, precio +${signal.pead.priceChangePct.toFixed(1)}% post-earnings` : '';
-    signalLines.push(`PEAD: beat EPS ${signal.pead.beatPercent.toFixed(1)}% hace ${signal.pead.daysSinceEarnings}d${priceMove}, ${signal.pead.daysInDriftWindow}d ventana restante`);
+    const consec = signal.pead.consecutiveBeats > 1 ? ` (${signal.pead.consecutiveBeats} trimestres consecutivos de beat)` : '';
+    signalLines.push(`PEAD: beat EPS ${signal.pead.beatPercent.toFixed(1)}% hace ${signal.pead.daysSinceEarnings}d${priceMove}${consec}, ${signal.pead.daysInDriftWindow}d ventana restante`);
   }
   if (signal.insider.active) {
     const val = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1 }).format(signal.insider.totalValue);
@@ -223,6 +231,9 @@ Convicción: ${signal.conviction.toUpperCase()} (score: ${signal.compositeScore}
 
 SEÑALES ACTIVAS:
 ${signalLines.join('\n')}
+
+SECTOR:
+${sectorLine}
 
 FUNDAMENTALES:
 ${buildFundamentalsSection(fundamentals)}
@@ -275,10 +286,11 @@ function parseAIResponse(raw: string, symbol: string, model: string): EvidenceDe
 async function analyzeSignal(signal: EvidenceSignal): Promise<void> {
   if (getCachedAnalysis(signal.symbol)) return;
 
-  const [newsResult, ohlcResult, fundamentalsResult] = await Promise.allSettled([
+  const [newsResult, ohlcResult, fundamentalsResult, sectorResult] = await Promise.allSettled([
     searchTavily(`${signal.symbol} stock news`, 5, 'basic'),
     getHistoricalQuotes(signal.symbol, '3mo', '1d'),
     getFundamentals(signal.symbol),
+    getSectorMomentum(signal.symbol),
   ]);
 
   const newsHeadlines = newsResult.status === 'fulfilled' && newsResult.value.length > 0
@@ -291,7 +303,11 @@ async function analyzeSignal(signal: EvidenceSignal): Promise<void> {
   const ohlc = ohlcResult.status === 'fulfilled' ? ohlcResult.value : [];
   const tech = computeTechSummary(ohlc);
   const fundamentals = fundamentalsResult.status === 'fulfilled' ? fundamentalsResult.value : null;
-  const prompt = buildPrompt(signal, tech, newsHeadlines, fundamentals);
+  const sector = sectorResult.status === 'fulfilled' ? sectorResult.value : null;
+  const sectorLine = sector
+    ? `${sector.sectorName} (${sector.sectorEtf}) ${sector.trend === 'outperforming' ? '✅ outperforming' : sector.trend === 'underperforming' ? '⚠️ underperforming' : '➡️ neutral'} — ETF $${sector.etfPrice} vs SMA50 $${sector.sma50} (${sector.priceVsSma50Pct > 0 ? '+' : ''}${sector.priceVsSma50Pct}%)`
+    : 'Sector no mapeado — analizar contexto macro manualmente';
+  const prompt = buildPrompt(signal, tech, newsHeadlines, fundamentals, sectorLine);
 
   const { content, model } = await callAIWithModel('reasoning', prompt, SYSTEM_PROMPT, 1024);
   const analysis = parseAIResponse(content, signal.symbol, model);

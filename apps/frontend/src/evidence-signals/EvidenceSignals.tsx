@@ -117,6 +117,9 @@ function SignalCard({
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {signal.pead.daysSinceEarnings}d desde earnings · {signal.pead.daysInDriftWindow}d restantes en ventana
+                  {signal.pead.consecutiveBeats > 1 && (
+                    <span className="ml-2 text-amber-400 font-medium">🔥 {signal.pead.consecutiveBeats} beats consecutivos</span>
+                  )}
                 </div>
                 {signal.pead.priceChangePct != null && (
                   <div className={`text-xs font-medium ${signal.pead.priceChangePct >= 1.5 ? 'text-green-400' : 'text-red-400'}`}>
@@ -265,6 +268,10 @@ export function EvidenceSignals() {
     refetchInterval: 15_000,
   });
 
+  const { data: accuracyStats } = trpc.evidenceSignals.getAccuracyStats.useQuery(undefined, {
+    staleTime: 60_000,
+  });
+
   const analysisMap = new Map(
     (analyses ?? []).map((a) => [a.symbol, a])
   );
@@ -381,6 +388,28 @@ export function EvidenceSignals() {
           {data.marketRegime.regime === 'bear' && (
             <span className="ml-auto text-xs opacity-80">⚠️ ALTO RIESGO: señales LONG en mercado bajista</span>
           )}
+        </div>
+      )}
+
+      {/* Accuracy Stats */}
+      {accuracyStats && accuracyStats.totalTracked > 0 && (
+        <div className="rounded-lg border border-border bg-muted/30 px-4 py-2 flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Historial señales:</span>
+          <span>{accuracyStats.totalTracked} rastreadas</span>
+          {accuracyStats.resolved > 0 && (
+            <>
+              <span className={accuracyStats.winRate != null && accuracyStats.winRate >= 50 ? 'text-green-400 font-medium' : 'text-red-400 font-medium'}>
+                {accuracyStats.winRate}% win rate
+              </span>
+              <span>({accuracyStats.wins}W / {accuracyStats.losses}L)</span>
+              {accuracyStats.avgReturn30d != null && (
+                <span className={accuracyStats.avgReturn30d >= 0 ? 'text-green-400' : 'text-red-400'}>
+                  Avg 30d: {accuracyStats.avgReturn30d > 0 ? '+' : ''}{accuracyStats.avgReturn30d}%
+                </span>
+              )}
+            </>
+          )}
+          {accuracyStats.pending > 0 && <span>{accuracyStats.pending} pendientes</span>}
         </div>
       )}
 

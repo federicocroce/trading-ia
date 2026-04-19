@@ -11,6 +11,8 @@ export interface PEADSignal {
   priceConfirmed: boolean;
   /** Max close % change in 5 days post-earnings vs pre-earnings close */
   priceChangePct: number | null;
+  /** Number of consecutive quarters with ≥10% EPS beat (including current) */
+  consecutiveBeats: number;
 }
 
 export interface InsiderTransaction {

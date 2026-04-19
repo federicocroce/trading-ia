@@ -6,7 +6,7 @@ import {
   getScanStatus,
   getEvidenceSignalForSymbol,
 } from './evidence-signals.service.js';
-import { getSignalTrackingHistory } from '../db/repository.js';
+import { getSignalTrackingHistory, getSignalAccuracyStats } from '../db/repository.js';
 import { getCachedAnalysis, getAllCachedAnalyses } from './deep-analysis.service.js';
 
 export const evidenceSignalsRouter = router({
@@ -44,4 +44,27 @@ export const evidenceSignalsRouter = router({
 
   getAllDeepAnalyses: publicProcedure
     .query(() => getAllCachedAnalyses()),
+
+  getAccuracyStats: publicProcedure
+    .query(() => {
+      const stats = getSignalAccuracyStats();
+      // Filter to evidence-v2 sector only
+      const history = getSignalTrackingHistory(200).filter((s) => s.sector === 'evidence-v2');
+      const resolved = history.filter((s) => s.outcome && s.outcome !== 'pending');
+      const wins = resolved.filter((s) => s.outcome === 'win').length;
+      const losses = resolved.filter((s) => s.outcome === 'loss').length;
+      const pending = history.filter((s) => s.outcome === 'pending').length;
+      const avgReturn30d = resolved.length > 0
+        ? Math.round(resolved.reduce((sum, s) => sum + (s.returnAfter30d ?? 0), 0) / resolved.length * 100) / 100
+        : null;
+      return {
+        totalTracked: history.length,
+        resolved: resolved.length,
+        pending,
+        wins,
+        losses,
+        winRate: resolved.length > 0 ? Math.round((wins / resolved.length) * 100) : null,
+        avgReturn30d,
+      };
+    }),
 });

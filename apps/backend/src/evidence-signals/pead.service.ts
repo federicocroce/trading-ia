@@ -6,7 +6,7 @@ const DRIFT_WINDOW_DAYS = 45; // reduced: most drift is captured in 45d
 const MIN_BEAT_PERCENT = 10;
 const MIN_PRICE_MOVE_PCT = 1.5; // must close ≥+1.5% within 5 trading days of earnings
 
-function scoreFromBeat(beat: number, daysSince: number): number {
+function scoreFromBeat(beat: number, daysSince: number, consecutiveBeats: number): number {
   // Base score from beat magnitude
   let base: number;
   if (beat >= 40) base = 95;
@@ -17,7 +17,33 @@ function scoreFromBeat(beat: number, daysSince: number): number {
   // Recency bonus: fresh earnings (0-15d) are more actionable for 3-6m holds
   if (daysSince <= 15) base = Math.min(100, base + 10);
 
+  // Consecutive beats bonus: systematic execution is stronger signal for 3-6m holds
+  if (consecutiveBeats >= 3) base = Math.min(100, base + 10);
+  else if (consecutiveBeats === 2) base = Math.min(100, base + 5);
+
   return base;
+}
+
+/**
+ * Count how many consecutive quarters (most recent first) had ≥10% EPS beat.
+ * Requires at least Yahoo Finance earnings history.
+ */
+function countConsecutiveBeats(history: EarningsHistoryEntry[]): number {
+  if (!history.length) return 1; // assume at least current beat (caller already validated)
+
+  const sorted = [...history]
+    .filter((e) => e.quarter && e.surprisePercent != null)
+    .sort((a, b) => new Date(b.quarter!).getTime() - new Date(a.quarter!).getTime());
+
+  let count = 0;
+  for (const entry of sorted) {
+    if ((entry.surprisePercent ?? 0) >= MIN_BEAT_PERCENT) {
+      count++;
+    } else {
+      break;
+    }
+  }
+  return Math.max(1, count);
 }
 
 /**
@@ -73,7 +99,7 @@ export function computePEADSignal(
   const noSignal: PEADSignal = {
     active: false, beatPercent: 0, daysSinceEarnings: 0,
     daysInDriftWindow: 0, score: 0, epsActual: null, epsEstimate: null,
-    earningsDate: null, priceConfirmed: false, priceChangePct: null,
+    earningsDate: null, priceConfirmed: false, priceChangePct: null, consecutiveBeats: 0,
   };
 
   // ── NASDAQ path (authoritative) ────────────────────────────────────────────
@@ -100,10 +126,13 @@ export function computePEADSignal(
         earningsDate: announcementDate,
         priceConfirmed: false,
         priceChangePct,
+        consecutiveBeats: 0,
       };
     }
 
-    let score = scoreFromBeat(surprisePct, daysSince);
+    // NASDAQ path has no multi-quarter history — use Yahoo history for consecutive beats
+    const consecutiveBeats = countConsecutiveBeats(history);
+    let score = scoreFromBeat(surprisePct, daysSince, consecutiveBeats);
     if (priceChangePct != null && priceChangePct >= 5) score = Math.min(100, score + 5);
 
     return {
@@ -116,6 +145,7 @@ export function computePEADSignal(
       earningsDate: announcementDate,
       priceConfirmed,
       priceChangePct,
+      consecutiveBeats,
     };
   }
 
@@ -151,10 +181,12 @@ export function computePEADSignal(
       earningsDate: latest.quarter,
       priceConfirmed: false,
       priceChangePct,
+      consecutiveBeats: 0,
     };
   }
 
-  let score = scoreFromBeat(latest.surprisePercent, daysSince);
+  const consecutiveBeats = countConsecutiveBeats(sorted);
+  let score = scoreFromBeat(latest.surprisePercent, daysSince, consecutiveBeats);
   if (priceChangePct != null && priceChangePct >= 5) score = Math.min(100, score + 5);
 
   return {
@@ -168,5 +200,6 @@ export function computePEADSignal(
     earningsDate: latest.quarter,
     priceConfirmed,
     priceChangePct,
+    consecutiveBeats,
   };
 }
