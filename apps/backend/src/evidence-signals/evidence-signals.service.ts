@@ -8,6 +8,8 @@ import { computeOptionsFlowSignal } from './options-flow.service.js';
 import type { EvidenceSignal, EvidenceScanResult } from '@trading/shared';
 import { getScreenedSymbols, invalidateScreenerCache, getPeadOverrides, type PeadOverride } from './symbol-screener.service.js';
 import { triggerDeepAnalysis, getAnalysisStatus, invalidateDeepAnalysisCache } from './deep-analysis.service.js';
+import { getMarketRegime, invalidateMarketRegimeCache } from './market-regime.service.js';
+import type { MarketRegimeData } from '@trading/shared';
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
@@ -153,16 +155,22 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
   );
 
   const activeCount = [pead.active, insider.active, optionsFlow.active].filter(Boolean).length;
-  const activeScores = [
-    pead.active ? pead.score : null,
-    insider.active ? insider.score : null,
-    optionsFlow.active ? optionsFlow.score : null,
-  ].filter((s): s is number => s !== null);
+
+  // Options flow is a short-term signal (0-45d expiry). For 3-6m holds, weight it less
+  // than PEAD (quality filter) and Insider (3-6m visibility into fundamentals).
+  const weightedScores: Array<{ score: number; weight: number }> = [
+    pead.active ? { score: pead.score, weight: 1.0 } : null,
+    insider.active ? { score: insider.score, weight: 1.0 } : null,
+    optionsFlow.active ? { score: optionsFlow.score, weight: 0.75 } : null,
+  ].filter((s): s is { score: number; weight: number } => s !== null);
+
+  const totalWeight = weightedScores.reduce((a, b) => a + b.weight, 0);
+  const weightedSum = weightedScores.reduce((a, b) => a + b.score * b.weight, 0);
 
   // Conviction multiplier: lone signals are less reliable than corroborated ones
   const convictionMultiplier = activeCount >= 3 ? 1.0 : activeCount === 2 ? 0.9 : 0.7;
-  const compositeScore = activeScores.length
-    ? Math.round(activeScores.reduce((a, b) => a + b, 0) / activeScores.length * convictionMultiplier)
+  const compositeScore = weightedScores.length
+    ? Math.round((weightedSum / totalWeight) * convictionMultiplier)
     : 0;
 
   const conviction: EvidenceSignal['conviction'] =
@@ -203,6 +211,7 @@ let scanState: 'idle' | 'scanning' = 'idle';
 let lastScanAt: string | null = null;
 let scannedCount = 0;
 let totalCount = 0;
+let lastMarketRegime: MarketRegimeData | undefined;
 
 export function getScanStatus() {
   const analysis = getAnalysisStatus();
@@ -230,6 +239,7 @@ function readAllFromCache(): EvidenceScanResult {
     highConviction: signals.filter((s) => s.conviction === 'high').length,
     mediumConviction: signals.filter((s) => s.conviction === 'medium').length,
     signals,
+    marketRegime: lastMarketRegime,
   };
 }
 
@@ -242,6 +252,13 @@ async function runScan(forceRefresh: boolean) {
       db.delete(schema.evidenceSignalsCache).run();
       invalidateScreenerCache();
       invalidateDeepAnalysisCache();
+      invalidateMarketRegimeCache();
+    }
+
+    // Fetch market regime first — used to context-weight signals
+    lastMarketRegime = await getMarketRegime();
+    if (lastMarketRegime.regime === 'bear') {
+      console.warn(`[EvidenceSignals] ⚠️  BEAR MARKET: SPY ${lastMarketRegime.priceVsSma200Pct}% bajo SMA200. Señales LONG son de ALTO RIESGO.`);
     }
 
     const portfolioSymbols = getAllSymbols()

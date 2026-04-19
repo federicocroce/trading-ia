@@ -360,6 +360,30 @@ export function EvidenceSignals() {
         </div>
       )}
 
+      {/* Market Regime Banner */}
+      {data?.marketRegime && (
+        <div className={`rounded-lg border px-4 py-2 flex items-center gap-3 text-sm font-medium ${
+          data.marketRegime.regime === 'bull'
+            ? 'border-green-500/40 bg-green-500/10 text-green-400'
+            : data.marketRegime.regime === 'bear'
+            ? 'border-red-500/40 bg-red-500/10 text-red-400'
+            : 'border-yellow-500/40 bg-yellow-500/10 text-yellow-400'
+        }`}>
+          <span className="text-lg">
+            {data.marketRegime.regime === 'bull' ? '📈' : data.marketRegime.regime === 'bear' ? '📉' : '⚠️'}
+          </span>
+          <span>
+            Régimen de mercado:{' '}
+            <strong>{data.marketRegime.regime === 'bull' ? 'ALCISTA' : data.marketRegime.regime === 'bear' ? 'BAJISTA' : 'NEUTRAL'}</strong>
+            {' '}— SPY ${data.marketRegime.spyPrice.toFixed(0)} / SMA200 ${data.marketRegime.sma200.toFixed(0)}
+            {' '}({data.marketRegime.priceVsSma200Pct > 0 ? '+' : ''}{data.marketRegime.priceVsSma200Pct.toFixed(1)}%)
+          </span>
+          {data.marketRegime.regime === 'bear' && (
+            <span className="ml-auto text-xs opacity-80">⚠️ ALTO RIESGO: señales LONG en mercado bajista</span>
+          )}
+        </div>
+      )}
+
       {/* Stats */}
       {data && data.totalSymbols > 0 && (
         <div className="grid grid-cols-4 gap-3">

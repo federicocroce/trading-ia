@@ -2,7 +2,8 @@ import { db, schema } from '../db/index.js';
 import { eq } from 'drizzle-orm';
 import { callAIWithModel } from '../shared/ai-router.js';
 import { searchTavily } from '../web-search/tavily.js';
-import { getHistoricalQuotes } from '../shared/yahoo.js';
+import { getHistoricalQuotes, getFundamentals } from '../shared/yahoo.js';
+import type { FundamentalData } from '@trading/shared';
 import type { EvidenceSignal, EvidenceDeepAnalysis } from '@trading/shared';
 
 const ANALYSIS_TTL_MS = 6 * 60 * 60 * 1000; // 6h — matches signal cache TTL
@@ -163,24 +164,44 @@ function computeTechSummary(
 
 // ─── AI prompt ────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `Eres un analista de swing trading. Evaluás si un candidato identificado por señales evidence-based (PEAD, insider buying, options flow) tiene un setup válido para entrada con horizonte 2-4 semanas.
+const SYSTEM_PROMPT = `Eres un analista de posición. Evaluás si un candidato identificado por señales evidence-based (PEAD, insider buying, options flow) tiene un setup válido para una posición de 3 a 6 meses.
 
-Sé directo: si el setup no es sólido o hay riesgo elevado, devolvé PASS o WAIT. No infles la confianza.
+Criterios clave para BUY_SETUP:
+- La empresa tiene fundamentos sólidos: crecimiento de revenue, márgenes positivos
+- La señal es fresh (PEAD < 20 días, o insider comprando recientemente)
+- Los técnicos no muestran distribución (no RSI > 80, no breakdown reciente)
+- El risk/reward mínimo aceptable es 2:1
+
+Sé directo y brutal: si los fundamentos son débiles, la empresa pierde plata, o el setup técnico está agotado, devolvé PASS o WAIT. No infles la confianza por tener muchas señales.
 
 Devolvé SOLO JSON válido con exactamente estos campos:
 {
   "verdict": "BUY_SETUP" | "WAIT" | "PASS",
-  "reasoning": "string en español, 2-3 oraciones con datos concretos de las señales",
+  "reasoning": "string en español, 2-3 oraciones con datos concretos incluyendo fundamentos",
   "entryZone": "string como '$820-835' o 'N/A'",
   "target": "string como '$890' o 'N/A'",
   "stopLoss": "string como '$780' o 'N/A'",
   "riskReward": "string como '2.4:1' o 'N/A'",
   "confidence": número entero entre 0 y 100,
   "keyRisks": ["riesgo 1", "riesgo 2"],
-  "timeframe": "string como '2-4 semanas'"
+  "timeframe": "string como '3-6 meses'"
 }`;
 
-function buildPrompt(signal: EvidenceSignal, tech: TechSummary, newsHeadlines: string): string {
+function buildFundamentalsSection(f: FundamentalData | null): string {
+  if (!f) return 'Sin datos fundamentales disponibles.';
+  const fmt = (v: number | null, suffix = '') => v != null ? `${v}${suffix}` : 'N/A';
+  const lines = [
+    `P/E trailing: ${fmt(f.peRatio)} | P/E forward: ${fmt(f.forwardPE)}`,
+    `Revenue growth YoY: ${fmt(f.revenueGrowth, '%')}`,
+    `Margen operativo: ${fmt(f.operatingMargin, '%')} | Margen neto: ${fmt(f.netMargin, '%')}`,
+    `Beta: ${fmt(f.beta)} | Market cap: ${f.marketCap ? new Intl.NumberFormat('en-US', { notation: 'compact', style: 'currency', currency: 'USD' }).format(f.marketCap) : 'N/A'}`,
+    `Deuda/Equity: ${fmt(f.debtToEquity)} | ROE: ${fmt(f.returnOnEquity, '%')}`,
+    `Precio vs 52w máx: ${fmt(f.priceVs52wHigh, '%')} | Precio vs 52w mín: ${fmt(f.priceVs52wLow, '%')}`,
+  ];
+  return lines.join('\n');
+}
+
+function buildPrompt(signal: EvidenceSignal, tech: TechSummary, newsHeadlines: string, fundamentals: FundamentalData | null): string {
   const price = signal.currentPrice ? `$${signal.currentPrice.toFixed(2)}` : 'N/A';
 
   const signalLines: string[] = [];
@@ -202,6 +223,9 @@ Convicción: ${signal.conviction.toUpperCase()} (score: ${signal.compositeScore}
 
 SEÑALES ACTIVAS:
 ${signalLines.join('\n')}
+
+FUNDAMENTALES:
+${buildFundamentalsSection(fundamentals)}
 
 TÉCNICOS:
 - RSI(14): ${tech.rsi14 ?? 'N/A'}
@@ -251,9 +275,10 @@ function parseAIResponse(raw: string, symbol: string, model: string): EvidenceDe
 async function analyzeSignal(signal: EvidenceSignal): Promise<void> {
   if (getCachedAnalysis(signal.symbol)) return;
 
-  const [newsResult, ohlcResult] = await Promise.allSettled([
+  const [newsResult, ohlcResult, fundamentalsResult] = await Promise.allSettled([
     searchTavily(`${signal.symbol} stock news`, 5, 'basic'),
     getHistoricalQuotes(signal.symbol, '3mo', '1d'),
+    getFundamentals(signal.symbol),
   ]);
 
   const newsHeadlines = newsResult.status === 'fulfilled' && newsResult.value.length > 0
@@ -265,7 +290,8 @@ async function analyzeSignal(signal: EvidenceSignal): Promise<void> {
 
   const ohlc = ohlcResult.status === 'fulfilled' ? ohlcResult.value : [];
   const tech = computeTechSummary(ohlc);
-  const prompt = buildPrompt(signal, tech, newsHeadlines);
+  const fundamentals = fundamentalsResult.status === 'fulfilled' ? fundamentalsResult.value : null;
+  const prompt = buildPrompt(signal, tech, newsHeadlines, fundamentals);
 
   const { content, model } = await callAIWithModel('reasoning', prompt, SYSTEM_PROMPT, 1024);
   const analysis = parseAIResponse(content, signal.symbol, model);

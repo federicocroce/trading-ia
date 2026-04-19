@@ -60,12 +60,23 @@ export interface EvidenceSignal {
   currentPrice?: number;
 }
 
+export type EvidenceMarketRegime = 'bull' | 'bear' | 'neutral';
+
+export interface MarketRegimeData {
+  regime: EvidenceMarketRegime;
+  spyPrice: number;
+  sma200: number;
+  priceVsSma200Pct: number;
+  checkedAt: string;
+}
+
 export interface EvidenceScanResult {
   scannedAt: string;
   totalSymbols: number;
   highConviction: number;
   mediumConviction: number;
   signals: EvidenceSignal[];
+  marketRegime?: MarketRegimeData;
 }
 
 export type DeepVerdict = 'BUY_SETUP' | 'WAIT' | 'PASS';

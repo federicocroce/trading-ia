@@ -2,15 +2,22 @@ import type { EarningsHistoryEntry } from '../shared/yahoo.js';
 import type { OHLC, PEADSignal } from '@trading/shared';
 import type { PeadOverride } from './symbol-screener.service.js';
 
-const DRIFT_WINDOW_DAYS = 60;
+const DRIFT_WINDOW_DAYS = 45; // reduced: most drift is captured in 45d
 const MIN_BEAT_PERCENT = 10;
 const MIN_PRICE_MOVE_PCT = 1.5; // must close ≥+1.5% within 5 trading days of earnings
 
-function scoreFromBeat(beat: number): number {
-  if (beat >= 40) return 95;
-  if (beat >= 25) return 85;
-  if (beat >= 15) return 70;
-  return 55;
+function scoreFromBeat(beat: number, daysSince: number): number {
+  // Base score from beat magnitude
+  let base: number;
+  if (beat >= 40) base = 95;
+  else if (beat >= 25) base = 85;
+  else if (beat >= 15) base = 70;
+  else base = 55;
+
+  // Recency bonus: fresh earnings (0-15d) are more actionable for 3-6m holds
+  if (daysSince <= 15) base = Math.min(100, base + 10);
+
+  return base;
 }
 
 /**
@@ -96,7 +103,7 @@ export function computePEADSignal(
       };
     }
 
-    let score = scoreFromBeat(surprisePct);
+    let score = scoreFromBeat(surprisePct, daysSince);
     if (priceChangePct != null && priceChangePct >= 5) score = Math.min(100, score + 5);
 
     return {
@@ -147,7 +154,7 @@ export function computePEADSignal(
     };
   }
 
-  let score = scoreFromBeat(latest.surprisePercent);
+  let score = scoreFromBeat(latest.surprisePercent, daysSince);
   if (priceChangePct != null && priceChangePct >= 5) score = Math.min(100, score + 5);
 
   return {
