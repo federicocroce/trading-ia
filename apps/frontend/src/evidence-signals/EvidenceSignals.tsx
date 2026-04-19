@@ -273,6 +273,10 @@ function TrackedSignals() {
 
 export function EvidenceSignals() {
   const [filter, setFilter] = useState<Filter>('all');
+  const [portfolioSize, setPortfolioSize] = useState<number>(() => {
+    const saved = localStorage.getItem('trading_portfolio_size');
+    return saved ? Number(saved) : 10000;
+  });
 
   const { data, refetch, error } = trpc.evidenceSignals.getAll.useQuery(undefined, {
     staleTime: 30_000,
@@ -491,11 +495,60 @@ export function EvidenceSignals() {
           .sort((a, b) => actionableScore(b) - actionableScore(a))
           .slice(0, 3);
         if (topPicks.length === 0) return null;
+
+        // Correlation check: group picks by sector
+        const sectorGroups = topPicks.reduce<Record<string, string[]>>((acc, s) => {
+          const sec = s.sectorTrend?.name ?? 'Unknown';
+          acc[sec] = [...(acc[sec] ?? []), s.symbol];
+          return acc;
+        }, {});
+        const hasSectorConcentration = Object.values(sectorGroups).some((g) => g.length >= 2);
+
+        // Position sizing: risk 2% of portfolio per trade
+        const riskPerTrade = portfolioSize * 0.02;
+
+        // Export text for broker/TradingView
+        const exportText = topPicks.map((s) => {
+          const a = analysisMap.get(s.symbol);
+          return `${s.symbol} | Precio: $${s.currentPrice?.toFixed(2) ?? '?'} | Entrada: ${a?.entryZone ?? 'N/A'} | Target: ${a?.target ?? 'N/A'} | Stop: ${a?.stopLoss ?? 'N/A'} | R/R: ${a?.riskReward ?? 'N/A'} | ${a?.timeframe ?? '3-6m'}`;
+        }).join('\n');
+
         return (
           <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-4 space-y-3">
-            <div className="text-xs font-semibold text-green-400 uppercase tracking-wide">
-              ⭐ Top Picks — BUY SETUP más accionables ahora
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-green-400 uppercase tracking-wide">
+                ⭐ Top Picks — BUY SETUP más accionables ahora
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span>Portfolio:</span>
+                  <span className="text-foreground font-medium">$</span>
+                  <input
+                    type="number"
+                    value={portfolioSize}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      if (v > 0) { setPortfolioSize(v); localStorage.setItem('trading_portfolio_size', String(v)); }
+                    }}
+                    className="w-20 bg-background border border-border rounded px-1.5 py-0.5 text-xs text-foreground"
+                    min={1000}
+                    step={1000}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
+                <button
+                  className="text-[10px] text-muted-foreground hover:text-foreground border border-border rounded px-2 py-0.5"
+                  onClick={() => { navigator.clipboard.writeText(exportText); }}
+                >
+                  📋 Copiar picks
+                </button>
+              </div>
             </div>
+            {hasSectorConcentration && (
+              <div className="text-[10px] text-yellow-400 border border-yellow-500/30 bg-yellow-500/10 rounded px-2 py-1">
+                ⚠️ Concentración sectorial: {Object.entries(sectorGroups).filter(([, g]) => g.length >= 2).map(([sec, syms]) => `${syms.join('+')} en ${sec}`).join(', ')} — considera diversificar
+              </div>
+            )}
             <div className="grid gap-2">
               {topPicks.map((signal) => {
                 const analysis = analysisMap.get(signal.symbol)!;
@@ -536,6 +589,21 @@ export function EvidenceSignals() {
                         ⚠️ {analysis.keyRisks.slice(0, 2).join(' · ')}
                       </div>
                     )}
+                    {signal.currentPrice && analysis.stopLoss !== 'N/A' && (() => {
+                      const stopNum = parseFloat(analysis.stopLoss.replace(/[^0-9.]/g, ''));
+                      const stopDist = Math.abs(signal.currentPrice - stopNum);
+                      if (stopDist > 0 && stopNum > 0) {
+                        const shares = Math.floor(riskPerTrade / stopDist);
+                        return (
+                          <div className="text-[10px] text-muted-foreground border-t border-border/30 pt-1">
+                            Sizing 2%: <span className="text-foreground font-medium">~{shares} acciones</span>
+                            {' '}· Riesgo máx: <span className="text-red-400 font-medium">${riskPerTrade.toFixed(0)}</span>
+                            {' '}de ${portfolioSize.toLocaleString()}
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 );
               })}
