@@ -277,6 +277,7 @@ export function EvidenceSignals() {
     const saved = localStorage.getItem('trading_portfolio_size');
     return saved ? Number(saved) : 10000;
   });
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
   const { data, refetch, error } = trpc.evidenceSignals.getAll.useQuery(undefined, {
     staleTime: 30_000,
@@ -297,7 +298,8 @@ export function EvidenceSignals() {
   });
 
   const resolveMutation = trpc.evidenceSignals.resolveSignals.useMutation({
-    onSuccess: () => refetchStats(),
+    onSuccess: () => { refetchStats(); setMutationError(null); },
+    onError: (e) => setMutationError(`Error al resolver señales: ${e.message}`),
   });
 
   const analysisMap = new Map(
@@ -308,7 +310,8 @@ export function EvidenceSignals() {
   const isAnalyzing = status?.analysisState === 'analyzing';
 
   const refreshMutation = trpc.evidenceSignals.refresh.useMutation({
-    onSuccess: () => refetch(),
+    onSuccess: () => { refetch(); setMutationError(null); },
+    onError: (e) => setMutationError(`Error al iniciar scan: ${e.message}`),
   });
 
   // Composite actionable score 0-10: regime + sector + conviction + AI verdict
@@ -415,11 +418,22 @@ export function EvidenceSignals() {
         </div>
       )}
 
-      {/* Error */}
+      {/* Backend connection error */}
       {error && (
-        <div className="text-center py-6 space-y-2">
-          <p className="text-red-400 text-sm font-medium">Error al conectar con el backend</p>
-          <p className="text-xs text-muted-foreground">{(error as any)?.message}</p>
+        <div className="rounded-md border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-400 flex items-start gap-2">
+          <span>⚠️</span>
+          <div>
+            <span className="font-medium">Error al conectar con el backend</span>
+            <span className="text-xs block text-red-400/70">{(error as any)?.message}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Mutation error */}
+      {mutationError && (
+        <div className="rounded-md border border-orange-500/40 bg-orange-500/10 px-4 py-2 text-sm text-orange-400 flex items-center justify-between">
+          <span>⚠️ {mutationError}</span>
+          <button className="text-xs underline ml-2" onClick={() => setMutationError(null)}>Cerrar</button>
         </div>
       )}
 
