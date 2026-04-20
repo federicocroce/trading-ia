@@ -138,6 +138,7 @@ interface Opportunity {
   scoringMethod?: string;
   horizonScores?: { shortTerm: number; mediumTerm: number };
   passedAntiHype?: boolean;
+  entryScore?: number;
 }
 
 const actionConfig: Record<SignalAction, { label: string; emoji: string; borderColor: string; bgClass: string; textClass: string; description: string }> = {
@@ -252,15 +253,41 @@ function SignalBadge({ action, label, tooltip }: { action: SignalAction; label: 
   );
 }
 
+function scoreBarColor(value: number): string {
+  if (value >= 75) return 'bg-green-500';
+  if (value >= 60) return 'bg-yellow-400';
+  if (value >= 40) return 'bg-orange-500';
+  return 'bg-red-500';
+}
+
+function scoreTextColor(value: number): string {
+  if (value >= 75) return 'text-green-400';
+  if (value >= 60) return 'text-yellow-400';
+  if (value >= 40) return 'text-orange-400';
+  return 'text-red-400';
+}
+
+function OpportunityScoreBar({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[9px] text-muted-foreground uppercase w-12 text-right shrink-0">{label}</span>
+      <div className="w-16 h-1.5 bg-muted rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full ${scoreBarColor(value)}`}
+          style={{ width: `${value}%` }}
+        />
+      </div>
+      <span className={`text-[11px] font-bold font-mono w-5 text-right ${scoreTextColor(value)}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
 export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = actionConfig[opportunity.action] ?? actionConfig['WATCH'];
   const tl = opportunity.tradeLevels;
-
-  const scoreColor =
-    opportunity.opportunityScore >= 65 ? 'text-green-400' :
-    opportunity.opportunityScore >= 45 ? 'text-yellow-400' :
-    'text-muted-foreground';
 
   return (
     <Card className={`border-l-4 ${cfg.borderColor} transition-all`}>
@@ -284,17 +311,20 @@ export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
             </span>
           </div>
 
-          {/* Score */}
+          {/* Scores: Señal + Entrada */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center gap-1 cursor-help shrink-0">
-                <span className="text-[9px] text-muted-foreground uppercase">Score</span>
-                <span className={`text-sm font-bold font-mono ${scoreColor}`}>
-                  {opportunity.opportunityScore}
-                </span>
+              <div className="flex flex-col gap-1 cursor-help shrink-0">
+                <OpportunityScoreBar label="Señal" value={opportunity.opportunityScore} />
+                {opportunity.entryScore != null && (
+                  <OpportunityScoreBar label="Entrada" value={opportunity.entryScore} />
+                )}
               </div>
             </TooltipTrigger>
-            <TooltipContent>Score 0-100: combina técnico, fundamental y sentimiento.</TooltipContent>
+            <TooltipContent>
+              <p><strong>Señal:</strong> fuerza de las señales técnicas, fundamentales y de sentimiento.</p>
+              <p><strong>Entrada:</strong> calidad del momento de entrada (RSI, R/R, conflictos, timing).</p>
+            </TooltipContent>
           </Tooltip>
 
           {/* Action badge */}
