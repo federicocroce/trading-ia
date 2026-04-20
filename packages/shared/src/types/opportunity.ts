@@ -100,6 +100,7 @@ export interface Opportunity {
   tradeLevels?: TradeLevels;
   timingView?: TimingView;
   signalConflicts?: SignalConflict[];
+  entryScore?: number;
   narrativeDigest?: string;
   actionCondition?: ActionCondition;
   classification?: AssetClassification;
