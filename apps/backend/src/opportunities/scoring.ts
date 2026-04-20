@@ -1179,6 +1179,60 @@ function buildActionCondition(opp: Opportunity, tech: TechnicalSummary | undefin
   return undefined;
 }
 
+function scoreRsi(rsi: number | null | undefined): number {
+  if (rsi == null) return 50;
+  if (rsi <= 40) return 100;
+  if (rsi <= 65) return 70;
+  if (rsi <= 75) return 30;
+  return 0;
+}
+
+function scoreRiskReward(rr: number | null | undefined): number {
+  if (rr == null) return 40;
+  if (rr >= 2.5) return 100;
+  if (rr >= 1.5) return 60;
+  return 0;
+}
+
+function scoreConflicts(count: number): number {
+  if (count === 0) return 100;
+  if (count === 1) return 60;
+  if (count === 2) return 20;
+  return 0;
+}
+
+function scoreSupportDistance(currentPrice: number, stopLoss: number | null | undefined): number {
+  if (stopLoss == null || stopLoss >= currentPrice) return 50;
+  const distPct = ((currentPrice - stopLoss) / currentPrice) * 100;
+  if (distPct <= 2) return 100;
+  if (distPct <= 5) return 70;
+  if (distPct <= 10) return 40;
+  return 10;
+}
+
+export function computeEntryScore(params: {
+  rsi: number | null | undefined;
+  riskReward: number | null | undefined;
+  conflictCount: number;
+  timingConfidence: number | null | undefined;
+  currentPrice: number;
+  stopLoss: number | null | undefined;
+}): number {
+  const rsiScore = scoreRsi(params.rsi);
+  const rrScore = scoreRiskReward(params.riskReward);
+  const conflictScore = scoreConflicts(params.conflictCount);
+  const timingScore = params.timingConfidence ?? 50;
+  const supportScore = scoreSupportDistance(params.currentPrice, params.stopLoss);
+
+  return Math.round(
+    rsiScore * 0.25 +
+    rrScore * 0.25 +
+    conflictScore * 0.25 +
+    timingScore * 0.15 +
+    supportScore * 0.10,
+  );
+}
+
 export function buildAlgorithmicOpportunity(
   symbol: string,
   tech: TechnicalSummary | undefined,
@@ -1424,6 +1478,15 @@ export function buildAlgorithmicOpportunity(
 
   // === ACTION CONDITION: qué tiene que pasar para que cambie la acción ===
   result.actionCondition = buildActionCondition(result, tech);
+
+  result.entryScore = computeEntryScore({
+    rsi: tech?.indicators.rsi14,
+    riskReward: result.tradeLevels?.riskRewardRatio,
+    conflictCount: result.signalConflicts?.length ?? 0,
+    timingConfidence: result.timingView?.confidence,
+    currentPrice: result.currentPrice,
+    stopLoss: result.tradeLevels?.stopLoss,
+  });
 
   return result;
 }
