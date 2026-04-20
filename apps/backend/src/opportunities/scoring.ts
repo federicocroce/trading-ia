@@ -1221,7 +1221,7 @@ export function computeEntryScore(params: {
   const rsiScore = scoreRsi(params.rsi);
   const rrScore = scoreRiskReward(params.riskReward);
   const conflictScore = scoreConflicts(params.conflictCount);
-  const timingScore = params.timingConfidence ?? 50;
+  const timingScore = Math.min(100, Math.max(0, params.timingConfidence ?? 50));
   const supportScore = scoreSupportDistance(params.currentPrice, params.stopLoss);
 
   return Math.round(
