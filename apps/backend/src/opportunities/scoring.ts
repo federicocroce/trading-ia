@@ -1179,8 +1179,14 @@ function buildActionCondition(opp: Opportunity, tech: TechnicalSummary | undefin
   return undefined;
 }
 
-function scoreRsi(rsi: number | null | undefined): number {
+function scoreRsi(rsi: number | null | undefined, action: SignalAction = 'WATCH'): number {
   if (rsi == null) return 50;
+  if (action === 'SELL') {
+    if (rsi >= 70) return 100;
+    if (rsi >= 55) return 70;
+    if (rsi >= 45) return 30;
+    return 0;
+  }
   if (rsi <= 40) return 100;
   if (rsi <= 65) return 70;
   if (rsi <= 75) return 30;
@@ -1217,8 +1223,9 @@ export function computeEntryScore(params: {
   timingConfidence: number | null | undefined;
   currentPrice: number;
   stopLoss: number | null | undefined;
+  action?: SignalAction;
 }): number {
-  const rsiScore = scoreRsi(params.rsi);
+  const rsiScore = scoreRsi(params.rsi, params.action);
   const rrScore = scoreRiskReward(params.riskReward);
   const conflictScore = scoreConflicts(params.conflictCount);
   const timingScore = Math.min(100, Math.max(0, params.timingConfidence ?? 50));
@@ -1486,6 +1493,7 @@ export function buildAlgorithmicOpportunity(
     timingConfidence: result.timingView?.confidence,
     currentPrice: result.currentPrice,
     stopLoss: result.tradeLevels?.stopLoss,
+    action: result.action,
   });
 
   return result;

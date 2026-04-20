@@ -53,4 +53,33 @@ describe('computeEntryScore', () => {
     // = 0*0.25 + 40*0.25 + 0*0.25 + 0*0.15 + 50*0.10 = 0+10+0+0+5 = 15
     expect(score).toBe(15);
   });
+
+  it('inverts RSI logic for SELL signals — high RSI is good entry', () => {
+    const score = computeEntryScore({
+      rsi: 78,
+      riskReward: 2.8,
+      conflictCount: 0,
+      timingConfidence: 80,
+      currentPrice: 100,
+      stopLoss: null,
+      action: 'SELL',
+    });
+    // RSI=100 (>=70), R/R=100, conflicts=100, timing=80, support=50
+    // = 100*0.25 + 100*0.25 + 100*0.25 + 80*0.15 + 50*0.10 = 25+25+25+12+5 = 92
+    expect(score).toBe(92);
+  });
+
+  it('clamps timingConfidence above 100 to 100', () => {
+    const score = computeEntryScore({
+      rsi: null,
+      riskReward: null,
+      conflictCount: 0,
+      timingConfidence: 150,
+      currentPrice: 100,
+      stopLoss: null,
+    });
+    // RSI=50, R/R=40, conflicts=100, timing=100 (clamped), support=50
+    // = 50*0.25 + 40*0.25 + 100*0.25 + 100*0.15 + 50*0.10 = 12.5+10+25+15+5 = 68 (rounded)
+    expect(score).toBe(68);
+  });
 });
