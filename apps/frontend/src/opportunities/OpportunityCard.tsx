@@ -277,7 +277,7 @@ function OpportunityScoreBar({ label, value }: { label: string; value: number })
           style={{ width: `${value}%` }}
         />
       </div>
-      <span className={`text-[11px] font-bold font-mono w-5 text-right ${scoreTextColor(value)}`}>
+      <span className={`text-[11px] font-bold font-mono w-7 text-right ${scoreTextColor(value)}`}>
         {value}
       </span>
     </div>
