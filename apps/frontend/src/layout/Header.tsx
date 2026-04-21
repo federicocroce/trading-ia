@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
+import { MacroRegimeWidget } from '@/macro/MacroRegimeWidget';
 
 export function Header() {
   const { data: summary } = trpc.portfolio.summary.useQuery(undefined, { refetchInterval: 60_000 });
@@ -27,7 +28,7 @@ export function Header() {
           <Badge variant="secondary" className="text-[9px] h-4">ARG & Global</Badge>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -45,6 +46,7 @@ export function Header() {
               <p className="text-xs">Noticias → Fundamentales → Análisis → Reporte</p>
             </TooltipContent>
           </Tooltip>
+          <MacroRegimeWidget />
         </div>
 
         {summary && (
