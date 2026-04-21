@@ -555,3 +555,39 @@ export const evidenceScanRuns = sqliteTable('evidence_scan_runs', {
   errorMessage: text('error_message'),    // set if scan crashed
   durationMs: integer('duration_ms'),
 });
+
+// --- Sector rotation cache (ETF performance & relative strength) ---
+export const sectorRotationCache = sqliteTable('sector_rotation_cache', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  etf: text('etf').notNull(),
+  sectorName: text('sector_name').notNull(),
+  return1m: real('return_1m').notNull(),
+  return3m: real('return_3m').notNull(),
+  relativeStrength1m: real('relative_strength_1m').notNull(),
+  relativeStrength3m: real('relative_strength_3m').notNull(),
+  category: text('category', { enum: ['LEADING', 'NEUTRAL', 'LAGGING'] }).notNull(),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Weekly picks (evidence-based swing setups per scan date) ---
+export const weeklyPicks = sqliteTable('weekly_picks', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  scanDate: text('scan_date').notNull(),       // YYYY-MM-DD
+  symbol: text('symbol').notNull(),
+  tier: text('tier', { enum: ['HIGH', 'MEDIUM'] }).notNull(),
+  evidenceType: text('evidence_type').notNull(), // 'PEAD' | 'INSIDER' | 'OPTIONS' | 'PEAD_INSIDER' | 'FUNDAMENTAL'
+  evidenceDetail: text('evidence_detail').notNull(),
+  entryLow: real('entry_low').notNull(),
+  entryHigh: real('entry_high').notNull(),
+  stop: real('stop').notNull(),
+  target: real('target').notNull(),
+  rrRatio: real('rr_ratio').notNull(),
+  regime: text('regime', { enum: ['bull', 'bear', 'neutral'] }).notNull(),
+  sectorCategory: text('sector_category', { enum: ['LEADING', 'NEUTRAL', 'LAGGING'] }).notNull(),
+  aiVerdict: text('ai_verdict', { enum: ['BUY_SETUP', 'WAIT', 'PASS'] }),
+  fundamentalScore: integer('fundamental_score').notNull(),
+  technicalScore: integer('technical_score').notNull(),
+  outcome30d: real('outcome_30d'),
+  outcome90d: real('outcome_90d'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
