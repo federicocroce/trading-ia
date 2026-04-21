@@ -9,6 +9,7 @@ import { signalsRouter } from './signals/signals.router.js';
 import { intelligenceRouter } from './intelligence/intelligence.router.js';
 import { quantRouter } from './quant/quant.router.js';
 import { evidenceSignalsRouter } from './evidence-signals/evidence-signals.router.js';
+import { macroRouter } from './macro/macro.router.js';
 import { getHealthReport } from './shared/service-health.js';
 export const appRouter = router({
   prices: pricesRouter,
@@ -21,6 +22,7 @@ export const appRouter = router({
   intelligence: intelligenceRouter,
   quant: quantRouter,
   evidenceSignals: evidenceSignalsRouter,
+  macro: macroRouter,
   health: publicProcedure.query(() => getHealthReport()),
 });
 
