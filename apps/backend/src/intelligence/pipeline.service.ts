@@ -13,6 +13,7 @@ import {
 } from './pipeline.repository.js';
 import { saveStageArtifact } from './pipeline-artifacts.repository.js';
 import { generateMarketReport, type DigestInputs } from './market-report.service.js';
+import { trackPipelineRecommendations } from './pipeline-tracking.service.js';
 import { getStoredDailyReport } from './daily-report.service.js';
 import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAge, insertWebSearchArticles } from '../db/repository.js';
 import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, getLastUnifiedAnalyses, setMarketDigest } from '../opportunities/opportunities.service.js';
@@ -387,6 +388,15 @@ async function runRemainingStages(runId: number): Promise<void> {
 
   const reportResult = await runReportStage(runId);
   recordStageArtifact(runId, 'report', reportResult);
+
+  // Track Top 8 pipeline recommendations to signal_tracking (non-critical)
+  if (reportResult.status === 'ok') {
+    try {
+      await trackPipelineRecommendations();
+    } catch (err) {
+      console.warn('[pipeline] trackPipelineRecommendations failed (non-critical):', (err as Error).message);
+    }
+  }
 
   const finalRun = getPipelineRunByDate(today)!;
   const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];

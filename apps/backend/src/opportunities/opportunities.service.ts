@@ -60,6 +60,10 @@ export function getLastUnifiedAnalyses(): Map<string, import('@trading/shared').
   return new Map(_lastUnifiedAnalyses);
 }
 
+export function getCachedScanResult(): OpportunityScanResult | null {
+  return cachedResult;
+}
+
 export function getMarketDigest(): import('@trading/shared').MarketDigest | null {
   if (cachedMarketDigest) return cachedMarketDigest;
   // Try to load today's digest from DB
