@@ -21,6 +21,7 @@ import { serve } from '@hono/node-server';
 import { appRouter } from './router.js';
 import { createContext } from './trpc.js';
 import { initWebSocket } from './shared/ws-manager.js';
+import { startCronJobs } from './shared/cron.js';
 
 const app = new Hono();
 
@@ -52,3 +53,6 @@ const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
 
 // Attach WebSocket to the same server
 initWebSocket(server as any);
+
+// Start cron jobs (Sunday 23:00 UTC = 20:00 ART)
+startCronJobs();
