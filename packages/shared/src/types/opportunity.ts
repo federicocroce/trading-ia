@@ -156,3 +156,45 @@ export interface OpportunityScanResult {
   analysisDetail: string;
   source: ScanSource; // 'live' = recién escaneado, 'db' = recuperado de BD
 }
+
+export type WeeklyPickTier = 'HIGH' | 'MEDIUM';
+export type SectorCategory = 'LEADING' | 'NEUTRAL' | 'LAGGING';
+
+export interface WeeklyPick {
+  symbol: string;
+  tier: WeeklyPickTier;
+  evidence: {
+    type: 'PEAD' | 'INSIDER' | 'OPTIONS' | 'PEAD_INSIDER' | 'FUNDAMENTAL';
+    detail: string;
+  };
+  entryLow: number;
+  entryHigh: number;
+  stop: number;
+  target: number;
+  rrRatio: number;
+  regime: import('./evidence-signals.js').EvidenceMarketRegime;
+  sectorCategory: SectorCategory;
+  aiVerdict?: import('./evidence-signals.js').DeepVerdict;
+  fundamentalScore: number;
+  technicalScore: number;
+  scanDate: string;
+  historicalWinRate: number | null;
+}
+
+export interface SectorRotationData {
+  etf: string;
+  sectorName: string;
+  return1m: number;
+  return3m: number;
+  relativeStrength1m: number;
+  relativeStrength3m: number;
+  category: SectorCategory;
+  updatedAt: string;
+}
+
+export interface MacroDashboard {
+  regime: import('./evidence-signals.js').MarketRegimeData;
+  sectors: SectorRotationData[];
+  argentinaSignal: 'STABLE' | 'VOLATILE';
+  picks: WeeklyPick[];
+}
