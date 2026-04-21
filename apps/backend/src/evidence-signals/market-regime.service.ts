@@ -12,6 +12,13 @@ function computeSMA(prices: number[], period: number): number | null {
   return slice.reduce((a, b) => a + b, 0) / period;
 }
 
+/** Exported for testing. Applies VIX override to SPY-based regime. */
+export function applyVixGate(spyRegime: EvidenceMarketRegime, vix: number): EvidenceMarketRegime {
+  if (vix > 30) return 'bear';
+  if (vix > 20 && spyRegime === 'bull') return 'neutral';
+  return spyRegime;
+}
+
 export async function getMarketRegime(): Promise<MarketRegimeData> {
   if (cachedRegime && Date.now() < cacheExpiresAt) return cachedRegime;
 
@@ -64,6 +71,17 @@ export async function getMarketRegime(): Promise<MarketRegimeData> {
       regime = 'neutral';
     }
 
+    let vix = 0;
+    try {
+      const vixOhlc = await getHistoricalQuotes('^VIX', '5d', '1d');
+      if (vixOhlc.length > 0) {
+        vix = vixOhlc[vixOhlc.length - 1].close;
+        regime = applyVixGate(regime, vix);
+      }
+    } catch {
+      // VIX fetch failure: keep SPY-based regime
+    }
+
     const result: MarketRegimeData = {
       regime,
       spyPrice: Math.round(spyPrice * 100) / 100,
@@ -75,7 +93,7 @@ export async function getMarketRegime(): Promise<MarketRegimeData> {
     cachedRegime = result;
     cacheExpiresAt = Date.now() + CACHE_TTL_MS;
 
-    console.log(`[MarketRegime] SPY=${spyPrice.toFixed(2)} SMA200=${sma200.toFixed(2)} SMA50=${sma50.toFixed(2)} → ${regime.toUpperCase()} (${priceVsSma200Pct > 0 ? '+' : ''}${priceVsSma200Pct}% vs SMA200)`);
+    console.log(`[MarketRegime] SPY=${spyPrice.toFixed(2)} SMA200=${sma200.toFixed(2)} SMA50=${sma50.toFixed(2)} VIX=${vix.toFixed(2)} → ${regime.toUpperCase()} (${priceVsSma200Pct > 0 ? '+' : ''}${priceVsSma200Pct}% vs SMA200)`);
 
     return result;
   } catch (err) {
