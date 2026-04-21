@@ -22,6 +22,8 @@ import { WebSearchBlockedModal } from '@/pipeline/WebSearchBlockedModal';
 import { PipelineConfig } from './intelligence/PipelineConfig.js';
 import { AccuracyDashboard } from './intelligence/AccuracyDashboard.js';
 import { EvidenceSignals } from './evidence-signals/EvidenceSignals.js';
+import { WeeklyPicksPage } from '@/weekly-picks/WeeklyPicksPage';
+import { SectorHeatMap } from '@/macro/SectorHeatMap';
 
 function getSymbolFromURL(): string | null {
   const params = new URLSearchParams(window.location.search);
@@ -111,6 +113,7 @@ export function App() {
                   <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
                   <TabsTrigger value="evidence">Señales V2</TabsTrigger>
                   <TabsTrigger value="config">Config</TabsTrigger>
+                  <TabsTrigger value="picks">Picks</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="daily" className="flex-1 overflow-y-auto">
@@ -139,6 +142,12 @@ export function App() {
                 </TabsContent>
                 <TabsContent value="config" className="flex-1 overflow-y-auto">
                   <PipelineConfig />
+                </TabsContent>
+                <TabsContent value="picks" className="flex-1 overflow-y-auto">
+                  <div className="space-y-6 p-4">
+                    <WeeklyPicksPage />
+                    <SectorHeatMap />
+                  </div>
                 </TabsContent>
               </Tabs>
             )}
