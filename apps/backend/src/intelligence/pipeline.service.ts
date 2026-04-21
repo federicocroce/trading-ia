@@ -223,10 +223,12 @@ async function runFundamentalsStage(runId: number): Promise<StageResult> {
 }
 
 async function runAnalysisStage(runId: number): Promise<StageResult> {
+  const sectorsSnapshot = _stageSectors;   // capture before clearing
+  _stageSectors = undefined;              // clear immediately — consumed
   const startedAt = new Date().toISOString();
   updatePipelineStage(runId, 'analysis', { status: 'running', startedAt });
   try {
-    const result = await runAnalysisBlocking(runId, _stageSectors);
+    const result = await runAnalysisBlocking(runId, sectorsSnapshot);
     const symbolCount = result.totalSymbolsScanned ?? 0;
     _stageUnifiedAnalyses = getLastUnifiedAnalyses();
     const sr: StageResult = {
