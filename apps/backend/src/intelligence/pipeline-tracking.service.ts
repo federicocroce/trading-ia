@@ -18,6 +18,8 @@ export async function trackPipelineRecommendations(): Promise<void> {
     // non-critical
   }
 
+  let tracked = 0;
+
   for (const rec of report.topRecommendations) {
     const opp = scanResult?.opportunities.find((o) => o.symbol === rec.symbol);
     if (!opp) continue; // No opportunity data = skip
@@ -32,7 +34,7 @@ export async function trackPipelineRecommendations(): Promise<void> {
         stopLoss: opp.tradeLevels?.stopLoss ?? null,
         confidence: opp.confidence,
         opportunityScore: opp.opportunityScore,
-        sector: rec.sector ?? null,
+        sector: opp.sector ?? rec.sector ?? null,
         techScore: opp.breakdown?.technical?.score ?? null,
         fundScore: opp.breakdown?.fundamental?.score ?? null,
         sentScore: opp.breakdown?.sentiment?.score ?? null,
@@ -42,11 +44,12 @@ export async function trackPipelineRecommendations(): Promise<void> {
         predictedReturnMid: opp.mediumTerm?.midPercent ?? null,
         marketRegimeAtSignal: regime,
       });
+      tracked++;
     } catch (err) {
       // Never fail the pipeline because of tracking failure
       console.warn(`[pipeline-tracking] Failed to track ${rec.symbol}:`, (err as Error).message);
     }
   }
 
-  console.log(`[pipeline-tracking] Tracked ${report.topRecommendations.length} recommendations for ${today}`);
+  console.log(`[pipeline-tracking] Tracked ${tracked}/${report.topRecommendations.length} recommendations for ${today}`);
 }
