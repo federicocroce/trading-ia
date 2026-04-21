@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { router, publicProcedure } from '../trpc.js';
+import type { OpportunitySector } from '@trading/shared';
 import { getStoredDailyReport } from './daily-report.service.js';
 import { getMarketDigest } from '../opportunities/opportunities.service.js';
 import { getCachedMarketReport } from './market-report.service.js';
@@ -47,9 +48,12 @@ export const intelligenceRouter = router({
 
   // Replaces old generateMarketReport — now triggers the full pipeline
   generateMarketReport: publicProcedure
-    .input(z.object({ force: z.boolean().optional() }).optional())
+    .input(z.object({
+      force: z.boolean().optional(),
+      sectors: z.array(z.string()).optional(),
+    }).optional())
     .mutation(async ({ input }) => {
-      return checkOrRunPipeline(input?.force ?? false);
+      return checkOrRunPipeline(input?.force ?? false, input?.sectors as OpportunitySector[] | undefined);
     }),
 
   // Pipeline status for polling (every 2s while running)

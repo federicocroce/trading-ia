@@ -20,7 +20,7 @@ import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, ge
 import { getIntelligenceFromDB } from '../news/news-intelligence.service.js';
 import { runWebSearch } from '../web-search/web-search.service.js';
 import { generateWeightProposal, shouldGenerateProposal } from './weight-adjustment.service.js';
-import type { PipelineRun, StageResult, QuantContext } from '@trading/shared';
+import type { PipelineRun, StageResult, QuantContext, OpportunitySector } from '@trading/shared';
 import { getToday } from '../shared/date-utils.js';
 import { detectRegime } from '../quant/regime-detector.service.js';
 import { rankMomentum } from '../quant/momentum-ranker.service.js';
@@ -30,6 +30,8 @@ import { getAllTechnicalSummaries } from '../technical/technical-analysis.servic
 let _stageUnifiedAnalyses: Map<string, import('@trading/shared').UnifiedAssetAnalysis> | null = null;
 
 let _stageQuantContext: QuantContext | null = null;
+
+let _stageSectors: OpportunitySector[] | undefined = undefined;
 
 export function getStageQuantContext(): QuantContext | null {
   return _stageQuantContext;
@@ -224,7 +226,7 @@ async function runAnalysisStage(runId: number): Promise<StageResult> {
   const startedAt = new Date().toISOString();
   updatePipelineStage(runId, 'analysis', { status: 'running', startedAt });
   try {
-    const result = await runAnalysisBlocking(runId);
+    const result = await runAnalysisBlocking(runId, _stageSectors);
     const symbolCount = result.totalSymbolsScanned ?? 0;
     _stageUnifiedAnalyses = getLastUnifiedAnalyses();
     const sr: StageResult = {
@@ -413,9 +415,10 @@ async function runRemainingStages(runId: number): Promise<void> {
   }
 }
 
-export async function checkOrRunPipeline(force = false): Promise<PipelineRun> {
+export async function checkOrRunPipeline(force = false, sectors?: OpportunitySector[]): Promise<PipelineRun> {
   _stageUnifiedAnalyses = null;
   _stageQuantContext = null;
+  _stageSectors = sectors;
   const today = getToday();
 
   const activeRun = getActivePipelineRun();

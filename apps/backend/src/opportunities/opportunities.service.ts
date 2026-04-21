@@ -819,7 +819,7 @@ export async function runAnalysis(): Promise<OpportunityScanResult> {
  * Blocking variant — used by the unified pipeline.
  * Awaits runLiveScan() fully before returning.
  */
-export async function runAnalysisBlocking(pipelineRunId?: number): Promise<OpportunityScanResult> {
+export async function runAnalysisBlocking(pipelineRunId?: number, sectors?: OpportunitySector[]): Promise<OpportunityScanResult> {
   if (scanProgress.isScanning) {
     return cachedResult ?? {
       scannedAt: Date.now(), totalSymbolsScanned: 0, opportunities: [],
@@ -835,7 +835,7 @@ export async function runAnalysisBlocking(pipelineRunId?: number): Promise<Oppor
   cachedResult = null;
 
   try {
-    const result = await runLiveScan(undefined, pipelineRunId);
+    const result = await runLiveScan(sectors, pipelineRunId);
     cachedResult = result;
     processTimestamps.analysisLastRun = Date.now();
     return result;
