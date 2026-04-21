@@ -14,8 +14,8 @@ export async function trackPipelineRecommendations(): Promise<void> {
   try {
     const regimeData = await getMarketRegime();
     regime = regimeData.regime;
-  } catch {
-    // non-critical
+  } catch (err) {
+    console.warn('[pipeline-tracking] Failed to fetch market regime (non-critical):', (err as Error).message);
   }
 
   let tracked = 0;

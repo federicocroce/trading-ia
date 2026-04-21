@@ -538,6 +538,13 @@ export async function rerunPipelineStage(
   } else {
     const reportRerunResult = await runReportStage(runId);
     recordStageArtifact(runId, 'report', reportRerunResult);
+    if (reportRerunResult.status === 'ok') {
+      try {
+        await trackPipelineRecommendations();
+      } catch (err) {
+        console.warn('[pipeline] trackPipelineRecommendations failed (non-critical):', (err as Error).message);
+      }
+    }
   }
 
   const finalRun = getPipelineRunByDate(today)!;
