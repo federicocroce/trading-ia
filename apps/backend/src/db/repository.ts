@@ -1,4 +1,4 @@
-import { eq, desc, gte, asc, and, inArray, gt, sql } from 'drizzle-orm';
+import { eq, desc, gte, lt, asc, and, inArray, gt, sql } from 'drizzle-orm';
 import { db, schema } from './index.js';
 import { missedOpportunities, signalTracking } from './schema.js';
 
@@ -154,6 +154,25 @@ export function getOpportunityScans(limit: number = 20) {
 export function getOpportunityScanById(id: number) {
   return db.select().from(schema.opportunityScans)
     .where(eq(schema.opportunityScans.id, id))
+    .get();
+}
+
+export function getOpportunityScanDates(): string[] {
+  return db.selectDistinct({ date: sql<string>`substr(${schema.opportunityScans.scannedAt}, 1, 10)` })
+    .from(schema.opportunityScans)
+    .orderBy(desc(sql`substr(${schema.opportunityScans.scannedAt}, 1, 10)`))
+    .all()
+    .map(r => r.date);
+}
+
+export function getOpportunityScanByDate(date: string) {
+  const nextDay = new Date(date + 'T00:00:00.000Z');
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  const nextDayStr = nextDay.toISOString().split('T')[0];
+  return db.select().from(schema.opportunityScans)
+    .where(and(gte(schema.opportunityScans.scannedAt, date), lt(schema.opportunityScans.scannedAt, nextDayStr)))
+    .orderBy(desc(schema.opportunityScans.id))
+    .limit(1)
     .get();
 }
 
@@ -1080,4 +1099,159 @@ export function getWebSearchArticlesForDate(date: string) {
       ...row,
       relatedSymbols: JSON.parse(row.relatedSymbols) as string[],
     }));
+}
+
+// ==================== EVIDENCE SIGNALS SNAPSHOTS ====================
+
+export function insertEvidenceSignalsSnapshot(data: {
+  scanDate: string;
+  scannedAt: string;
+  signals: string;
+  analyses: string;
+  marketRegime: string | null;
+  totalSymbols: number;
+  highConviction: number;
+  mediumConviction: number;
+  withSignals: number;
+}) {
+  return db.insert(schema.evidenceSignalsSnapshots).values(data).run();
+}
+
+export function getEvidenceSnapshotDates(): string[] {
+  return db.selectDistinct({ date: schema.evidenceSignalsSnapshots.scanDate })
+    .from(schema.evidenceSignalsSnapshots)
+    .orderBy(desc(schema.evidenceSignalsSnapshots.scanDate))
+    .all()
+    .map(r => r.date);
+}
+
+export function getEvidenceSnapshotByDate(date: string) {
+  return db.select().from(schema.evidenceSignalsSnapshots)
+    .where(eq(schema.evidenceSignalsSnapshots.scanDate, date))
+    .orderBy(desc(schema.evidenceSignalsSnapshots.id))
+    .limit(1)
+    .get();
+}
+
+// ─── Causal Map ───────────────────────────────────────────────────────────────
+
+export interface CausalChainRow {
+  eventId: string;
+  ticker: string;
+  category: string;
+  direction: 'positive' | 'negative';
+  impact: 'direct' | 'indirect';
+  reason: string;
+}
+
+export interface MacroEventRow {
+  eventId: string;
+  event: string;
+  category: string;
+  magnitude: 'high' | 'medium' | 'low';
+  relatedEventIds: string[];
+  chains: CausalChainRow[];
+}
+
+export function clearCausalMapForDate(date: string): void {
+  db.delete(schema.eventRelations).where(eq(schema.eventRelations.date, date)).run();
+  db.delete(schema.causalChains).where(eq(schema.causalChains.date, date)).run();
+  db.delete(schema.macroEvents).where(eq(schema.macroEvents.date, date)).run();
+}
+
+export function saveCausalMap(date: string, events: MacroEventRow[]): void {
+  clearCausalMapForDate(date);
+  db.transaction((trx) => {
+    for (const evt of events) {
+      trx.insert(schema.macroEvents).values({
+        date,
+        eventId: evt.eventId,
+        event: evt.event,
+        category: evt.category,
+        magnitude: evt.magnitude,
+      }).run();
+      for (const chain of evt.chains) {
+        trx.insert(schema.causalChains).values({
+          date,
+          eventId: evt.eventId,
+          ticker: chain.ticker,
+          category: chain.category,
+          direction: chain.direction,
+          impact: chain.impact,
+          reason: chain.reason,
+        }).run();
+      }
+      for (const relId of evt.relatedEventIds) {
+        trx.insert(schema.eventRelations).values({
+          date,
+          eventId: evt.eventId,
+          relatedEventId: relId,
+        }).run();
+      }
+    }
+  });
+}
+
+export function getCausalMapByDate(date: string): MacroEventRow[] {
+  const events = db.select().from(schema.macroEvents)
+    .where(eq(schema.macroEvents.date, date))
+    .all();
+  const chains = db.select().from(schema.causalChains)
+    .where(eq(schema.causalChains.date, date))
+    .all();
+  const relations = db.select().from(schema.eventRelations)
+    .where(eq(schema.eventRelations.date, date))
+    .all();
+
+  return events.map(evt => ({
+    eventId: evt.eventId,
+    event: evt.event,
+    category: evt.category,
+    magnitude: evt.magnitude as 'high' | 'medium' | 'low',
+    relatedEventIds: relations
+      .filter(r => r.eventId === evt.eventId)
+      .map(r => r.relatedEventId),
+    chains: chains
+      .filter(c => c.eventId === evt.eventId)
+      .map(c => ({
+        eventId: c.eventId,
+        ticker: c.ticker,
+        category: c.category,
+        direction: c.direction as 'positive' | 'negative',
+        impact: c.impact as 'direct' | 'indirect',
+        reason: c.reason,
+      })),
+  }));
+}
+
+export function getCausalTickersByDate(date: string): Array<{ ticker: string; direction: 'positive' | 'negative'; causalSummary: string }> {
+  const chains = db.select().from(schema.causalChains)
+    .where(eq(schema.causalChains.date, date))
+    .all();
+  const events = db.select().from(schema.macroEvents)
+    .where(eq(schema.macroEvents.date, date))
+    .all();
+  const eventMap = new Map(events.map(e => [e.eventId, e]));
+
+  // Deduplicate: one entry per ticker, strongest direction wins, accumulate reasons
+  const tickerMap = new Map<string, { direction: 'positive' | 'negative'; reasons: string[] }>();
+  for (const chain of chains) {
+    const evt = eventMap.get(chain.eventId);
+    const reason = `[${chain.impact === 'direct' ? 'DIRECTO' : 'INDIRECTO'}] ${evt?.event ?? chain.eventId}: ${chain.reason}`;
+    if (!tickerMap.has(chain.ticker)) {
+      tickerMap.set(chain.ticker, { direction: chain.direction as 'positive' | 'negative', reasons: [reason] });
+    } else {
+      const entry = tickerMap.get(chain.ticker)!;
+      if (chain.direction === 'positive' && entry.direction === 'negative') {
+        entry.direction = 'positive'; // positive overrides negative
+      }
+      entry.reasons.push(reason);
+    }
+  }
+
+  return [...tickerMap.entries()].map(([ticker, data]) => ({
+    ticker,
+    direction: data.direction,
+    causalSummary: data.reasons.join('\n'),
+  }));
 }
