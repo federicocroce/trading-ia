@@ -383,6 +383,12 @@ export const pipelineRuns = sqliteTable('pipeline_runs', {
   newsErrors: text('news_errors'),
   newsStartedAt: text('news_started_at'),
   newsFinishedAt: text('news_finished_at'),
+  // Stage: macroIntelligence
+  macroIntelligenceStatus: text('macro_intelligence_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
+  macroIntelligenceDetail: text('macro_intelligence_detail'),
+  macroIntelligenceErrors: text('macro_intelligence_errors'),
+  macroIntelligenceStartedAt: text('macro_intelligence_started_at'),
+  macroIntelligenceFinishedAt: text('macro_intelligence_finished_at'),
   // Stage: fundamentals
   fundamentalsStatus: text('fundamentals_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
   fundamentalsDetail: text('fundamentals_detail'),
@@ -569,6 +575,21 @@ export const sectorRotationCache = sqliteTable('sector_rotation_cache', {
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
 });
 
+// --- Evidence signals snapshots (historical record per scan) ---
+export const evidenceSignalsSnapshots = sqliteTable('evidence_signals_snapshots', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  scanDate: text('scan_date').notNull(),       // YYYY-MM-DD
+  scannedAt: text('scanned_at').notNull(),     // ISO datetime
+  signals: text('signals').notNull(),           // JSON array of EvidenceSignal
+  analyses: text('analyses').notNull(),         // JSON array of EvidenceDeepAnalysis
+  marketRegime: text('market_regime'),          // JSON object
+  totalSymbols: integer('total_symbols').notNull().default(0),
+  highConviction: integer('high_conviction').notNull().default(0),
+  mediumConviction: integer('medium_conviction').notNull().default(0),
+  withSignals: integer('with_signals').notNull().default(0),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
 // --- Weekly picks (evidence-based swing setups per scan date) ---
 export const weeklyPicks = sqliteTable('weekly_picks', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -590,4 +611,34 @@ export const weeklyPicks = sqliteTable('weekly_picks', {
   outcome30d: real('outcome_30d'),
   outcome90d: real('outcome_90d'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Macro Intelligence ---
+export const macroEvents = sqliteTable('macro_events', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  date: text('date').notNull(),
+  eventId: text('event_id').notNull(),
+  event: text('event').notNull(),
+  category: text('category').notNull(),
+  magnitude: text('magnitude', { enum: ['high', 'medium', 'low'] }).notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+export const causalChains = sqliteTable('causal_chains', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  date: text('date').notNull(),
+  eventId: text('event_id').notNull(),
+  ticker: text('ticker').notNull(),
+  category: text('category').notNull(),
+  direction: text('direction', { enum: ['positive', 'negative'] }).notNull(),
+  impact: text('impact', { enum: ['direct', 'indirect'] }).notNull(),
+  reason: text('reason').notNull(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+export const eventRelations = sqliteTable('event_relations', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  date: text('date').notNull(),
+  eventId: text('event_id').notNull(),
+  relatedEventId: text('related_event_id').notNull(),
 });
