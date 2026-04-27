@@ -1,9 +1,9 @@
 import { z } from 'zod';
 import { router, publicProcedure } from '../trpc.js';
 import type { OpportunitySector } from '@trading/shared';
-import { getStoredDailyReport } from './daily-report.service.js';
+import { getStoredDailyReport, getStoredDailyReportByDate } from './daily-report.service.js';
 import { getMarketDigest } from '../opportunities/opportunities.service.js';
-import { getCachedMarketReport } from './market-report.service.js';
+import { getCachedMarketReport, getCachedMarketReportByDate } from './market-report.service.js';
 import { getStoredSectorReports } from './sector-report.service.js';
 import {
   checkOrRunPipeline,
@@ -13,6 +13,8 @@ import {
   getPipelineHistory,
   resolveWebSearch,
 } from './pipeline.service.js';
+import { getReportDates } from './pipeline.repository.js';
+import { getCausalMapByDate } from '../db/repository.js';
 import {
   getAllDiscoveryQueries,
   updateDiscoveryQuery,
@@ -45,6 +47,20 @@ export const intelligenceRouter = router({
   marketReport: publicProcedure.query(() => {
     return getCachedMarketReport();
   }),
+
+  reportDates: publicProcedure.query(() => {
+    return getReportDates();
+  }),
+
+  reportsByDate: publicProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(({ input }) => {
+      return {
+        marketReport: getCachedMarketReportByDate(input.date),
+        dailyReport: getStoredDailyReportByDate(input.date),
+        date: input.date,
+      };
+    }),
 
   // Replaces old generateMarketReport — now triggers the full pipeline
   generateMarketReport: publicProcedure
@@ -203,5 +219,12 @@ export const intelligenceRouter = router({
     .mutation(({ input }) => {
       rejectWeightProposal(input.id, input.reason);
       return { ok: true };
+    }),
+
+  causalMap: publicProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).optional())
+    .query(({ input }) => {
+      const date = input?.date ?? new Date().toISOString().slice(0, 10);
+      return getCausalMapByDate(date);
     }),
 });

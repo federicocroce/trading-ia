@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePipeline } from '../pipeline/usePipeline';
+import { CausalMapView } from './CausalMapView';
 
 const relevanceColor = {
   high: 'bg-red-500/20 text-red-400 border-red-500/30',
@@ -18,12 +19,26 @@ const relevanceLabel = {
   low: 'Baja',
 };
 
-export function MarketReportView() {
+export function MarketReportView({ date }: { date?: string }) {
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
 
-  const { data: report } = trpc.intelligence.marketReport.useQuery(undefined, {
+  const today = new Date().toISOString().slice(0, 10);
+  const isHistorical = date !== undefined && date !== today;
+
+  const { data: todayReport } = trpc.intelligence.marketReport.useQuery(undefined, {
     staleTime: 10 * 60_000,
+    enabled: !isHistorical,
   });
+
+  const { data: historicalData } = trpc.intelligence.reportsByDate.useQuery(
+    { date: date ?? today },
+    {
+      staleTime: 30 * 60_000,
+      enabled: isHistorical,
+    }
+  );
+
+  const report = isHistorical ? historicalData?.marketReport : todayReport;
 
   const utils = trpc.useUtils();
   const { run, isRunning } = usePipeline();
@@ -45,20 +60,22 @@ export function MarketReportView() {
             Analisis por tematica con recomendaciones, escenarios y activos nuevos via Groq IA
           </p>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => run()}
-              disabled={isRunning}
-              className="h-8"
-            >
-              {isRunning ? 'Ejecutando pipeline...' : 'Generar reporte'}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Busca noticias en 10 tematicas, analiza cada una con datos reales y genera recomendaciones.</TooltipContent>
-        </Tooltip>
+        {!isHistorical && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => run()}
+                disabled={isRunning}
+                className="h-8"
+              >
+                {isRunning ? 'Ejecutando pipeline...' : 'Generar reporte'}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Busca noticias en 10 tematicas, analiza cada una con datos reales y genera recomendaciones.</TooltipContent>
+          </Tooltip>
+        )}
       </div>
 
       {!report && !isRunning && (
@@ -100,6 +117,9 @@ export function MarketReportView() {
               </CardContent>
             </Card>
           )}
+
+          {/* ============ TEMAS DEL DIA (causal map) ============ */}
+          <CausalMapView date={date} />
 
           {/* ============ THEME NAVIGATION ============ */}
           {report.themes && report.themes.length > 0 && (
@@ -260,7 +280,7 @@ export function MarketReportView() {
                       <span className="text-[9px] text-muted-foreground font-medium">Tier {tier} {tier === 'A' ? '(alta conviccion)' : '(mas riesgo)'}</span>
                       {tierAlts.map((alt, i) => (
                         <div key={i} className="flex items-start gap-2 py-1">
-                          <div className="flex items-center gap-1.5 min-w-[120px]">
+                          <div className="flex items-center gap-1.5 min-w-30">
                             <span className="text-[10px] font-mono font-semibold">{alt.symbol}</span>
                             <Badge className="text-[7px] h-3.5 bg-muted text-muted-foreground">{alt.sector}</Badge>
                           </div>
