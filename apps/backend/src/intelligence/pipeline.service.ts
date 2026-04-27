@@ -13,9 +13,11 @@ import {
 } from './pipeline.repository.js';
 import { saveStageArtifact } from './pipeline-artifacts.repository.js';
 import { generateMarketReport, type DigestInputs } from './market-report.service.js';
+import { runMacroIntelligence } from './macro-intelligence.service.js';
+import { getEarningsContext } from './earnings-calendar.service.js';
 import { trackPipelineRecommendations } from './pipeline-tracking.service.js';
 import { getStoredDailyReport } from './daily-report.service.js';
-import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAge, insertWebSearchArticles } from '../db/repository.js';
+import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAge, insertWebSearchArticles, getWebSearchArticlesForDate, saveCausalMap, getCausalMapByDate, clearCausalMapForDate } from '../db/repository.js';
 import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, getLastUnifiedAnalyses, setMarketDigest } from '../opportunities/opportunities.service.js';
 import { getIntelligenceFromDB } from '../news/news-intelligence.service.js';
 import { runWebSearch } from '../web-search/web-search.service.js';
@@ -58,6 +60,15 @@ function isAnalysisStageValid(): boolean {
   const run = getPipelineRunByDate(today);
   if (!run) return false;
   return run.stages.analysis.status === 'ok' || run.stages.analysis.status === 'partial';
+}
+
+function isMacroIntelligenceStageValid(): boolean {
+  const today = getToday();
+  const run = getPipelineRunByDate(today);
+  if (!run) return false;
+  const existing = getCausalMapByDate(today);
+  return existing.length > 0 &&
+    (run.stages.macroIntelligence.status === 'ok' || run.stages.macroIntelligence.status === 'partial');
 }
 
 function getFundamentalsDaysOld(): number {
@@ -174,6 +185,61 @@ async function runNewsStage(runId: number): Promise<StageResult> {
       criticalError: errMsg.slice(0, 200),
     };
     updatePipelineStage(runId, 'news', sr);
+    return sr;
+  }
+}
+
+async function runMacroIntelligenceStage(runId: number): Promise<StageResult> {
+  const startedAt = new Date().toISOString();
+  updatePipelineStage(runId, 'macroIntelligence', { status: 'running', startedAt });
+  const today = getToday();
+  try {
+    // Gather all today's headlines: web search + news articles
+    const newsArticles = getNewsArticlesForToday('medium');
+    const webArticles = getWebSearchArticlesForDate(today);
+    const headlines = [
+      ...webArticles.map((a: any) => a.title),
+      ...newsArticles.map((a: any) => a.title),
+    ].filter(Boolean);
+
+    const events = await runMacroIntelligence(headlines);
+
+    if (events.length === 0) {
+      const sr: StageResult = {
+        status: 'failed',
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        detail: 'LLM no generó eventos macro.',
+        errors: [],
+        criticalError: 'Sin eventos — sin noticias suficientes',
+      };
+      updatePipelineStage(runId, 'macroIntelligence', sr);
+      return sr;
+    }
+
+    saveCausalMap(today, events);
+    const totalTickers = new Set(events.flatMap(e => e.chains.map(c => c.ticker))).size;
+    const sr: StageResult = {
+      status: 'ok',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      detail: `${events.length} eventos macro, ${totalTickers} tickers en cadenas causales.`,
+      errors: [],
+    };
+    updatePipelineStage(runId, 'macroIntelligence', sr);
+    return sr;
+  } catch (err) {
+    const errMsg = (err as Error).message ?? String(err);
+    console.error('[pipeline] runMacroIntelligenceStage error:', errMsg);
+    const sr: StageResult = {
+      status: 'failed',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      detail: 'Error en macro intelligence.',
+      errors: [],
+      criticalError: errMsg.slice(0, 200),
+    };
+    updatePipelineStage(runId, 'macroIntelligence', sr);
     return sr;
   }
 }
@@ -298,7 +364,7 @@ async function runReportStage(runId: number): Promise<StageResult> {
   const startedAt = new Date().toISOString();
   updatePipelineStage(runId, 'report', { status: 'running', startedAt });
   try {
-    const precomputed = _stageUnifiedAnalyses ?? new Map();
+    const precomputed = _stageUnifiedAnalyses ?? getLastUnifiedAnalyses() ?? new Map();
     _stageUnifiedAnalyses = null;
 
     if (precomputed.size === 0) {
@@ -308,6 +374,7 @@ async function runReportStage(runId: number): Promise<StageResult> {
     // Build digest inputs from today's scan
     let digestInputs: DigestInputs | undefined;
     const scan = getTodayOpportunityScan();
+    const earningsCtx = await getEarningsContext(10);
     if (scan) {
       const intelligence = await getIntelligenceFromDB();
       digestInputs = {
@@ -316,6 +383,7 @@ async function runReportStage(runId: number): Promise<StageResult> {
         intelligence,
         sectorSummary: JSON.parse(scan.sectorSummary ?? '[]'),
         quantContext: _stageQuantContext,
+        earningsContext: earningsCtx.formattedBlock,
       };
     }
 
@@ -369,6 +437,22 @@ async function runRemainingStages(runId: number): Promise<void> {
     });
   }
 
+  // macroIntelligence stage
+  if (!isMacroIntelligenceStageValid()) {
+    const macroResult = await runMacroIntelligenceStage(runId);
+    if (macroResult.status === 'failed') {
+      console.warn('[pipeline] macroIntelligence falló — continuando con portfolio-only symbols');
+    }
+  } else {
+    updatePipelineStage(runId, 'macroIntelligence', {
+      status: 'skipped',
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      detail: 'CausalMap del día ya disponible.',
+      errors: [],
+    });
+  }
+
   const fundResult = await runFundamentalsStage(runId);
   recordStageArtifact(runId, 'fundamentals', fundResult);
 
@@ -403,7 +487,7 @@ async function runRemainingStages(runId: number): Promise<void> {
   }
 
   const finalRun = getPipelineRunByDate(today)!;
-  const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
+  const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.macroIntelligence, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
   const anyFailed = stageList.some((s) => s.status === 'failed');
   const allOk = stageList.every((s) => s.status === 'ok' || s.status === 'skipped');
   finishPipelineRun(runId, anyFailed ? 'failed' : allOk ? 'ok' : 'partial');
@@ -430,8 +514,16 @@ export async function checkOrRunPipeline(force = false, sectors?: OpportunitySec
   const waitingRun = getWaitingUserRun(today);
   if (waitingRun) return waitingRun;
 
-  const run = createPipelineRun(today);
+  // Reuse existing completed run so isNewsStageValid / isAnalysisStageValid can
+  // skip already-processed stages instead of re-running everything from scratch.
+  if (force) {
+    clearCausalMapForDate(today);
+  }
+  const existingRun = !force ? getPipelineRunByDate(today) : null;
+  const reuseRun = existingRun?.status === 'ok' || existingRun?.status === 'partial';
+  const run = reuseRun ? existingRun! : createPipelineRun(today);
   const runId = run.id;
+  if (reuseRun) markRunAsRunning(runId);
 
   try {
     const webSearchResult = await runWebSearchStage(runId);
@@ -553,7 +645,7 @@ export async function rerunPipelineStage(
   }
 
   const finalRun = getPipelineRunByDate(today)!;
-  const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
+  const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.macroIntelligence, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
   const anyFailed = stageList.some((s) => s.status === 'failed');
   const allOk = stageList.every((s) => s.status === 'ok' || s.status === 'skipped');
   finishPipelineRun(runId, anyFailed ? 'failed' : allOk ? 'ok' : 'partial');
