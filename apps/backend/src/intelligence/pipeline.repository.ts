@@ -1,4 +1,4 @@
-import { eq, desc, gte, or } from 'drizzle-orm';
+import { eq, desc, gte, lt, or, and, sql } from 'drizzle-orm';
 import { db, schema } from '../db/index.js';
 import type { PipelineRun, StageResult, StageStatus } from '@trading/shared';
 
@@ -28,6 +28,7 @@ function rowToPipelineRun(row: typeof schema.pipelineRuns.$inferSelect): Pipelin
     stages: {
       webSearch: stageResultFromRow(row.webSearchStatus, row.webSearchDetail, row.webSearchErrors, row.webSearchStartedAt, row.webSearchFinishedAt),
       news: stageResultFromRow(row.newsStatus, row.newsDetail, row.newsErrors, row.newsStartedAt, row.newsFinishedAt),
+      macroIntelligence: stageResultFromRow(row.macroIntelligenceStatus, row.macroIntelligenceDetail, row.macroIntelligenceErrors, row.macroIntelligenceStartedAt, row.macroIntelligenceFinishedAt),
       fundamentals: stageResultFromRow(row.fundamentalsStatus, row.fundamentalsDetail, row.fundamentalsErrors, row.fundamentalsStartedAt, row.fundamentalsFinishedAt),
       analysis: stageResultFromRow(row.analysisStatus, row.analysisDetail, row.analysisErrors, row.analysisStartedAt, row.analysisFinishedAt),
       quant: stageResultFromRow(row.quantStatus, row.quantDetail, row.quantErrors, row.quantStartedAt, row.quantFinishedAt),
@@ -43,6 +44,7 @@ export function createPipelineRun(date: string): PipelineRun {
     status: 'running',
     webSearchStatus: 'pending',
     newsStatus: 'pending',
+    macroIntelligenceStatus: 'pending',
     fundamentalsStatus: 'pending',
     analysisStatus: 'pending',
     quantStatus: 'pending',
@@ -87,7 +89,7 @@ export function getPipelineHistory(limit = 7): PipelineRun[] {
 
 export function updatePipelineStage(
   runId: number,
-  stage: 'webSearch' | 'news' | 'fundamentals' | 'analysis' | 'quant' | 'report',
+  stage: 'webSearch' | 'news' | 'macroIntelligence' | 'fundamentals' | 'analysis' | 'quant' | 'report',
   result: Partial<StageResult & { startedAt: string | null; finishedAt: string | null }>,
 ) {
   const updates: Record<string, unknown> = {};
@@ -181,4 +183,39 @@ export function getTodayMarketReport() {
     avoidList: row.avoidList ? JSON.parse(row.avoidList) : null,
     errors: row.errors ? JSON.parse(row.errors) : [],
   };
+}
+
+export function getMarketReportByDate(date: string) {
+  const nextDay = new Date(date + 'T00:00:00.000Z');
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  const nextDayStr = nextDay.toISOString().split('T')[0];
+  const row = db.select().from(schema.marketReports)
+    .where(and(gte(schema.marketReports.generatedAt, date), lt(schema.marketReports.generatedAt, nextDayStr)))
+    .orderBy(desc(schema.marketReports.createdAt))
+    .get();
+  if (!row) return null;
+  return {
+    ...row,
+    themes: row.themes ? JSON.parse(row.themes) : null,
+    topRecommendations: row.topRecommendations ? JSON.parse(row.topRecommendations) : null,
+    alternatives: row.alternatives ? JSON.parse(row.alternatives) : null,
+    scenarios: row.scenarios ? JSON.parse(row.scenarios) : null,
+    avoidList: row.avoidList ? JSON.parse(row.avoidList) : null,
+    errors: row.errors ? JSON.parse(row.errors) : [],
+  };
+}
+
+export function getReportDates(): string[] {
+  const fromMarket = db.selectDistinct({ date: sql<string>`substr(${schema.marketReports.generatedAt}, 1, 10)` })
+    .from(schema.marketReports)
+    .all()
+    .map(r => r.date);
+
+  const fromDaily = db.selectDistinct({ date: schema.dailyReports.reportDate })
+    .from(schema.dailyReports)
+    .all()
+    .map(r => r.date);
+
+  const merged = Array.from(new Set([...fromMarket, ...fromDaily]));
+  return merged.sort((a, b) => b.localeCompare(a));
 }
