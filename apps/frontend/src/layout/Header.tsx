@@ -25,7 +25,7 @@ export function Header() {
   const selectedPreset = SECTOR_PRESETS.find((p) => p.value === presetKey) ?? SECTOR_PRESETS[0];
 
   function getAnalyzeLabel(): string {
-    if (!isRunning) return 'Analizar';
+    if (!isRunning) return 'Noticias';
     const stages = todayRun?.stages;
     if (!stages) return 'Ejecutando...';
     if (stages.news.status === 'running') return 'Obteniendo noticias...';

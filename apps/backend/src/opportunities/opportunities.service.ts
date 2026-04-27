@@ -322,7 +322,8 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
     plazaSentiments.set(plaza.plaza as MarketPlaza, plaza.overallSentiment as SentimentType);
   }
 
-  const filteredSymbols = filterSymbolsByPositiveSectors(allSymbols, plazaSentiments, activeSymbols);
+  const portfolioPositionSymbols = new Set(positions.map((p) => p.symbol));
+  const filteredSymbols = filterSymbolsByPositiveSectors(allSymbols, plazaSentiments, portfolioPositionSymbols);
 
   const negativeSectors = [...plazaSentiments.entries()]
     .filter(([, s]) => s === 'negative')
