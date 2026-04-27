@@ -255,11 +255,12 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
 
   const portfolioSymbolsList = getPortfolioPositions().map(p => p.symbol);
   const today = new Date().toISOString().slice(0, 10);
-  const causalTickers = getCausalTickersByDate(today).map(c => c.ticker);
+  const causalRows = getCausalTickersByDate(today);
+  const causalTickers = causalRows.map(c => c.ticker);
+  const causalContextMap = new Map(causalRows.map(c => [c.ticker, c.causalSummary]));
   const discovered = getDiscoveredTickers().map(t => t.symbol);
   // Portfolio always included; news-derived tickers replace hardcoded watchlist
   const allSymbols = [...new Set([...portfolioSymbolsList, ...causalTickers, ...discovered])];
-  const causalContextMap = new Map(getCausalTickersByDate(today).map(c => [c.ticker, c.causalSummary]));
   console.log(`[opportunities] ${allSymbols.length} simbolos (${portfolioSymbolsList.length} portfolio + ${causalTickers.length} causal + ${discovered.length} descubiertos)`);
 
   // ============================================================

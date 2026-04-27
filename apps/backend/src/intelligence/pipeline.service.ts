@@ -198,8 +198,8 @@ async function runMacroIntelligenceStage(runId: number): Promise<StageResult> {
     const newsArticles = getNewsArticlesForToday('medium');
     const webArticles = getWebSearchArticlesForDate(today);
     const headlines = [
-      ...webArticles.map((a: any) => a.title),
-      ...newsArticles.map((a: any) => a.title),
+      ...webArticles.map((a) => a.title),
+      ...newsArticles.map((a) => a.title),
     ].filter(Boolean);
 
     const events = await runMacroIntelligence(headlines);
@@ -581,6 +581,7 @@ export async function resolveWebSearch(action: 'retry' | 'skip' | 'cancel'): Pro
 }
 
 export async function rerunPipelineStage(
+  // macroIntelligence is not individually rerunnable; use force=true on checkOrRunPipeline instead
   stage: 'webSearch' | 'news' | 'fundamentals' | 'analysis' | 'report'
 ): Promise<PipelineRun> {
   const today = getToday();

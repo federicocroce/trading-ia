@@ -1160,8 +1160,12 @@ export function clearCausalMapForDate(date: string): void {
 }
 
 export function saveCausalMap(date: string, events: MacroEventRow[]): void {
-  clearCausalMapForDate(date);
   db.transaction((trx) => {
+    // Clear first, inside the same transaction
+    trx.delete(schema.eventRelations).where(eq(schema.eventRelations.date, date)).run();
+    trx.delete(schema.causalChains).where(eq(schema.causalChains.date, date)).run();
+    trx.delete(schema.macroEvents).where(eq(schema.macroEvents.date, date)).run();
+    // Then insert
     for (const evt of events) {
       trx.insert(schema.macroEvents).values({
         date,
