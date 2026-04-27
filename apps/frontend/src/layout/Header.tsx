@@ -1,13 +1,28 @@
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
 import { MacroRegimeWidget } from '@/macro/MacroRegimeWidget';
 
+const SECTOR_PRESETS: { label: string; value: string; sectors: string[] | undefined }[] = [
+  { label: 'Todos', value: 'all', sectors: undefined },
+  { label: 'Argentina', value: 'argentina', sectors: ['argentina-energy', 'argentina-finance', 'argentina-cedears'] },
+  { label: 'CEDEARs', value: 'cedears', sectors: ['argentina-cedears'] },
+  { label: 'US Tech', value: 'us-tech', sectors: ['us-tech'] },
+  { label: 'US Energía', value: 'us-energy', sectors: ['us-energy'] },
+  { label: 'Crypto', value: 'crypto', sectors: ['crypto'] },
+  { label: 'Commodities', value: 'commodities', sectors: ['commodities'] },
+];
+
 export function Header() {
   const { data: summary } = trpc.portfolio.summary.useQuery(undefined, { refetchInterval: 60_000 });
   const { run, isRunning, todayRun } = usePipeline();
+  const [presetKey, setPresetKey] = useState('all');
+
+  const selectedPreset = SECTOR_PRESETS.find((p) => p.value === presetKey) ?? SECTOR_PRESETS[0];
 
   function getAnalyzeLabel(): string {
     if (!isRunning) return 'Analizar';
@@ -29,12 +44,25 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Select value={presetKey} onValueChange={setPresetKey} disabled={isRunning}>
+            <SelectTrigger className="h-7 text-xs w-32 border-border/50">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SECTOR_PRESETS.map((p) => (
+                <SelectItem key={p.value} value={p.value} className="text-xs">
+                  {p.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 size="sm"
                 variant="default"
-                onClick={() => run(false)}
+                onClick={() => run(true, selectedPreset.sectors)}
                 disabled={isRunning}
                 className="h-7 text-xs px-3 font-semibold"
               >
@@ -44,6 +72,11 @@ export function Header() {
             <TooltipContent className="max-w-xs">
               <p className="font-medium">Pipeline completo (~3-5 min)</p>
               <p className="text-xs">Noticias → Fundamentales → Análisis → Reporte</p>
+              {selectedPreset.sectors && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Scope: {selectedPreset.label}
+                </p>
+              )}
             </TooltipContent>
           </Tooltip>
           <MacroRegimeWidget />
