@@ -172,6 +172,7 @@ export interface PipelineRun {
   stages: {
     webSearch: StageResult
     news: StageResult
+    macroIntelligence: StageResult
     fundamentals: StageResult
     analysis: StageResult
     quant?: StageResult
