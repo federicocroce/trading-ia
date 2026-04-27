@@ -46,6 +46,7 @@ function buildCompactCard(
   tech?: TechnicalSummary,
   fund?: FundamentalSummary,
   sent?: SentimentInput,
+  causalContext?: string,
 ): string {
   const lines: string[] = [];
   const pos = positions.find(p => p.symbol === opp.symbol);
@@ -120,6 +121,10 @@ function buildCompactCard(
     lines.push(`levels: entry=$${tl.entryPrice.toFixed(2)} stop=$${tl.stopLoss.toFixed(2)} target=$${tl.takeProfit.toFixed(2)} RR=1:${tl.riskRewardRatio.toFixed(1)}`);
   }
 
+  if (causalContext) {
+    lines.push(`\nCONTEXTO CAUSAL HOY:\n${causalContext}`);
+  }
+
   return lines.join('\n');
 }
 
@@ -135,12 +140,13 @@ async function analyzeBatch(
   pipelineRunId?: number,
   batchIndex = 0,
   macroContext = '',
+  causalContextMap?: Map<string, string>,
 ): Promise<Map<string, UnifiedAssetAnalysis>> {
   const result = new Map<string, UnifiedAssetAnalysis>();
 
   const positions = getPortfolioPositions();
   const symbolCards = batch
-    .map(o => buildCompactCard(o, positions, techMap.get(o.symbol), fundMap.get(o.symbol), sentimentMap.get(o.symbol)))
+    .map(o => buildCompactCard(o, positions, techMap.get(o.symbol), fundMap.get(o.symbol), sentimentMap.get(o.symbol), causalContextMap?.get(o.symbol)))
     .join('\n---\n');
   const cards = macroContext ? `${macroContext}\n===\n${symbolCards}` : symbolCards;
 
@@ -216,6 +222,7 @@ export async function runUnifiedAnalysis(
   maxAssets = 12,
   pipelineRunId?: number,
   macroContext = '',
+  causalContextMap?: Map<string, string>,
 ): Promise<Map<string, UnifiedAssetAnalysis>> {
   const result = new Map<string, UnifiedAssetAnalysis>();
 
@@ -242,7 +249,7 @@ export async function runUnifiedAnalysis(
 
   // Run batches in parallel
   const batchResults = await Promise.allSettled(
-    batches.map((batch, i) => analyzeBatch(batch, techMap, fundMap, sentimentMap, pipelineRunId, i, macroContext)),
+    batches.map((batch, i) => analyzeBatch(batch, techMap, fundMap, sentimentMap, pipelineRunId, i, macroContext, causalContextMap)),
   );
 
   for (const r of batchResults) {

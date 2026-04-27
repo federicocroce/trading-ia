@@ -27,6 +27,7 @@ import { getSourceStats } from '../news/news.service.js';
 import {
   getActiveSymbolList,
   getPortfolioPositions,
+  getCausalTickersByDate,
   insertOpportunityScan,
   insertOpportunitySnapshots,
   getLatestOpportunityScan,
@@ -252,11 +253,14 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
   // ============================================================
   updateProgress('Descubriendo activos relevantes', 2);
 
-  const dbSymbols = getActiveSymbolList(); // portfolio + watchlist
+  const portfolioSymbolsList = getPortfolioPositions().map(p => p.symbol);
+  const today = new Date().toISOString().slice(0, 10);
+  const causalTickers = getCausalTickersByDate(today).map(c => c.ticker);
   const discovered = getDiscoveredTickers().map(t => t.symbol);
-  const allSymbols = [...new Set([...dbSymbols, ...discovered])];
-
-  console.log(`[opportunities] Paso 2: ${allSymbols.length} simbolos (${dbSymbols.length} watchlist + ${discovered.length} descubiertos por noticias)`);
+  // Portfolio always included; news-derived tickers replace hardcoded watchlist
+  const allSymbols = [...new Set([...portfolioSymbolsList, ...causalTickers, ...discovered])];
+  const causalContextMap = new Map(getCausalTickersByDate(today).map(c => [c.ticker, c.causalSummary]));
+  console.log(`[opportunities] ${allSymbols.length} simbolos (${portfolioSymbolsList.length} portfolio + ${causalTickers.length} causal + ${discovered.length} descubiertos)`);
 
   // ============================================================
   // PASO 3: Clasificar activos (tipo, sector, mercado)
@@ -480,6 +484,7 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
       12,
       pipelineRunId,
       macroContextStr,
+      causalContextMap,
     );
 
     for (const opp of opportunities) {
