@@ -53,8 +53,10 @@ export function usePipeline() {
   const isWaitingUser = todayRun?.status === 'waiting_user';
 
   return {
-    run: (force = false, sectors?: string[]) => runMutation.mutate({ force, sectors }),
-    rerunStage: (stage: 'webSearch' | 'news' | 'fundamentals' | 'analysis' | 'report') => rerunMutation.mutate({ stage }),
+    run: (force = false, sectors?: string[], aiMode: 'cloud' | 'local' = 'cloud') =>
+      runMutation.mutate({ force, sectors, aiMode }),
+    rerunStage: (stage: 'webSearch' | 'news' | 'fundamentals' | 'analysis' | 'report', aiMode: 'cloud' | 'local' = 'cloud') =>
+      rerunMutation.mutate({ stage, aiMode }),
     resolveWebSearch: (action: 'retry' | 'skip' | 'cancel') => resolveWebSearchMutation.mutate({ action }),
     status: todayRun,
     history: historyQuery.data ?? [],
