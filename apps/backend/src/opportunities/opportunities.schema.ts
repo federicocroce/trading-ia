@@ -8,4 +8,5 @@ export const scanInput = z.object({
     'us-tech',
     'crypto',
   ])).optional(),
+  aiMode: z.enum(['cloud', 'local']).optional().default('cloud'),
 }).optional();

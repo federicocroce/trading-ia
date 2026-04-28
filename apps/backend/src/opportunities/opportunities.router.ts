@@ -27,9 +27,25 @@ import {
   getDimensionCorrelation,
   getEstimateAccuracy,
   getMissedOpportunities,
+  getOpportunityScanDates,
+  getOpportunityScanByDate,
 } from '../db/repository.js';
 
 export const opportunitiesRouter = router({
+  scanDates: publicProcedure.query(() => getOpportunityScanDates()),
+
+  scanByDate: publicProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(({ input }) => {
+      const row = getOpportunityScanByDate(input.date);
+      if (!row) return null;
+      return {
+        ...row,
+        opportunities: JSON.parse(row.opportunities),
+        sectorSummary: JSON.parse(row.sectorSummary),
+      };
+    }),
+
   scan: publicProcedure
     .input(scanInput)
     .query(async ({ input }) => {
@@ -44,7 +60,7 @@ export const opportunitiesRouter = router({
   refresh: publicProcedure
     .input(scanInput)
     .mutation(async ({ input }) => {
-      return refreshOpportunities(input?.sectors);
+      return refreshOpportunities(input?.sectors, input?.aiMode ?? 'cloud');
     }),
 
   // --- 3 procesos independientes ---
