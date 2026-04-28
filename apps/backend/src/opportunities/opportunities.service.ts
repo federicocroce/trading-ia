@@ -47,6 +47,7 @@ import {
   type AntiHypeFilterResult,
 } from './scoring.js';
 import { getToday } from '../shared/date-utils.js';
+import { setRunAiMode } from '../shared/ai-router.js';
 
 // --- In-memory cache (survives within same process, backed by DB) ---
 let cachedResult: OpportunityScanResult | null = null;
@@ -853,7 +854,7 @@ export async function runAnalysisBlocking(pipelineRunId?: number, sectors?: Oppo
   }
 }
 
-export async function refreshOpportunities(sectors?: OpportunitySector[]): Promise<OpportunityScanResult> {
+export async function refreshOpportunities(sectors?: OpportunitySector[], aiMode: 'cloud' | 'local' = 'cloud'): Promise<OpportunityScanResult> {
   if (scanProgress.isScanning) {
     // Already scanning, return current data or empty
     return cachedResult ?? {
@@ -874,6 +875,7 @@ export async function refreshOpportunities(sectors?: OpportunitySector[]): Promi
   cachedResult = null;
   dbCacheInvalidated = true; // bloquear carga de DB hasta que el nuevo scan esté listo
 
+  setRunAiMode(aiMode);
   // Run in background — return immediately with status
   runLiveScan(sectors)
     .then(result => { cachedResult = result; dbCacheInvalidated = false; })
