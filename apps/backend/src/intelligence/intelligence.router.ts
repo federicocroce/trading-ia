@@ -13,6 +13,7 @@ import {
   getPipelineHistory,
   resolveWebSearch,
 } from './pipeline.service.js';
+import { isLMStudioAvailable } from '../shared/lmstudio.js';
 import { getReportDates } from './pipeline.repository.js';
 import { getCausalMapByDate } from '../db/repository.js';
 import {
@@ -67,9 +68,14 @@ export const intelligenceRouter = router({
     .input(z.object({
       force: z.boolean().optional(),
       sectors: z.array(z.string()).optional(),
+      aiMode: z.enum(['cloud', 'local']).default('cloud'),
     }).optional())
     .mutation(async ({ input }) => {
-      return checkOrRunPipeline(input?.force ?? false, input?.sectors as OpportunitySector[] | undefined);
+      return checkOrRunPipeline(
+        input?.force ?? false,
+        input?.sectors as OpportunitySector[] | undefined,
+        input?.aiMode ?? 'cloud',
+      );
     }),
 
   // Pipeline status for polling (every 2s while running)
@@ -89,9 +95,12 @@ export const intelligenceRouter = router({
 
   // Re-run a specific stage
   rerunStage: publicProcedure
-    .input(z.object({ stage: z.enum(['webSearch', 'news', 'fundamentals', 'analysis', 'report']) }))
+    .input(z.object({
+      stage: z.enum(['webSearch', 'news', 'fundamentals', 'analysis', 'report']),
+      aiMode: z.enum(['cloud', 'local']).default('cloud'),
+    }))
     .mutation(async ({ input }) => {
-      return rerunPipelineStage(input.stage);
+      return rerunPipelineStage(input.stage, input.aiMode);
     }),
 
   resolveWebSearch: publicProcedure
@@ -102,6 +111,10 @@ export const intelligenceRouter = router({
 
   sectorReports: publicProcedure.query(() => {
     return getStoredSectorReports();
+  }),
+
+  lmStudioStatus: publicProcedure.query(async () => {
+    return { available: await isLMStudioAvailable() };
   }),
 
   // Config: Discovery queries
