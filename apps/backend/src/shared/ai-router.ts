@@ -12,6 +12,12 @@ import { askOpenRouter } from './openrouter.js';
 import { askLMStudio } from './lmstudio.js';
 import { askGemini, askGeminiFlash, isGeminiAvailable } from './gemini.js';
 
+let _runAiMode: 'cloud' | 'local' = 'cloud';
+
+export function setRunAiMode(mode: 'cloud' | 'local'): void {
+  _runAiMode = mode;
+}
+
 export type AITask = 'reasoning' | 'classification' | 'narrative';
 
 function extractJSON(text: string): string {
@@ -152,6 +158,10 @@ function getProviderChain(
     name: 'Qwen 3.5 9B (local)',
     fn: () => askLMStudio(userMessage, systemPrompt, Math.min(maxTokens, 4096)),
   };
+
+  if (_runAiMode === 'local') {
+    return [qwen];
+  }
 
   const geminiAvailable = isGeminiAvailable();
 
