@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePipeline } from '../pipeline/usePipeline';
 import { CausalMapView } from './CausalMapView';
+import { useAiModeModal } from '@/shared/AiModeModal';
 
 const relevanceColor = {
   high: 'bg-red-500/20 text-red-400 border-red-500/30',
@@ -42,6 +43,7 @@ export function MarketReportView({ date }: { date?: string }) {
 
   const utils = trpc.useUtils();
   const { run, isRunning } = usePipeline();
+  const { selectMode, modal } = useAiModeModal();
 
   const addToWatchlist = trpc.opportunities.addToWatchlist.useMutation({
     onSuccess: () => utils.opportunities.scan.invalidate(),
@@ -51,6 +53,7 @@ export function MarketReportView({ date }: { date?: string }) {
   const activeTheme = report?.themes?.find(t => t.theme === selectedTheme);
 
   return (
+    <>
     <div className="space-y-4">
       {/* Header + generate button */}
       <div className="flex items-center justify-between">
@@ -66,7 +69,10 @@ export function MarketReportView({ date }: { date?: string }) {
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => run()}
+                onClick={async () => {
+                  const mode = await selectMode();
+                  run(false, undefined, mode);
+                }}
                 disabled={isRunning}
                 className="h-8"
               >
@@ -348,5 +354,7 @@ export function MarketReportView({ date }: { date?: string }) {
         </div>
       )}
     </div>
+    {modal}
+    </>
   );
 }

@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
 import { MacroRegimeWidget } from '@/macro/MacroRegimeWidget';
+import { useAiModeModal } from '@/shared/AiModeModal';
 
 const SECTOR_PRESETS: { label: string; value: string; sectors: string[] | undefined }[] = [
   { label: 'Todos', value: 'all', sectors: undefined },
@@ -21,6 +22,7 @@ export function Header() {
   const { data: summary } = trpc.portfolio.summary.useQuery(undefined, { refetchInterval: 60_000 });
   const { run, isRunning, todayRun } = usePipeline();
   const [presetKey, setPresetKey] = useState('all');
+  const { selectMode, modal } = useAiModeModal();
 
   const selectedPreset = SECTOR_PRESETS.find((p) => p.value === presetKey) ?? SECTOR_PRESETS[0];
 
@@ -36,6 +38,7 @@ export function Header() {
   }
 
   return (
+    <>
     <header className="bg-card border-b border-border px-4 py-2 shrink-0">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2 shrink-0">
@@ -62,7 +65,10 @@ export function Header() {
               <Button
                 size="sm"
                 variant="default"
-                onClick={() => run(true, selectedPreset.sectors)}
+                onClick={async () => {
+                  const mode = await selectMode();
+                  run(true, selectedPreset.sectors, mode);
+                }}
                 disabled={isRunning}
                 className="h-7 text-xs px-3 font-semibold"
               >
@@ -102,5 +108,7 @@ export function Header() {
         )}
       </div>
     </header>
+    {modal}
+    </>
   );
 }

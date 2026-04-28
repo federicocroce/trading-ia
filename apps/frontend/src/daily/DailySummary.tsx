@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button';
 import { MarketReportView } from './MarketReportView';
 import { AccuracyPanel } from './AccuracyPanel';
 import { usePipeline } from '../pipeline/usePipeline';
+import { usePrintSection } from '@/shared/usePrintSection';
+import { useAiModeModal } from '@/shared/AiModeModal';
 
-function MarketReportSection() {
-  return <MarketReportView />;
+function MarketReportSection({ date }: { date: string }) {
+  return <MarketReportView date={date} />;
 }
 
 function SectorImpactsSection() {
@@ -451,12 +453,14 @@ function MarketDigestPanel() {
     staleTime: 5 * 60_000,
   });
   const { run, isRunning } = usePipeline();
+  const { selectMode, modal } = useAiModeModal();
 
   if (!digest) return null;
 
   const mood = moodConfig[digest.marketMood] ?? moodConfig.mixed;
 
   return (
+    <>
     <Card size="sm" className="border-l-4 border-l-blue-500">
       <CardHeader>
         <div className="flex items-center justify-between">
@@ -522,7 +526,10 @@ function MarketDigestPanel() {
               size="sm"
               variant="outline"
               className="h-6 text-[9px] px-2 shrink-0 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10"
-              onClick={() => run()}
+              onClick={async () => {
+                const mode = await selectMode();
+                run(false, undefined, mode);
+              }}
               disabled={isRunning}
             >
               {isRunning ? 'Ejecutando...' : 'Regenerar'}
@@ -555,28 +562,77 @@ function MarketDigestPanel() {
         )}
       </CardContent>
     </Card>
+    {modal}
+    </>
   );
 }
 
+
+
 export function DailySummary() {
   const [symbolFilter, setSymbolFilter] = useState('');
+  const today = new Date().toISOString().slice(0, 10);
+  const [selectedDate, setSelectedDate] = useState(today);
+  const isToday = selectedDate === today;
+
+  usePrintSection('daily-summary-print');
+
+  const { data: reportDates = [] } = trpc.intelligence.reportDates.useQuery(undefined, {
+    staleTime: 5 * 60_000,
+  });
+
+  const dates = reportDates.includes(today) ? reportDates : [today, ...reportDates];
 
   return (
-    <div className="p-4 max-w-4xl mx-auto space-y-4">
+    <div id="daily-summary-print" className="p-4 max-w-4xl mx-auto space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-foreground">Resumen del dia</h2>
-        <input
-          type="text"
-          placeholder="Filtrar simbolo..."
-          value={symbolFilter}
-          onChange={(e) => setSymbolFilter(e.target.value.toUpperCase())}
-          className="h-7 w-32 rounded border border-border/50 bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        />
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-foreground">Resumen del dia</h2>
+          {!isToday && (
+            <span className="text-[9px] bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded px-1.5 py-0.5">
+              Historico
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="h-7 rounded border border-border/50 bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            {dates.map((d) => (
+              <option key={d} value={d}>
+                {d === today ? `${d} (hoy)` : d}
+              </option>
+            ))}
+          </select>
+          <input
+            type="text"
+            placeholder="Filtrar simbolo..."
+            value={symbolFilter}
+            onChange={(e) => setSymbolFilter(e.target.value.toUpperCase())}
+            className="h-7 w-32 rounded border border-border/50 bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => window.print()}
+            className="h-7 text-[10px] px-2 gap-1"
+            title="Imprimir / Guardar como PDF"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            PDF
+          </Button>
+        </div>
       </div>
 
-      <MarketReportSection />
-      <SectorImpactsSection />
-      <MarketDigestPanel />
+      <MarketReportSection date={selectedDate} />
+      {isToday && <SectorImpactsSection />}
+      {isToday && <MarketDigestPanel />}
       <PortfolioAlerts symbolFilter={symbolFilter} />
       <ActiveAlerts symbolFilter={symbolFilter} />
       <AccuracyPanel />

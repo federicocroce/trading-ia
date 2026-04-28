@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePipeline } from './usePipeline';
 import { PipelineHistoryModal } from './PipelineHistoryModal';
+import { useAiModeModal } from '@/shared/AiModeModal';
 import { PipelineStatusToast } from './PipelineStatusToast';
 
 function statusDot(status: string | undefined): string {
@@ -32,6 +33,7 @@ function statusClass(status: string | undefined): string {
 export function PipelineStatusButton() {
   const [modalOpen, setModalOpen] = useState(false);
   const { status, history, isRunning, run, rerunStage } = usePipeline();
+  const { selectMode, modal } = useAiModeModal();
 
   return (
     <>
@@ -56,12 +58,19 @@ export function PipelineStatusButton() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         history={history}
-        onRerunStage={rerunStage}
-        onRerunAll={() => run(false)}
+        onRerunStage={async (stage) => {
+          const mode = await selectMode();
+          rerunStage(stage, mode);
+        }}
+        onRerunAll={async () => {
+          const mode = await selectMode();
+          run(false, undefined, mode);
+        }}
         isRunning={isRunning}
       />
 
       {status && isRunning && <PipelineStatusToast run={status} />}
+      {modal}
     </>
   );
 }

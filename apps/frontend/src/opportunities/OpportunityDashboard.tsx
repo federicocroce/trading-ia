@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { usePrintSection } from '@/shared/usePrintSection';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -7,6 +8,7 @@ import { OpportunityCard } from './OpportunityCard';
 import { SectorFilter } from './SectorFilter';
 import { IntelligenceReportSheet } from '@/intelligence/IntelligenceReportSheet';
 import { usePipeline } from '@/pipeline/usePipeline';
+import { useAiModeModal } from '@/shared/AiModeModal';
 
 type OpportunitySector = 'argentina-energy' | 'argentina-finance' | 'us-energy' | 'us-tech' | 'crypto';
 
@@ -64,13 +66,30 @@ function SectorSummaryCard({ summary }: { summary: SectorSummary }) {
 }
 
 export function OpportunityDashboard() {
+  const today = new Date().toISOString().slice(0, 10);
+  const [selectedDate, setSelectedDate] = useState(today);
   const [selectedSectors, setSelectedSectors] = useState<OpportunitySector[]>([]);
   const [actionFilter, setActionFilter] = useState<'BUY' | 'SELL' | 'WATCH' | null>(null);
   const [portfolioFilter, setPortfolioFilter] = useState(false);
   const [symbolFilter, setSymbolFilter] = useState('');
+  usePrintSection('opportunity-dashboard-print');
   const utils = trpc.useUtils();
-  const { data, isLoading } = trpc.opportunities.scan.useQuery(undefined);
+
+  const isToday = selectedDate === today;
+
+  const { data: scanDates = [] } = trpc.opportunities.scanDates.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const dates = scanDates.includes(today) ? scanDates : [today, ...scanDates];
+
+  const { data: liveData, isLoading: liveLoading } = trpc.opportunities.scan.useQuery(undefined, { enabled: isToday });
+  const { data: historicalData, isLoading: histLoading } = trpc.opportunities.scanByDate.useQuery(
+    { date: selectedDate },
+    { enabled: !isToday, staleTime: 30 * 60_000 }
+  );
+
+  const data = isToday ? liveData : historicalData;
+  const isLoading = isToday ? liveLoading : histLoading;
   const { isRunning } = usePipeline();
+  const { selectMode, modal } = useAiModeModal();
   const refresh = trpc.opportunities.refresh.useMutation({
     onSuccess: () => utils.opportunities.scan.invalidate(),
   });
@@ -144,7 +163,7 @@ export function OpportunityDashboard() {
   const engineBadge = engineBadgeMap[engine ?? ''] ?? { label: 'Algoritmico', class: 'bg-orange-500/20 text-orange-400 border-orange-500/30' };
 
   return (
-    <div className="p-6 space-y-4">
+    <div id="opportunity-dashboard-print" className="p-6 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
@@ -190,7 +209,10 @@ export function OpportunityDashboard() {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                onClick={() => refresh.mutate({})}
+                onClick={async () => {
+                  const mode = await selectMode();
+                  refresh.mutate({ aiMode: mode });
+                }}
                 disabled={refresh.isPending || isRunning}
                 className="text-[10px] px-2 py-0.5 rounded border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-40"
               >
@@ -203,6 +225,20 @@ export function OpportunityDashboard() {
           <IntelligenceReportSheet />
         </div>
         <div className="flex items-center gap-2">
+          <select
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="h-7 rounded border border-border/50 bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            {dates.map((d) => (
+              <option key={d} value={d}>{d === today ? `${d} (hoy)` : d}</option>
+            ))}
+          </select>
+          {!isToday && (
+            <span className="text-[9px] bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded px-1.5 py-0.5">
+              Historico
+            </span>
+          )}
           <input
             type="text"
             placeholder="Filtrar simbolo..."
@@ -210,6 +246,18 @@ export function OpportunityDashboard() {
             onChange={(e) => setSymbolFilter(e.target.value.toUpperCase())}
             className="h-7 w-32 rounded border border-border/50 bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />
+          <button
+            onClick={() => window.print()}
+            title="Imprimir / Guardar como PDF"
+            className="h-7 px-2 rounded border border-border/50 text-[10px] text-muted-foreground hover:text-foreground hover:border-border transition-colors flex items-center gap-1"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            PDF
+          </button>
           {buyCount > 0 && (
             <Badge
               className={`text-[10px] cursor-pointer transition-all ${actionFilter === 'BUY' ? 'bg-green-500/40 text-green-300 ring-1 ring-green-500' : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'}`}
@@ -339,6 +387,7 @@ export function OpportunityDashboard() {
           </TooltipContent>
         </Tooltip>
       </div>
+      {modal}
     </div>
   );
 }
