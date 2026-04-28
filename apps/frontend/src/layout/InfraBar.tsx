@@ -5,6 +5,7 @@ import { getStaleness } from '@/hooks/useDataStaleness';
 import { PipelineHistoryModal } from '@/pipeline/PipelineHistoryModal';
 import { PipelineStatusToast } from '@/pipeline/PipelineStatusToast';
 import { usePipeline } from '@/pipeline/usePipeline';
+import { useAiModeModal } from '@/shared/AiModeModal';
 
 type ServiceStatus = 'ok' | 'degraded' | 'error';
 
@@ -179,6 +180,7 @@ export function InfraBar() {
   });
 
   const { todayRun, history, isRunning, run, rerunStage } = usePipeline();
+  const { selectMode, modal } = useAiModeModal();
 
   const services: ServiceState[] = (health?.services as ServiceState[]) ?? [];
   const hasServiceProblems = services.some((s) => s.status !== 'ok');
@@ -247,7 +249,7 @@ export function InfraBar() {
             light={stageLight('news', timestamps?.news ?? null)}
             timestamp={timestamps?.news ?? null}
             detail={newsDetail}
-            onForceRun={() => rerunStage('news')}
+            onForceRun={async () => { const mode = await selectMode(); rerunStage('news', mode); }}
             onOpenModal={openModal}
             disabled={isRunning}
           />
@@ -256,7 +258,7 @@ export function InfraBar() {
             light={stageLight('fundamentals', timestamps?.fundamentals ?? null)}
             timestamp={timestamps?.fundamentals ?? null}
             detail={fundamentalsDetail ?? 'Datos fundamentales de Yahoo Finance'}
-            onForceRun={() => rerunStage('fundamentals')}
+            onForceRun={async () => { const mode = await selectMode(); rerunStage('fundamentals', mode); }}
             onOpenModal={openModal}
             disabled={isRunning}
           />
@@ -265,7 +267,7 @@ export function InfraBar() {
             light={stageLight('analysis', timestamps?.analysis ?? null)}
             timestamp={timestamps?.analysis ?? null}
             detail={analysisDetail}
-            onForceRun={() => rerunStage('analysis')}
+            onForceRun={async () => { const mode = await selectMode(); rerunStage('analysis', mode); }}
             onOpenModal={openModal}
             disabled={isRunning}
           />
@@ -274,7 +276,7 @@ export function InfraBar() {
             light={stageLight('report', reportTs)}
             timestamp={reportTs}
             detail={reportDetail}
-            onForceRun={() => rerunStage('report')}
+            onForceRun={async () => { const mode = await selectMode(); rerunStage('report', mode); }}
             onOpenModal={openModal}
             disabled={isRunning}
           />
@@ -296,10 +298,11 @@ export function InfraBar() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         history={history}
-        onRerunStage={rerunStage}
-        onRerunAll={() => run(false)}
+        onRerunStage={async (stage) => { const mode = await selectMode(); rerunStage(stage, mode); }}
+        onRerunAll={async () => { const mode = await selectMode(); run(false, undefined, mode); }}
         isRunning={isRunning}
       />
+      {modal}
 
       {todayRun && isRunning && <PipelineStatusToast run={todayRun} />}
     </>
