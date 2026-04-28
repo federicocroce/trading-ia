@@ -11,6 +11,7 @@ import {
   markOrphanedRunsFailed,
   getPipelineHistory,
 } from './pipeline.repository.js';
+import { setRunAiMode } from '../shared/ai-router.js';
 import { saveStageArtifact } from './pipeline-artifacts.repository.js';
 import { generateMarketReport, type DigestInputs } from './market-report.service.js';
 import { runMacroIntelligence } from './macro-intelligence.service.js';
@@ -19,6 +20,8 @@ import { trackPipelineRecommendations } from './pipeline-tracking.service.js';
 import { getStoredDailyReport } from './daily-report.service.js';
 import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAge, insertWebSearchArticles, getWebSearchArticlesForDate, saveCausalMap, getCausalMapByDate, clearCausalMapForDate } from '../db/repository.js';
 import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, getLastUnifiedAnalyses, setMarketDigest } from '../opportunities/opportunities.service.js';
+import { getLastAggregationStats } from '../news/news.service.js';
+import { getLastTriangulationStats } from '../news/triangulation.service.js';
 import { getIntelligenceFromDB } from '../news/news-intelligence.service.js';
 import { runWebSearch } from '../web-search/web-search.service.js';
 import { generateWeightProposal, shouldGenerateProposal } from './weight-adjustment.service.js';
@@ -164,11 +167,24 @@ async function runNewsStage(runId: number): Promise<StageResult> {
       updatePipelineStage(runId, 'news', sr);
       return sr;
     }
+    const aggStats = getLastAggregationStats();
+    const triStats = getLastTriangulationStats();
+    const deduplicationRate = aggStats.totalRaw > 0
+      ? ((aggStats.duplicatesRemoved / aggStats.totalRaw) * 100).toFixed(1)
+      : '0.0';
+    const detailPayload = {
+      text: `${articleCount} artículos, ${result.sectorsFound} sectores identificados.`,
+      totalRaw: aggStats.totalRaw,
+      duplicatesRemoved: aggStats.duplicatesRemoved,
+      deduplicationRate: `${deduplicationRate}%`,
+      sourceStats: aggStats.sourceStats,
+      clusterStats: triStats,
+    };
     const sr: StageResult = {
       status: 'ok',
       startedAt,
       finishedAt: new Date().toISOString(),
-      detail: `${articleCount} artículos, ${result.sectorsFound} sectores identificados.`,
+      detail: JSON.stringify(detailPayload),
       errors: [],
     };
     updatePipelineStage(runId, 'news', sr);
@@ -377,6 +393,7 @@ async function runReportStage(runId: number): Promise<StageResult> {
     const earningsCtx = await getEarningsContext(10);
     if (scan) {
       const intelligence = await getIntelligenceFromDB();
+      const causalMap = getCausalMapByDate(getToday());
       digestInputs = {
         opportunities: JSON.parse(scan.opportunities),
         secondOrderEffects: getStoredDailyReport()?.secondOrderEffects ?? [],
@@ -384,6 +401,7 @@ async function runReportStage(runId: number): Promise<StageResult> {
         sectorSummary: JSON.parse(scan.sectorSummary ?? '[]'),
         quantContext: _stageQuantContext,
         earningsContext: earningsCtx.formattedBlock,
+        causalMap: causalMap.length > 0 ? causalMap : undefined,
       };
     }
 
@@ -501,7 +519,8 @@ async function runRemainingStages(runId: number): Promise<void> {
   }
 }
 
-export async function checkOrRunPipeline(force = false, sectors?: OpportunitySector[]): Promise<PipelineRun> {
+export async function checkOrRunPipeline(force = false, sectors?: OpportunitySector[], aiMode: 'cloud' | 'local' = 'cloud'): Promise<PipelineRun> {
+  setRunAiMode(aiMode);
   _stageUnifiedAnalyses = null;
   _stageQuantContext = null;
   _stageSectors = sectors;
@@ -582,8 +601,10 @@ export async function resolveWebSearch(action: 'retry' | 'skip' | 'cancel'): Pro
 
 export async function rerunPipelineStage(
   // macroIntelligence is not individually rerunnable; use force=true on checkOrRunPipeline instead
-  stage: 'webSearch' | 'news' | 'fundamentals' | 'analysis' | 'report'
+  stage: 'webSearch' | 'news' | 'fundamentals' | 'analysis' | 'report',
+  aiMode: 'cloud' | 'local' = 'cloud',
 ): Promise<PipelineRun> {
+  setRunAiMode(aiMode);
   const today = getToday();
   const activeRun = getActivePipelineRun();
   if (activeRun) return activeRun;
