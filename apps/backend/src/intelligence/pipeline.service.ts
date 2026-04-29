@@ -174,7 +174,7 @@ async function runNewsStage(runId: number): Promise<StageResult> {
       ? ((aggStats.duplicatesRemoved / aggStats.totalRaw) * 100).toFixed(1)
       : '0.0';
     const detailPayload = {
-      text: `${articleCount} artículos, ${result.sectorsFound} sectores identificados.`,
+      text: `${articleCount} artículos procesados.`,
       totalRaw: aggStats.totalRaw,
       duplicatesRemoved: aggStats.duplicatesRemoved,
       deduplicationRate: `${deduplicationRate}%`,
@@ -673,11 +673,12 @@ export async function rerunPipelineStage(
     }
     await runRemainingStages(runId);
   } else if (stage === 'news') {
-    for (const s of ['fundamentals', 'analysis', 'report'] as const) {
+    for (const s of ['sectorIntelligence', 'fundamentals', 'analysis', 'report'] as const) {
       updatePipelineStage(runId, s, { status: 'pending', detail: 'Pendiente re-run de noticias.', errors: [], startedAt: null, finishedAt: null });
     }
     const newsRerunResult = await runNewsStage(runId);
     recordStageArtifact(runId, 'news', newsRerunResult);
+    await runSectorIntelligenceStage(runId);
     const fundRerunResult = await runFundamentalsStage(runId);
     recordStageArtifact(runId, 'fundamentals', fundRerunResult);
     const analysisRerunResult = await runAnalysisStage(runId);
