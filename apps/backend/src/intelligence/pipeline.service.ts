@@ -266,14 +266,13 @@ async function runSectorIntelligenceStage(runId: number): Promise<StageResult> {
   updatePipelineStage(runId, 'sectorIntelligence', { status: 'running', startedAt });
   try {
     const { reports, articleCount } = await runSectorIntelligence();
-    if (reports.length === 0) {
+    if (articleCount === 0) {
       const sr: StageResult = {
-        status: 'failed',
+        status: 'skipped',
         startedAt,
         finishedAt: new Date().toISOString(),
-        detail: `Sin artículos con confianza alta/media para sintetizar sectores.`,
+        detail: 'Sin artículos con confianza alta/media disponibles todavía.',
         errors: [],
-        criticalError: '0 artículos filtrados disponibles',
       };
       updatePipelineStage(runId, 'sectorIntelligence', sr);
       return sr;
@@ -551,7 +550,7 @@ async function runRemainingStages(runId: number): Promise<void> {
   }
 
   const finalRun = getPipelineRunByDate(today)!;
-  const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.macroIntelligence, finalRun.stages.sectorIntelligence, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
+  const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.macroIntelligence, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
   const anyFailed = stageList.some((s) => s.status === 'failed');
   const allOk = stageList.every((s) => s.status === 'ok' || s.status === 'skipped');
   finishPipelineRun(runId, anyFailed ? 'failed' : allOk ? 'ok' : 'partial');
@@ -714,7 +713,7 @@ export async function rerunPipelineStage(
   }
 
   const finalRun = getPipelineRunByDate(today)!;
-  const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.macroIntelligence, finalRun.stages.sectorIntelligence, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
+  const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.macroIntelligence, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
   const anyFailed = stageList.some((s) => s.status === 'failed');
   const allOk = stageList.every((s) => s.status === 'ok' || s.status === 'skipped');
   finishPipelineRun(runId, anyFailed ? 'failed' : allOk ? 'ok' : 'partial');

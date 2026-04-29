@@ -701,7 +701,7 @@ export function getProcessTimestamps() {
  * Proceso A: Actualizar noticias + identificar sectores + informes
  * ~30s. Se corre 1 vez al día o manual.
  */
-export async function refreshNewsProcess(): Promise<{ newsCount: number; sectorsFound: number }> {
+export async function refreshNewsProcess(): Promise<{ newsCount: number }> {
   console.log('[Process A] Actualizando noticias...');
 
   // 1. Fetch + analyze news
@@ -710,7 +710,7 @@ export async function refreshNewsProcess(): Promise<{ newsCount: number; sectors
   processTimestamps.newsLastRun = Date.now();
   console.log(`[Process A] Completado: ${intelligence.totalNewsCount} noticias`);
 
-  return { newsCount: intelligence.totalNewsCount, sectorsFound: 0 };
+  return { newsCount: intelligence.totalNewsCount };
 }
 
 /**

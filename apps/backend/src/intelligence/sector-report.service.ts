@@ -92,8 +92,7 @@ Responde SOLO con JSON válido:
       generatedAt: now,
     }));
   } catch (err) {
-    console.warn('[SectorIntelligence] Synthesis failed:', (err as Error).message?.slice(0, 100));
-    return [];
+    throw err;
   }
 }
 
