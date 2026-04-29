@@ -392,6 +392,12 @@ export const pipelineRuns = sqliteTable('pipeline_runs', {
   macroIntelligenceErrors: text('macro_intelligence_errors'),
   macroIntelligenceStartedAt: text('macro_intelligence_started_at'),
   macroIntelligenceFinishedAt: text('macro_intelligence_finished_at'),
+  // Stage: sectorIntelligence (runs after macroIntelligence, before fundamentals)
+  sectorIntelligenceStatus: text('sector_intelligence_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
+  sectorIntelligenceDetail: text('sector_intelligence_detail'),
+  sectorIntelligenceErrors: text('sector_intelligence_errors'),
+  sectorIntelligenceStartedAt: text('sector_intelligence_started_at'),
+  sectorIntelligenceFinishedAt: text('sector_intelligence_finished_at'),
   // Stage: fundamentals
   fundamentalsStatus: text('fundamentals_status', { enum: ['pending', 'running', 'ok', 'partial', 'failed', 'skipped'] }).notNull().default('pending'),
   fundamentalsDetail: text('fundamentals_detail'),
