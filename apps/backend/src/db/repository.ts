@@ -933,7 +933,6 @@ export function getFilteredArticlesForSectorSynthesis(limit = 60) {
     impact: schema.newsArticles.impact,
     triangulationConfidence: schema.newsArticles.triangulationConfidence,
     source: schema.newsArticles.source,
-    publishedAt: schema.newsArticles.publishedAt,
   })
     .from(schema.newsArticles)
     .where(
