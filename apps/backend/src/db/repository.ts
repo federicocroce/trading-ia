@@ -884,6 +884,9 @@ export function insertSectorImpacts(date: string, impacts: Array<{
   keyNews: string[];
   suggestedTickers: string[];
   riskFactors: string[];
+  catalysts: string[];
+  conviccion: string;
+  tension: string | null;
   confidence: string;
 }>) {
   for (const i of impacts) {
@@ -896,6 +899,9 @@ export function insertSectorImpacts(date: string, impacts: Array<{
       keyNews: JSON.stringify(i.keyNews),
       suggestedTickers: JSON.stringify(i.suggestedTickers),
       riskFactors: JSON.stringify(i.riskFactors),
+      catalysts: JSON.stringify(i.catalysts),
+      conviccion: i.conviccion,
+      tension: i.tension ?? null,
       confidence: i.confidence,
     }).run();
   }
@@ -910,12 +916,32 @@ export function getSectorImpactsByDate(date: string) {
       keyNews: JSON.parse(r.keyNews) as string[],
       suggestedTickers: JSON.parse(r.suggestedTickers) as string[],
       riskFactors: JSON.parse(r.riskFactors) as string[],
+      catalysts: JSON.parse(r.catalysts ?? '[]') as string[],
     }));
 }
 
 export function getLatestSectorImpacts() {
   const today = new Date().toISOString().split('T')[0];
   return getSectorImpactsByDate(today);
+}
+
+export function getFilteredArticlesForSectorSynthesis(limit = 60) {
+  return db.select({
+    title: schema.newsArticles.title,
+    summary: schema.newsArticles.summary,
+    sentiment: schema.newsArticles.sentiment,
+    impact: schema.newsArticles.impact,
+    triangulationConfidence: schema.newsArticles.triangulationConfidence,
+    source: schema.newsArticles.source,
+    publishedAt: schema.newsArticles.publishedAt,
+  })
+    .from(schema.newsArticles)
+    .where(
+      inArray(schema.newsArticles.triangulationConfidence, ['high', 'medium'])
+    )
+    .orderBy(desc(schema.newsArticles.createdAt))
+    .limit(limit)
+    .all();
 }
 
 export function getNewsCacheAge(): string | null {
