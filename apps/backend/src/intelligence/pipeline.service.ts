@@ -15,6 +15,7 @@ import { setRunAiMode } from '../shared/ai-router.js';
 import { saveStageArtifact } from './pipeline-artifacts.repository.js';
 import { generateMarketReport, type DigestInputs } from './market-report.service.js';
 import { runMacroIntelligence } from './macro-intelligence.service.js';
+import { runSectorIntelligence } from './sector-report.service.js';
 import { getEarningsContext } from './earnings-calendar.service.js';
 import { trackPipelineRecommendations } from './pipeline-tracking.service.js';
 import { getStoredDailyReport } from './daily-report.service.js';
@@ -260,6 +261,48 @@ async function runMacroIntelligenceStage(runId: number): Promise<StageResult> {
   }
 }
 
+async function runSectorIntelligenceStage(runId: number): Promise<StageResult> {
+  const startedAt = new Date().toISOString();
+  updatePipelineStage(runId, 'sectorIntelligence', { status: 'running', startedAt });
+  try {
+    const { reports, articleCount } = await runSectorIntelligence();
+    if (reports.length === 0) {
+      const sr: StageResult = {
+        status: 'failed',
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        detail: `Sin artículos con confianza alta/media para sintetizar sectores.`,
+        errors: [],
+        criticalError: '0 artículos filtrados disponibles',
+      };
+      updatePipelineStage(runId, 'sectorIntelligence', sr);
+      return sr;
+    }
+    const sr: StageResult = {
+      status: 'ok',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      detail: `${reports.length} sectores sintetizados desde ${articleCount} artículos.`,
+      errors: [],
+    };
+    updatePipelineStage(runId, 'sectorIntelligence', sr);
+    return sr;
+  } catch (err) {
+    const errMsg = (err as Error).message ?? String(err);
+    console.error('[pipeline] runSectorIntelligenceStage error:', errMsg);
+    const sr: StageResult = {
+      status: 'failed',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      detail: 'Error en sector intelligence.',
+      errors: [],
+      criticalError: errMsg.slice(0, 200),
+    };
+    updatePipelineStage(runId, 'sectorIntelligence', sr);
+    return sr;
+  }
+}
+
 async function runFundamentalsStage(runId: number): Promise<StageResult> {
   const startedAt = new Date().toISOString();
   const daysOld = getFundamentalsDaysOld();
@@ -471,6 +514,9 @@ async function runRemainingStages(runId: number): Promise<void> {
     });
   }
 
+  // sectorIntelligence stage — non-blocking (failure doesn't stop pipeline)
+  await runSectorIntelligenceStage(runId);
+
   const fundResult = await runFundamentalsStage(runId);
   recordStageArtifact(runId, 'fundamentals', fundResult);
 
@@ -505,7 +551,7 @@ async function runRemainingStages(runId: number): Promise<void> {
   }
 
   const finalRun = getPipelineRunByDate(today)!;
-  const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.macroIntelligence, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
+  const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.macroIntelligence, finalRun.stages.sectorIntelligence, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
   const anyFailed = stageList.some((s) => s.status === 'failed');
   const allOk = stageList.every((s) => s.status === 'ok' || s.status === 'skipped');
   finishPipelineRun(runId, anyFailed ? 'failed' : allOk ? 'ok' : 'partial');
@@ -667,7 +713,7 @@ export async function rerunPipelineStage(
   }
 
   const finalRun = getPipelineRunByDate(today)!;
-  const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.macroIntelligence, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
+  const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.macroIntelligence, finalRun.stages.sectorIntelligence, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
   const anyFailed = stageList.some((s) => s.status === 'failed');
   const allOk = stageList.every((s) => s.status === 'ok' || s.status === 'skipped');
   finishPipelineRun(runId, anyFailed ? 'failed' : allOk ? 'ok' : 'partial');

@@ -29,6 +29,7 @@ function rowToPipelineRun(row: typeof schema.pipelineRuns.$inferSelect): Pipelin
       webSearch: stageResultFromRow(row.webSearchStatus, row.webSearchDetail, row.webSearchErrors, row.webSearchStartedAt, row.webSearchFinishedAt),
       news: stageResultFromRow(row.newsStatus, row.newsDetail, row.newsErrors, row.newsStartedAt, row.newsFinishedAt),
       macroIntelligence: stageResultFromRow(row.macroIntelligenceStatus, row.macroIntelligenceDetail, row.macroIntelligenceErrors, row.macroIntelligenceStartedAt, row.macroIntelligenceFinishedAt),
+      sectorIntelligence: stageResultFromRow(row.sectorIntelligenceStatus, row.sectorIntelligenceDetail, row.sectorIntelligenceErrors, row.sectorIntelligenceStartedAt, row.sectorIntelligenceFinishedAt),
       fundamentals: stageResultFromRow(row.fundamentalsStatus, row.fundamentalsDetail, row.fundamentalsErrors, row.fundamentalsStartedAt, row.fundamentalsFinishedAt),
       analysis: stageResultFromRow(row.analysisStatus, row.analysisDetail, row.analysisErrors, row.analysisStartedAt, row.analysisFinishedAt),
       quant: stageResultFromRow(row.quantStatus, row.quantDetail, row.quantErrors, row.quantStartedAt, row.quantFinishedAt),
@@ -45,6 +46,7 @@ export function createPipelineRun(date: string): PipelineRun {
     webSearchStatus: 'pending',
     newsStatus: 'pending',
     macroIntelligenceStatus: 'pending',
+    sectorIntelligenceStatus: 'pending',
     fundamentalsStatus: 'pending',
     analysisStatus: 'pending',
     quantStatus: 'pending',
@@ -89,7 +91,7 @@ export function getPipelineHistory(limit = 7): PipelineRun[] {
 
 export function updatePipelineStage(
   runId: number,
-  stage: 'webSearch' | 'news' | 'macroIntelligence' | 'fundamentals' | 'analysis' | 'quant' | 'report',
+  stage: 'webSearch' | 'news' | 'macroIntelligence' | 'sectorIntelligence' | 'fundamentals' | 'analysis' | 'quant' | 'report',
   result: Partial<StageResult & { startedAt: string | null; finishedAt: string | null }>,
 ) {
   const updates: Record<string, unknown> = {};

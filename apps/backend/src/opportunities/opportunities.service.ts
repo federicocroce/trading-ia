@@ -702,38 +702,15 @@ export function getProcessTimestamps() {
  * ~30s. Se corre 1 vez al día o manual.
  */
 export async function refreshNewsProcess(): Promise<{ newsCount: number; sectorsFound: number }> {
-  const { runSectorAnalysis } = await import('../intelligence/sector-report.service.js');
-
   console.log('[Process A] Actualizando noticias...');
 
   // 1. Fetch + analyze news
   const intelligence = await getIntelligence();
 
-  // 2. Extract headlines
-  const headlines = intelligence.plazas
-    .flatMap(p => (p.symbolTrends as SymbolTrend[]).flatMap(t => t.topHeadlines))
-    .slice(0, 30);
-
-  // 3. Run sector analysis (identify impacts + generate reports + persist)
-  const sectorReports = await runSectorAnalysis(headlines);
-
-  // 4. Register tickers from sector reports as discovered
-  const { registerNovelTickers } = await import('../discovery/discovery-registry.js');
-  const suggestedTickers = sectorReports.flatMap(r => r.suggestedTickers);
-  if (suggestedTickers.length > 0) {
-    try {
-      const registered = await registerNovelTickers(suggestedTickers, 'llm');
-      console.log(`[Process A] ${registered} tickers registrados de sector reports`);
-    } catch { /* non-critical */ }
-  }
-
-  // 5. Fetch fundamentals for newly discovered symbols (background, non-blocking)
-  fetchFundamentalsForNewSymbols(suggestedTickers);
-
   processTimestamps.newsLastRun = Date.now();
-  console.log(`[Process A] Completado: ${intelligence.totalNewsCount} noticias, ${sectorReports.length} sectores`);
+  console.log(`[Process A] Completado: ${intelligence.totalNewsCount} noticias`);
 
-  return { newsCount: intelligence.totalNewsCount, sectorsFound: sectorReports.length };
+  return { newsCount: intelligence.totalNewsCount, sectorsFound: 0 };
 }
 
 /**
