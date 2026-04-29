@@ -61,9 +61,9 @@ function SectorImpactsSection() {
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold">{s.sector}</span>
                 <div className="flex items-center gap-1.5">
-                  {(s as any).conviccion && (
-                    <Badge className={`text-[8px] ${conviccionBadge[(s as any).conviccion as keyof typeof conviccionBadge] ?? conviccionBadge.media}`}>
-                      Conv. {(s as any).conviccion}
+                  {s.conviccion && (
+                    <Badge className={`text-[8px] ${conviccionBadge[s.conviccion as keyof typeof conviccionBadge] ?? conviccionBadge.media}`}>
+                      Conv. {s.conviccion}
                     </Badge>
                   )}
                   <Badge className={`text-[8px] ${impactBadge[s.impact as keyof typeof impactBadge] ?? ''}`}>
@@ -76,18 +76,18 @@ function SectorImpactsSection() {
               <p className="text-[10px] text-foreground leading-relaxed">{s.summary}</p>
 
               {/* Tension warning */}
-              {(s as any).tension && (
+              {s.tension && (
                 <div className="rounded bg-amber-500/10 border border-amber-500/20 px-2 py-1">
-                  <p className="text-[9px] text-amber-400">⚡ {(s as any).tension}</p>
+                  <p className="text-[9px] text-amber-400">⚡ {s.tension}</p>
                 </div>
               )}
 
               {/* Catalysts */}
-              {(s as any).catalysts?.length > 0 && (
+              {s.catalysts?.length > 0 && (
                 <div className="rounded bg-green-500/5 border border-green-500/20 px-2 py-1.5 space-y-0.5">
                   <span className="text-[8px] text-green-400 uppercase tracking-wider font-medium">Catalizadores</span>
-                  {(s as any).catalysts.map((c: string, j: number) => (
-                    <p key={j} className="text-[9px] text-foreground/80">+ {c}</p>
+                  {s.catalysts.map((c: string) => (
+                    <p key={c} className="text-[9px] text-foreground/80">+ {c}</p>
                   ))}
                 </div>
               )}
