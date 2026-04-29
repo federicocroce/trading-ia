@@ -884,9 +884,9 @@ export function insertSectorImpacts(date: string, impacts: Array<{
   keyNews: string[];
   suggestedTickers: string[];
   riskFactors: string[];
-  catalysts: string[];
-  conviccion: string;
-  tension: string | null;
+  catalysts?: string[];
+  conviccion?: string;
+  tension?: string | null;
   confidence: string;
 }>) {
   for (const i of impacts) {
@@ -899,8 +899,8 @@ export function insertSectorImpacts(date: string, impacts: Array<{
       keyNews: JSON.stringify(i.keyNews),
       suggestedTickers: JSON.stringify(i.suggestedTickers),
       riskFactors: JSON.stringify(i.riskFactors),
-      catalysts: JSON.stringify(i.catalysts),
-      conviccion: i.conviccion,
+      catalysts: JSON.stringify(i.catalysts ?? []),
+      conviccion: i.conviccion ?? 'media',
       tension: i.tension ?? null,
       confidence: i.confidence,
     }).run();
