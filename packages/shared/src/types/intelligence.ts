@@ -121,6 +121,9 @@ export interface SectorReport {
   keyNews: string[];
   suggestedTickers: string[];
   riskFactors: string[];
+  catalysts: string[];
+  conviccion: 'alta' | 'media' | 'baja';
+  tension: string | null;
   generatedAt: number;
 }
 
@@ -173,6 +176,7 @@ export interface PipelineRun {
     webSearch: StageResult
     news: StageResult
     macroIntelligence: StageResult
+    sectorIntelligence: StageResult
     fundamentals: StageResult
     analysis: StageResult
     quant?: StageResult
