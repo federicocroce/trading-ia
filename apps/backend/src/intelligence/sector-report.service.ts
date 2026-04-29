@@ -1,65 +1,38 @@
-import type { SectorImpact, SectorReport } from '@trading/shared';
+import type { SectorReport } from '@trading/shared';
 import { callAI } from '../shared/ai-router.js';
 import {
   insertSectorImpacts,
   deleteSectorImpactsByDate,
   getSectorImpactsByDate,
-  getNewsArticlesSince,
+  getFilteredArticlesForSectorSynthesis,
   getAllSectorTickers,
 } from '../db/repository.js';
 
-/**
- * Identify which sectors are impacted by current news.
- * Called during "Actualizar noticias" process.
- */
-export async function identifySectorImpacts(headlines: string[]): Promise<SectorImpact[]> {
-  if (headlines.length === 0) return [];
+interface ArticleInput {
+  title: string;
+  summary: string | null;
+  sentiment: string | null;
+  impact: string | null;
+  triangulationConfidence: string | null;
+  source: string;
+}
 
-  const prompt = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Todos los textos (sector, event, etc.) deben estar en español. Prohibido usar inglés.
-
-Sos un analista de mercado. Te doy los titulares de noticias financieras de las ultimas 48hs.
-
-Tu trabajo: identificar los SECTORES FINANCIEROS que estan siendo impactados por estas noticias.
-
-Para cada sector impactado, determina:
-- "sector": nombre del sector (ej: "Defensa", "Petroleo y Gas", "Semiconductores", "Banca", "Crypto", "Tech/IA", "Salud/Pharma", "Commodities", "Energia Renovable", "E-commerce", "Automotriz", "Cybersecurity")
-- "impact": "positive" si las noticias lo benefician, "negative" si lo perjudican, "mixed" si hay ambas
-- "event": el evento principal que causa el impacto (1 oracion)
-- "confidence": "high" si hay multiples noticias confirmando, "medium" si es una sola noticia fuerte
-- "affectedPlazas": mercados afectados (ej: ["NYSE", "NASDAQ", "BYMA", "Crypto"])
-
-REGLAS:
-- Solo incluir sectores con impacto REAL y VERIFICABLE en las noticias
-- No inventar impactos que no esten en las noticias
-- Maximo 8 sectores
-- Ordena por relevancia (mayor impacto primero)
-
-Responde SOLO con JSON:
-{"sectors":[{"sector":"Defensa","impact":"positive","event":"Guerra con Iran escala demanda de armamento","confidence":"high","affectedPlazas":["NYSE"]}]}`;
-
-  const userMsg = `NOTICIAS DE LAS ULTIMAS 48HS:\n${headlines.join('\n')}`;
-
-  try {
-    const raw = await callAI('reasoning',userMsg, prompt, 4096);
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed.sectors) ? parsed.sectors : [];
-  } catch (err) {
-    console.warn('[SectorReport] Failed to identify impacts:', (err as Error).message?.slice(0, 100));
-    return [];
-  }
+function buildArticleBlock(articles: ArticleInput[]): string {
+  return articles.map((a, i) => {
+    const conf = a.triangulationConfidence === 'high' ? '[ALTA]' : '[MEDIA]';
+    const sentiment = a.sentiment ? ` | sentimiento: ${a.sentiment}` : '';
+    const summary = a.summary ? `\n  Resumen: ${a.summary.slice(0, 200)}` : '';
+    return `${i + 1}. ${conf} ${a.title} (${a.source}${sentiment})${summary}`;
+  }).join('\n');
 }
 
 /**
- * Generate detailed reports per sector with ticker suggestions.
- * Called after identifySectorImpacts().
+ * Single-call sector synthesis from filtered/triangulated articles.
+ * Returns up to 8 sector reports with causal analysis.
  */
-export async function generateSectorReports(
-  impacts: SectorImpact[],
-  headlines: string[],
-): Promise<SectorReport[]> {
-  if (impacts.length === 0) return [];
+export async function synthesizeSectorIntelligence(articles: ArticleInput[]): Promise<SectorReport[]> {
+  if (articles.length === 0) return [];
 
-  // Build sector → tickers reference from DB so the LLM has up-to-date context.
   const allSectorTickers = getAllSectorTickers();
   const sectorExamples = Object.entries(
     allSectorTickers.reduce((acc, st) => {
@@ -69,93 +42,104 @@ export async function generateSectorReports(
     }, {} as Record<string, string[]>),
   ).map(([sector, tickers]) => `- ${sector}: ${tickers.join(', ')}`).join('\n');
 
-  const prompt = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Todos los textos (summary, keyNews, riskFactors) deben estar en español. Prohibido usar inglés.
+  const prompt = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Todos los textos deben estar en español. Prohibido usar inglés.
 
-Sos un analista de inversiones senior. Para cada sector impactado, genera un informe con:
-- "sector": nombre del sector
-- "impact": "positive", "negative", o "mixed"
-- "summary": 2-3 oraciones explicando QUE PASA en este sector y POR QUE importa para invertir. Se especifico.
-- "keyNews": las 2-3 noticias mas relevantes del sector (copiar literalmente de los titulares)
-- "suggestedTickers": 3-5 tickers CONCRETOS (NYSE/NASDAQ) que se benefician o perjudican. Usa tickers reales. Para cada sector piensa en los lideres del mercado.
-- "riskFactors": 1-2 riesgos especificos de este sector
+Sos un analista de mercado senior. Te doy artículos de noticias financieras filtrados por calidad (marcados [ALTA] = 3+ fuentes, [MEDIA] = 2 fuentes).
 
-IMPORTANTE: Los tickers deben ser REALES y que coticen en bolsa. Referencia de sectores y tickers conocidos:
-${sectorExamples || '- (sin referencia disponible — usar conocimiento propio)'}
+Tu trabajo: identificar los sectores financieros más impactados y generar un análisis causal completo de CADA UNO.
 
-Responde SOLO con JSON:
-{"reports":[{"sector":"...","impact":"positive","summary":"...","keyNews":["..."],"suggestedTickers":["LMT","RTX"],"riskFactors":["..."]}]}`;
+Para cada sector impactado, genera un objeto con:
+- "sector": nombre en español (ej: "Defensa", "Petróleo y Gas", "Semiconductores", "Banca", "Crypto", "Tech/IA", "Salud/Pharma", "Commodities", "Energía Renovable", "E-commerce", "Automotriz", "Ciberseguridad")
+- "impact": "positive" | "negative" | "mixed"
+- "event": evento principal que causa el impacto (1 oración)
+- "summary": 2-3 oraciones explicando QUÉ pasa y POR QUÉ importa para invertir. Sé específico.
+- "catalysts": lista de 2-3 catalizadores concretos que impulsan el movimiento (ej: "Datos de empleo mejores de lo esperado", "Tensión arancelaria con China")
+- "keyNews": los 2-3 titulares más relevantes del sector (copiar literalmente de las noticias)
+- "suggestedTickers": 3-5 tickers reales (NYSE/NASDAQ) que se benefician o perjudican
+- "riskFactors": 1-2 riesgos específicos de este sector ahora mismo
+- "conviccion": "alta" si múltiples noticias [ALTA] confirman | "media" si mezcla de [ALTA]+[MEDIA] | "baja" si solo [MEDIA]
+- "tension": si hay señales contradictorias en el sector, describir en 1 oración. null si no hay tensión.
+- "confidence": "high" | "medium"
 
-  const impactContext = impacts.map(i =>
-    `SECTOR: ${i.sector} | IMPACTO: ${i.impact} | EVENTO: ${i.event} | CONFIANZA: ${i.confidence}`
-  ).join('\n');
+REGLAS:
+- Solo incluir sectores con impacto REAL y VERIFICABLE en las noticias
+- No inventar impactos que no estén en los artículos
+- Máximo 8 sectores, ordenados por relevancia
+- Los catalizadores deben ser causas concretas, no genéricas
 
-  const userMsg = [
-    'SECTORES IDENTIFICADOS:',
-    impactContext,
-    '',
-    'NOTICIAS DE REFERENCIA:',
-    ...headlines.slice(0, 15),
-  ].join('\n');
+REFERENCIA DE TICKERS POR SECTOR:
+${sectorExamples || '(usar conocimiento propio)'}
+
+Responde SOLO con JSON válido:
+{"sectors":[{"sector":"Semiconductores","impact":"positive","event":"...","summary":"...","catalysts":["..."],"keyNews":["..."],"suggestedTickers":["NVDA","AMD"],"riskFactors":["..."],"conviccion":"alta","tension":null,"confidence":"high"}]}`;
+
+  const userMsg = `ARTÍCULOS FILTRADOS (${articles.length} con confianza alta/media):\n\n${buildArticleBlock(articles)}`;
 
   try {
-    const raw = await callAI('reasoning',userMsg, prompt, 4096);
+    const raw = await callAI('reasoning', userMsg, prompt, 6000);
     const parsed = JSON.parse(raw);
-    const reports: SectorReport[] = (parsed.reports ?? []).map((r: any) => ({
+    const now = Date.now();
+    return (parsed.sectors ?? []).map((r: any): SectorReport => ({
       sector: r.sector ?? '',
-      impact: r.impact ?? 'mixed',
+      impact: (r.impact ?? 'mixed') as SectorReport['impact'],
       summary: r.summary ?? '',
       keyNews: Array.isArray(r.keyNews) ? r.keyNews : [],
       suggestedTickers: Array.isArray(r.suggestedTickers) ? r.suggestedTickers : [],
       riskFactors: Array.isArray(r.riskFactors) ? r.riskFactors : [],
-      generatedAt: Date.now(),
+      catalysts: Array.isArray(r.catalysts) ? r.catalysts : [],
+      conviccion: (['alta', 'media', 'baja'].includes(r.conviccion) ? r.conviccion : 'media') as SectorReport['conviccion'],
+      tension: r.tension ?? null,
+      generatedAt: now,
     }));
-    return reports;
   } catch (err) {
-    console.warn('[SectorReport] Failed to generate reports:', (err as Error).message?.slice(0, 100));
+    console.warn('[SectorIntelligence] Synthesis failed:', (err as Error).message?.slice(0, 100));
     return [];
   }
 }
 
 /**
- * Full sector analysis pipeline: identify impacts + generate reports + persist.
- * Called by "Actualizar noticias" process.
+ * Full sector intelligence pipeline: fetch filtered articles → synthesize → persist.
+ * Called by pipeline.service.ts runSectorIntelligenceStage().
  */
-export async function runSectorAnalysis(headlines: string[]): Promise<SectorReport[]> {
-  console.log('[SectorReport] Running sector analysis...');
+export async function runSectorIntelligence(): Promise<{ reports: SectorReport[]; articleCount: number }> {
+  console.log('[SectorIntelligence] Fetching filtered articles...');
+  const articles = getFilteredArticlesForSectorSynthesis(60);
+  console.log(`[SectorIntelligence] ${articles.length} high/medium confidence articles`);
 
-  // 1. Identify impacted sectors
-  const impacts = await identifySectorImpacts(headlines);
-  console.log(`[SectorReport] ${impacts.length} sectors identified: ${impacts.map(i => `${i.sector} (${i.impact})`).join(', ')}`);
-
-  if (impacts.length === 0) return [];
-
-  // 2. Generate detailed reports with ticker suggestions
-  const reports = await generateSectorReports(impacts, headlines);
-  console.log(`[SectorReport] ${reports.length} sector reports generated`);
-
-  // 3. Persist to DB (delete old ones first to avoid duplicates)
-  const today = new Date().toISOString().split('T')[0];
-  try {
-    deleteSectorImpactsByDate(today);
-    insertSectorImpacts(today, reports.map(r => ({
-      sector: r.sector,
-      impact: r.impact,
-      event: impacts.find(i => i.sector === r.sector)?.event ?? '',
-      summary: r.summary,
-      keyNews: r.keyNews,
-      suggestedTickers: r.suggestedTickers,
-      riskFactors: r.riskFactors,
-      confidence: impacts.find(i => i.sector === r.sector)?.confidence ?? 'medium',
-    })));
-  } catch (err) {
-    console.warn('[SectorReport] Persist failed:', err);
+  if (articles.length === 0) {
+    return { reports: [], articleCount: 0 };
   }
 
-  return reports;
+  const reports = await synthesizeSectorIntelligence(articles);
+  console.log(`[SectorIntelligence] ${reports.length} sector reports generated`);
+
+  if (reports.length > 0) {
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      deleteSectorImpactsByDate(today);
+      insertSectorImpacts(today, reports.map(r => ({
+        sector: r.sector,
+        impact: r.impact,
+        event: r.summary.split('.')[0] ?? r.summary,
+        summary: r.summary,
+        keyNews: r.keyNews,
+        suggestedTickers: r.suggestedTickers,
+        riskFactors: r.riskFactors,
+        catalysts: r.catalysts,
+        conviccion: r.conviccion,
+        tension: r.tension,
+        confidence: r.conviccion === 'alta' ? 'high' : 'medium',
+      })));
+    } catch (err) {
+      console.warn('[SectorIntelligence] Persist failed:', err);
+    }
+  }
+
+  return { reports, articleCount: articles.length };
 }
 
 /**
- * Get sector reports from BD (for today).
+ * Get sector reports from DB (for today).
  */
 export function getStoredSectorReports(): SectorReport[] {
   const today = new Date().toISOString().split('T')[0];
@@ -167,6 +151,9 @@ export function getStoredSectorReports(): SectorReport[] {
     keyNews: r.keyNews,
     suggestedTickers: r.suggestedTickers,
     riskFactors: r.riskFactors,
+    catalysts: r.catalysts,
+    conviccion: (r.conviccion ?? 'media') as SectorReport['conviccion'],
+    tension: r.tension ?? null,
     generatedAt: new Date(r.createdAt).getTime(),
   }));
 }
