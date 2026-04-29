@@ -231,6 +231,9 @@ export const sectorImpacts = sqliteTable('sector_impacts', {
   keyNews: text('key_news').notNull(),           // JSON array
   suggestedTickers: text('suggested_tickers').notNull(), // JSON array
   riskFactors: text('risk_factors').notNull(),   // JSON array
+  catalysts: text('catalysts').notNull().default('[]'),   // JSON array — new
+  conviccion: text('conviccion').notNull().default('media'), // 'alta' | 'media' | 'baja' — new
+  tension: text('tension'),                      // nullable string — new
   confidence: text('confidence').notNull(),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
