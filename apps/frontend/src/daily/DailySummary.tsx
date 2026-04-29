@@ -43,6 +43,12 @@ function SectorImpactsSection() {
     mixed: 'Mixto',
   };
 
+  const conviccionBadge = {
+    alta: 'bg-blue-500/20 text-blue-400',
+    media: 'bg-muted text-muted-foreground',
+    baja: 'bg-gray-500/10 text-gray-500',
+  };
+
   return (
     <div className="space-y-2">
       <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
@@ -54,13 +60,37 @@ function SectorImpactsSection() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold">{s.sector}</span>
-                <Badge className={`text-[8px] ${impactBadge[s.impact as keyof typeof impactBadge] ?? ''}`}>
-                  {impactLabel[s.impact as keyof typeof impactLabel] ?? s.impact}
-                </Badge>
+                <div className="flex items-center gap-1.5">
+                  {(s as any).conviccion && (
+                    <Badge className={`text-[8px] ${conviccionBadge[(s as any).conviccion as keyof typeof conviccionBadge] ?? conviccionBadge.media}`}>
+                      Conv. {(s as any).conviccion}
+                    </Badge>
+                  )}
+                  <Badge className={`text-[8px] ${impactBadge[s.impact as keyof typeof impactBadge] ?? ''}`}>
+                    {impactLabel[s.impact as keyof typeof impactLabel] ?? s.impact}
+                  </Badge>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-2">
               <p className="text-[10px] text-foreground leading-relaxed">{s.summary}</p>
+
+              {/* Tension warning */}
+              {(s as any).tension && (
+                <div className="rounded bg-amber-500/10 border border-amber-500/20 px-2 py-1">
+                  <p className="text-[9px] text-amber-400">⚡ {(s as any).tension}</p>
+                </div>
+              )}
+
+              {/* Catalysts */}
+              {(s as any).catalysts?.length > 0 && (
+                <div className="rounded bg-green-500/5 border border-green-500/20 px-2 py-1.5 space-y-0.5">
+                  <span className="text-[8px] text-green-400 uppercase tracking-wider font-medium">Catalizadores</span>
+                  {(s as any).catalysts.map((c: string, j: number) => (
+                    <p key={j} className="text-[9px] text-foreground/80">+ {c}</p>
+                  ))}
+                </div>
+              )}
 
               {s.keyNews.length > 0 && (
                 <div className="space-y-0.5">
@@ -630,8 +660,8 @@ export function DailySummary() {
         </div>
       </div>
 
-      <MarketReportSection date={selectedDate} />
       {isToday && <SectorImpactsSection />}
+      <MarketReportSection date={selectedDate} />
       {isToday && <MarketDigestPanel />}
       <PortfolioAlerts symbolFilter={symbolFilter} />
       <ActiveAlerts symbolFilter={symbolFilter} />
