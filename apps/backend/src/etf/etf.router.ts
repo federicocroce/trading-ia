@@ -24,7 +24,15 @@ export const etfRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: `Símbolo ${symbol} no encontrado en Yahoo Finance` });
       }
       const name = profile.longName ?? symbol;
-      addEtfToWatchlist(symbol, name, input.category, input.description);
+      try {
+        addEtfToWatchlist(symbol, name, input.category, input.description);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('UNIQUE') || msg.includes('unique')) {
+          throw new TRPCError({ code: 'CONFLICT', message: `${symbol} ya está en el watchlist` });
+        }
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Error al agregar ETF' });
+      }
       return { success: true, symbol, name };
     }),
 
