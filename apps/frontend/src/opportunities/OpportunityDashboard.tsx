@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { usePrintSection } from '@/shared/usePrintSection';
+import { printWithTitle } from '@/shared/printWithTitle';
+import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -71,7 +73,9 @@ export function OpportunityDashboard() {
   const [selectedSectors, setSelectedSectors] = useState<OpportunitySector[]>([]);
   const [actionFilter, setActionFilter] = useState<'BUY' | 'SELL' | 'WATCH' | null>(null);
   const [portfolioFilter, setPortfolioFilter] = useState(false);
+  const [allExpanded, setAllExpanded] = useState(false);
   const [symbolFilter, setSymbolFilter] = useState('');
+  const [instrumentFilter, setInstrumentFilter] = useState<string | null>(null);
   usePrintSection('opportunity-dashboard-print');
   const utils = trpc.useUtils();
 
@@ -164,6 +168,12 @@ export function OpportunityDashboard() {
 
   return (
     <div id="opportunity-dashboard-print" className="p-6 space-y-4">
+      <TabInfo>
+        <InfoSection title="Qué muestra">Scanner de oportunidades: analiza todos los símbolos del watchlist y asigna señales de trading con score 0-100.</InfoSection>
+        <InfoSection title="Flujo">Precio actual + contexto de noticias + análisis sectorial → LLM (o algoritmo) asigna acción BUY / SELL / WATCH + score de oportunidad + nivel de riesgo + estimación de retorno.</InfoSection>
+        <InfoSection title="Score compuesto">Análisis técnico (momentum, tendencia) · Sentimiento fundamental · Contexto de noticias del día · Outlook sectorial. Rango: 0 (sin oportunidad) → 100 (máxima convicción).</InfoSection>
+        <InfoSection title="Badge & Filtros">El badge verde en la pestaña = cantidad de BUYs activos. Filtrá por sector, por acción (BUY/SELL/WATCH) o solo portfolio. Score sectorial = promedio de todos los activos del sector.</InfoSection>
+      </TabInfo>
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
@@ -247,7 +257,14 @@ export function OpportunityDashboard() {
             className="h-7 w-32 rounded border border-border/50 bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />
           <button
-            onClick={() => window.print()}
+            onClick={() => setAllExpanded((v) => !v)}
+            title={allExpanded ? 'Colapsar todas' : 'Expandir todas'}
+            className="h-7 px-2 rounded border border-border/50 text-[10px] text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+          >
+            {allExpanded ? '▲ Colapsar' : '▼ Expandir'}
+          </button>
+          <button
+            onClick={() => printWithTitle('oportunidades', selectedDate)}
             title="Imprimir / Guardar como PDF"
             className="h-7 px-2 rounded border border-border/50 text-[10px] text-muted-foreground hover:text-foreground hover:border-border transition-colors flex items-center gap-1"
           >
@@ -298,6 +315,24 @@ export function OpportunityDashboard() {
               {inPortfolioCount} en portfolio
             </Badge>
           )}
+          <div className="flex gap-1 flex-wrap mt-1">
+            {[
+              { label: 'Acciones', value: 'accion' },
+              { label: 'ETFs', value: 'etf' },
+              { label: 'Crypto', value: 'crypto' },
+              { label: 'Bonos', value: 'bono' },
+              { label: 'Commodities', value: 'commodity' },
+            ].map(({ label, value }) => (
+              <Badge
+                key={value}
+                variant="outline"
+                className={`text-[10px] cursor-pointer transition-all ${instrumentFilter === value ? 'bg-blue-500/40 text-blue-300 ring-1 ring-blue-500' : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'}`}
+                onClick={() => setInstrumentFilter(instrumentFilter === value ? null : value)}
+              >
+                {label}
+              </Badge>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -353,6 +388,11 @@ export function OpportunityDashboard() {
           filtered = filtered.filter((o) => o.inPortfolio);
         }
 
+        // Instrument type filter
+        if (instrumentFilter !== null) {
+          filtered = filtered.filter((o) => (o as Record<string, unknown>).instrumentType === instrumentFilter);
+        }
+
         return filtered.length === 0 ? (
           <div className="text-muted-foreground text-sm py-4">
             No se encontraron oportunidades con los filtros seleccionados.
@@ -360,7 +400,7 @@ export function OpportunityDashboard() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {filtered.map((o) => (
-              <OpportunityCard key={o.symbol} opportunity={o} />
+              <OpportunityCard key={o.symbol} opportunity={o} forceExpanded={allExpanded} />
             ))}
           </div>
         );
