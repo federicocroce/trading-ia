@@ -1,6 +1,6 @@
 import { eq, desc, gte, lt, asc, and, inArray, gt, sql } from 'drizzle-orm';
 import { db, schema } from './index.js';
-import { missedOpportunities, signalTracking } from './schema.js';
+import { missedOpportunities, signalTracking, etfWatchlist } from './schema.js';
 
 // ==================== SYMBOLS ====================
 
@@ -1283,4 +1283,37 @@ export function getCausalTickersByDate(date: string): Array<{ ticker: string; di
     direction: data.direction,
     causalSummary: data.reasons.join('\n'),
   }));
+}
+
+// ─── ETF Watchlist ────────────────────────────────────────────────────────────
+
+export interface EtfWatchlistEntry {
+  id: number;
+  symbol: string;
+  name: string;
+  category: 'indices' | 'sectores' | 'bonos' | 'commodities' | 'latam' | 'internacional' | 'crypto' | 'factor';
+  description: string | null;
+  active: boolean;
+  createdAt: string;
+}
+
+export function getEtfWatchlist(): EtfWatchlistEntry[] {
+  return db.select().from(etfWatchlist).where(eq(etfWatchlist.active, true)).all() as EtfWatchlistEntry[];
+}
+
+export function getEtfSymbols(): string[] {
+  return getEtfWatchlist().map((e) => e.symbol);
+}
+
+export function addEtfToWatchlist(
+  symbol: string,
+  name: string,
+  category: EtfWatchlistEntry['category'],
+  description?: string,
+): void {
+  db.insert(etfWatchlist).values({ symbol: symbol.toUpperCase(), name, category, description: description ?? null }).run();
+}
+
+export function removeEtfFromWatchlist(symbol: string): void {
+  db.update(etfWatchlist).set({ active: false }).where(eq(etfWatchlist.symbol, symbol.toUpperCase())).run();
 }
