@@ -24,6 +24,7 @@ import { AccuracyDashboard } from './intelligence/AccuracyDashboard.js';
 import { EvidenceSignals } from './evidence-signals/EvidenceSignals.js';
 import { WeeklyPicksPage } from '@/weekly-picks/WeeklyPicksPage';
 import { SectorHeatMap } from '@/macro/SectorHeatMap';
+import { ETFWatchlistPage } from '@/etf/ETFWatchlistPage';
 
 function getSymbolFromURL(): string | null {
   const params = new URLSearchParams(window.location.search);
@@ -108,6 +109,7 @@ export function App() {
                     <BuyBadge />
                   </TabsTrigger>
                   <TabsTrigger value="news">Noticias</TabsTrigger>
+                  <TabsTrigger value="etfs">ETFs</TabsTrigger>
                   <TabsTrigger value="transactions">Operaciones</TabsTrigger>
                   <TabsTrigger value="backtest">Backtest</TabsTrigger>
                   <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
@@ -127,6 +129,9 @@ export function App() {
                 </TabsContent>
                 <TabsContent value="news" className="flex-1 overflow-y-auto">
                   <NewsAndIntelligence />
+                </TabsContent>
+                <TabsContent value="etfs" className="flex-1 overflow-y-auto">
+                  <ETFWatchlistPage />
                 </TabsContent>
                 <TabsContent value="opportunities" className="flex-1 overflow-y-auto">
                   <OpportunityDashboard />
