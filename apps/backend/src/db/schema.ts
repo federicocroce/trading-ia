@@ -14,6 +14,19 @@ export const symbols = sqliteTable('symbols', {
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 
+// --- ETF Watchlist (separate from portfolio symbols) ---
+export const etfWatchlist = sqliteTable('etf_watchlist', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  symbol: text('symbol').notNull().unique(),
+  name: text('name').notNull(),
+  category: text('category', {
+    enum: ['indices', 'sectores', 'bonos', 'commodities', 'latam', 'internacional', 'crypto', 'factor'],
+  }).notNull(),
+  description: text('description'),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
 // --- Portfolio positions (current holdings) ---
 export const positions = sqliteTable('positions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
