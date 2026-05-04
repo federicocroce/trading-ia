@@ -143,6 +143,13 @@ export function OpportunityDashboard() {
     inPortfolio: boolean;
     portfolioQuantity?: number;
     timestamp: number;
+    classification?: {
+      instrumentType: string;
+      sector: string;
+      industry: string;
+      market: string;
+      name: string;
+    };
   }>;
 
   const sectorSummaries = (data.sectorSummary ?? []) as SectorSummary[];
@@ -390,7 +397,7 @@ export function OpportunityDashboard() {
 
         // Instrument type filter
         if (instrumentFilter !== null) {
-          filtered = filtered.filter((o) => (o as Record<string, unknown>).instrumentType === instrumentFilter);
+          filtered = filtered.filter((o) => o.classification?.instrumentType === instrumentFilter);
         }
 
         return filtered.length === 0 ? (
