@@ -75,7 +75,6 @@ export function PortfolioTable() {
   const [txSymbol, setTxSymbol] = useState<string | undefined>();
   const [historySymbol, setHistorySymbol] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [symbolFilter, setSymbolFilter] = useState('');
   const [watchlistTab, setWatchlistTab] = useState<'portfolio' | 'etfs' | 'acciones' | 'crypto'>('portfolio');
   const [watchlistSearch, setWatchlistSearch] = useState('');
 
@@ -92,15 +91,13 @@ export function PortfolioTable() {
   const opportunityMap = new Map(
     (scan?.opportunities ?? []).map((o) => [o.symbol, o]),
   );
-  const filteredPositions = (portfolio?.positions ?? []).filter((p) =>
-    !symbolFilter || p.symbol.includes(symbolFilter)
-  );
+  const allPositions = portfolio?.positions ?? [];
   const displayedPositions = watchlistTab === 'portfolio' && watchlistSearch
-    ? filteredPositions.filter(
+    ? allPositions.filter(
         (p) => p.symbol.toLowerCase().includes(watchlistSearch.toLowerCase()) ||
                ((p as any).name ?? p.symbol).toLowerCase().includes(watchlistSearch.toLowerCase())
       )
-    : filteredPositions;
+    : allPositions;
   const deletePos = trpc.portfolio.positions.delete.useMutation({
     onSuccess: () => {
       utils.portfolio.positions.list.invalidate();
@@ -167,13 +164,6 @@ export function PortfolioTable() {
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Portfolio</h2>
             <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Buscar símbolo..."
-                value={symbolFilter}
-                onChange={(e) => setSymbolFilter(e.target.value.toUpperCase())}
-                className="h-7 px-2 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-36"
-              />
               <Button size="sm" variant="outline" onClick={() => handleAddTx()}>
                 + Operacion
               </Button>
@@ -207,9 +197,9 @@ export function PortfolioTable() {
 
           {/* Mobile card layout */}
           <div className="lg:hidden space-y-2">
-            {displayedPositions.length === 0 && (symbolFilter || watchlistSearch) ? (
+            {displayedPositions.length === 0 && watchlistSearch ? (
               <div className="text-center py-8 text-muted-foreground text-sm">
-                No hay posiciones para '{watchlistSearch || symbolFilter}'
+                No hay posiciones para '{watchlistSearch}'
               </div>
             ) : displayedPositions.map((pos) => (
               <Card key={pos.symbol} className="p-3 cursor-pointer" onClick={() => goToSymbol(pos.symbol)}>
@@ -253,10 +243,10 @@ export function PortfolioTable() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {displayedPositions.length === 0 && (symbolFilter || watchlistSearch) ? (
+              {displayedPositions.length === 0 && watchlistSearch ? (
                 <TableRow>
                   <TableCell colSpan={10} className="text-center py-8 text-muted-foreground text-sm">
-                    No hay posiciones para '{watchlistSearch || symbolFilter}'
+                    No hay posiciones para '{watchlistSearch}'
                   </TableCell>
                 </TableRow>
               ) : null}
