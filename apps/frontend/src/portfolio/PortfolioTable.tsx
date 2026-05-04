@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import {
   Table,
   TableBody,
@@ -10,6 +11,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/shared/trpc';
 import { useNavigation } from '@/shared/navigation';
@@ -74,6 +76,8 @@ export function PortfolioTable() {
   const [historySymbol, setHistorySymbol] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [symbolFilter, setSymbolFilter] = useState('');
+  const [watchlistTab, setWatchlistTab] = useState<'portfolio' | 'etfs' | 'acciones' | 'crypto'>('portfolio');
+  const [watchlistSearch, setWatchlistSearch] = useState('');
 
   const { goToSymbol } = useNavigation();
   const utils = trpc.useUtils();
@@ -91,6 +95,12 @@ export function PortfolioTable() {
   const filteredPositions = (portfolio?.positions ?? []).filter((p) =>
     !symbolFilter || p.symbol.includes(symbolFilter)
   );
+  const displayedPositions = watchlistTab === 'portfolio' && watchlistSearch
+    ? filteredPositions.filter(
+        (p) => p.symbol.toLowerCase().includes(watchlistSearch.toLowerCase()) ||
+               ((p as any).name ?? p.symbol).toLowerCase().includes(watchlistSearch.toLowerCase())
+      )
+    : filteredPositions;
   const deletePos = trpc.portfolio.positions.delete.useMutation({
     onSuccess: () => {
       utils.portfolio.positions.list.invalidate();
@@ -121,206 +131,257 @@ export function PortfolioTable() {
   }
 
   return (
+    <>
+    <TabInfo>
+      <InfoSection title="Qué muestra">Posiciones actuales del portafolio con precio en tiempo real de Yahoo Finance.</InfoSection>
+      <InfoSection title="Flujo">Historial de transacciones → precio promedio de compra por posición → enriquecimiento con precio actual (Yahoo Finance v8 API) → cálculo de P&L.</InfoSection>
+      <InfoSection title="Valores">Precio promedio de compra · Precio actual · P&L en $ y % · Valor total de cada posición · Exposición total del portafolio.</InfoSection>
+      <InfoSection title="Interacción">Click en un símbolo → detalle con chart histórico y análisis AI completo de esa acción.</InfoSection>
+    </TabInfo>
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Portfolio</h2>
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            placeholder="Buscar símbolo..."
-            value={symbolFilter}
-            onChange={(e) => setSymbolFilter(e.target.value.toUpperCase())}
-            className="h-7 px-2 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-36"
+      {/* Watchlist tabs + search bar */}
+      <div className="flex flex-col gap-2 px-4 pt-3 pb-2 border-b border-border -mx-4">
+        <div className="flex items-center gap-3">
+          <Input
+            placeholder="Buscar por símbolo o nombre..."
+            value={watchlistSearch}
+            onChange={(e) => setWatchlistSearch(e.target.value)}
+            className="max-w-xs h-7 text-xs"
           />
-          <Button size="sm" variant="outline" onClick={() => handleAddTx()}>
-            + Operacion
-          </Button>
-          <Button size="sm" onClick={() => { setEditData(null); setPosDialogOpen(true); }}>
-            + Posicion
-          </Button>
+        </div>
+        <div className="flex gap-1">
+          {(['portfolio', 'etfs', 'acciones', 'crypto'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setWatchlistTab(tab)}
+              className={`text-xs px-3 py-1 rounded-sm transition-colors ${watchlistTab === tab ? 'bg-blue-500/20 text-blue-300' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              {tab === 'portfolio' ? 'Portfolio' : tab === 'etfs' ? 'ETFs' : tab === 'acciones' ? 'Acciones' : 'Crypto'}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-4 gap-3">
-        <SummaryCard
-          label="Valor Total"
-          value={`$${portfolio.totalValue.toLocaleString('en-US', { minimumFractionDigits: 0 })}`}
-        />
-        <SummaryCard
-          label="Costo Total"
-          value={`$${portfolio.totalCost.toLocaleString('en-US', { minimumFractionDigits: 0 })}`}
-        />
-        <SummaryCard
-          label="P&L"
-          value={`${portfolio.totalPnl >= 0 ? '+' : ''}$${portfolio.totalPnl.toLocaleString('en-US', { minimumFractionDigits: 0 })}`}
-          className={portfolio.totalPnl >= 0 ? 'text-trading-green' : 'text-trading-red'}
-        />
-        <SummaryCard
-          label="P&L %"
-          value={`${portfolio.totalPnlPercent >= 0 ? '+' : ''}${portfolio.totalPnlPercent.toFixed(1)}%`}
-          className={portfolio.totalPnlPercent >= 0 ? 'text-trading-green' : 'text-trading-red'}
-        />
-      </div>
-
-      {/* Mobile card layout */}
-      <div className="lg:hidden space-y-2">
-        {filteredPositions.length === 0 && symbolFilter ? (
-          <div className="text-center py-8 text-muted-foreground text-sm">
-            No hay posiciones para '{symbolFilter}'
+      {watchlistTab === 'portfolio' && (
+        <>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Portfolio</h2>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Buscar símbolo..."
+                value={symbolFilter}
+                onChange={(e) => setSymbolFilter(e.target.value.toUpperCase())}
+                className="h-7 px-2 text-xs rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-36"
+              />
+              <Button size="sm" variant="outline" onClick={() => handleAddTx()}>
+                + Operacion
+              </Button>
+              <Button size="sm" onClick={() => { setEditData(null); setPosDialogOpen(true); }}>
+                + Posicion
+              </Button>
+            </div>
           </div>
-        ) : filteredPositions.map((pos) => (
-          <Card key={pos.symbol} className="p-3 cursor-pointer" onClick={() => goToSymbol(pos.symbol)}>
-            <div className="flex justify-between items-center">
-              <span className="font-bold font-mono">{pos.symbol}</span>
-              <Badge
-                variant={pos.pnlPercent >= 0 ? 'secondary' : 'destructive'}
-                className={pos.pnlPercent >= 0 ? 'bg-trading-green text-foreground' : ''}
-              >
-                {pos.pnlPercent >= 0 ? '+' : ''}{pos.pnlPercent.toFixed(1)}%
-              </Badge>
-            </div>
-            <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span>{pos.quantity} @ ${pos.avgCost.toFixed(2)}</span>
-              <span className={pos.pnl >= 0 ? 'text-trading-green' : 'text-trading-red'}>
-                {pos.pnl >= 0 ? '+' : ''}${pos.pnl.toLocaleString('en-US', { minimumFractionDigits: 0 })}
-              </span>
-            </div>
-            <div className="flex justify-between text-xs mt-1">
-              <span className="text-muted-foreground">${pos.currentPrice.toFixed(2)}</span>
-              <span>${pos.value.toLocaleString('en-US', { minimumFractionDigits: 0 })}</span>
-            </div>
-          </Card>
-        ))}
-      </div>
 
-      {/* Desktop table */}
-      <Table className="hidden lg:table">
-        <TableHeader>
-          <TableRow>
-            <TableHead>Simbolo</TableHead>
-            <TableHead className="text-right">Cantidad</TableHead>
-            <TableHead className="text-right">Invertido</TableHead>
-            <TableHead className="text-right">Costo Prom.</TableHead>
-            <TableHead className="text-right">Precio</TableHead>
-            <TableHead className="text-right">Valor</TableHead>
-            <TableHead className="text-right">P&L</TableHead>
-            <TableHead className="text-right">P&L %</TableHead>
-            <TableHead className="text-right">Señal IA</TableHead>
-            <TableHead className="text-right">Acciones</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {filteredPositions.length === 0 && symbolFilter ? (
-            <TableRow>
-              <TableCell colSpan={10} className="text-center py-8 text-muted-foreground text-sm">
-                No hay posiciones para '{symbolFilter}'
-              </TableCell>
-            </TableRow>
-          ) : null}
-          {filteredPositions.map((pos) => (
-            <TableRow key={pos.symbol}>
-              <TableCell
-                className="font-medium font-mono cursor-pointer hover:text-primary transition-colors"
-                onClick={() => goToSymbol(pos.symbol)}
-              >
-                {pos.symbol}
-              </TableCell>
-              <TableCell className="text-right">{pos.quantity}</TableCell>
-              <TableCell className="text-right font-mono">
-                ${(pos.quantity * pos.avgCost).toLocaleString('en-US', { minimumFractionDigits: 0 })}
-              </TableCell>
-              <TableCell className="text-right">${pos.avgCost.toFixed(2)}</TableCell>
-              <TableCell className="text-right">${pos.currentPrice.toFixed(2)}</TableCell>
-              <TableCell className="text-right">
-                ${pos.value.toLocaleString('en-US', { minimumFractionDigits: 0 })}
-              </TableCell>
-              <TableCell className="text-right">
-                <span className={pos.pnl >= 0 ? 'text-trading-green' : 'text-trading-red'}>
-                  {pos.pnl >= 0 ? '+' : ''}${pos.pnl.toLocaleString('en-US', { minimumFractionDigits: 0 })}
-                </span>
-              </TableCell>
-              <TableCell className="text-right">
-                <Badge
-                  variant={pos.pnlPercent >= 0 ? 'secondary' : 'destructive'}
-                  className={pos.pnlPercent >= 0 ? 'bg-trading-green text-foreground' : ''}
-                >
-                  {pos.pnlPercent >= 0 ? '+' : ''}{pos.pnlPercent.toFixed(1)}%
-                </Badge>
-              </TableCell>
-              <TableCell className="text-right">
-                {(() => {
-                  const opp = opportunityMap.get(pos.symbol);
-                  if (!opp) return <span className="text-[9px] text-muted-foreground/40">—</span>;
-                  return (
-                    <RecommendationCell
-                      action={opp.action as SignalAction}
-                      score={opp.opportunityScore}
-                      confidence={opp.confidence}
-                      convictionTier={(opp as any).convictionTier as ConvictionTier | undefined}
-                      reasoning={(opp as any).simpleReasoning ?? opp.reasoning}
-                    />
-                  );
-                })()}
-              </TableCell>
-              <TableCell className="text-right">
-                <div className="flex items-center justify-end gap-1">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-xs"
+          {/* Summary */}
+          <div className="grid grid-cols-4 gap-3">
+            <SummaryCard
+              label="Valor Total"
+              value={`$${portfolio.totalValue.toLocaleString('en-US', { minimumFractionDigits: 0 })}`}
+            />
+            <SummaryCard
+              label="Costo Total"
+              value={`$${portfolio.totalCost.toLocaleString('en-US', { minimumFractionDigits: 0 })}`}
+            />
+            <SummaryCard
+              label="P&L"
+              value={`${portfolio.totalPnl >= 0 ? '+' : ''}$${portfolio.totalPnl.toLocaleString('en-US', { minimumFractionDigits: 0 })}`}
+              className={portfolio.totalPnl >= 0 ? 'text-trading-green' : 'text-trading-red'}
+            />
+            <SummaryCard
+              label="P&L %"
+              value={`${portfolio.totalPnlPercent >= 0 ? '+' : ''}${portfolio.totalPnlPercent.toFixed(1)}%`}
+              className={portfolio.totalPnlPercent >= 0 ? 'text-trading-green' : 'text-trading-red'}
+            />
+          </div>
+
+          {/* Mobile card layout */}
+          <div className="lg:hidden space-y-2">
+            {displayedPositions.length === 0 && (symbolFilter || watchlistSearch) ? (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                No hay posiciones para '{watchlistSearch || symbolFilter}'
+              </div>
+            ) : displayedPositions.map((pos) => (
+              <Card key={pos.symbol} className="p-3 cursor-pointer" onClick={() => goToSymbol(pos.symbol)}>
+                <div className="flex justify-between items-center">
+                  <span className="font-bold font-mono">{pos.symbol}</span>
+                  <Badge
+                    variant={pos.pnlPercent >= 0 ? 'secondary' : 'destructive'}
+                    className={pos.pnlPercent >= 0 ? 'bg-trading-green text-foreground' : ''}
+                  >
+                    {pos.pnlPercent >= 0 ? '+' : ''}{pos.pnlPercent.toFixed(1)}%
+                  </Badge>
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                  <span>{pos.quantity} @ ${pos.avgCost.toFixed(2)}</span>
+                  <span className={pos.pnl >= 0 ? 'text-trading-green' : 'text-trading-red'}>
+                    {pos.pnl >= 0 ? '+' : ''}${pos.pnl.toLocaleString('en-US', { minimumFractionDigits: 0 })}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs mt-1">
+                  <span className="text-muted-foreground">${pos.currentPrice.toFixed(2)}</span>
+                  <span>${pos.value.toLocaleString('en-US', { minimumFractionDigits: 0 })}</span>
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <Table className="hidden lg:table">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Simbolo</TableHead>
+                <TableHead className="text-right">Cantidad</TableHead>
+                <TableHead className="text-right">Invertido</TableHead>
+                <TableHead className="text-right">Costo Prom.</TableHead>
+                <TableHead className="text-right">Precio</TableHead>
+                <TableHead className="text-right">Valor</TableHead>
+                <TableHead className="text-right">P&L</TableHead>
+                <TableHead className="text-right">P&L %</TableHead>
+                <TableHead className="text-right">Señal IA</TableHead>
+                <TableHead className="text-right">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {displayedPositions.length === 0 && (symbolFilter || watchlistSearch) ? (
+                <TableRow>
+                  <TableCell colSpan={10} className="text-center py-8 text-muted-foreground text-sm">
+                    No hay posiciones para '{watchlistSearch || symbolFilter}'
+                  </TableCell>
+                </TableRow>
+              ) : null}
+              {displayedPositions.map((pos) => (
+                <TableRow key={pos.symbol}>
+                  <TableCell
+                    className="font-medium font-mono cursor-pointer hover:text-primary transition-colors"
                     onClick={() => goToSymbol(pos.symbol)}
                   >
-                    Ver
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => handleAddTx(pos.symbol)}
-                  >
-                    Op.
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => handleEdit(pos)}
-                  >
-                    Editar
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-xs text-destructive"
-                    onClick={() => handleDelete(pos.symbol)}
-                  >
-                    X
-                  </Button>
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+                    {pos.symbol}
+                  </TableCell>
+                  <TableCell className="text-right">{pos.quantity}</TableCell>
+                  <TableCell className="text-right font-mono">
+                    ${(pos.quantity * pos.avgCost).toLocaleString('en-US', { minimumFractionDigits: 0 })}
+                  </TableCell>
+                  <TableCell className="text-right">${pos.avgCost.toFixed(2)}</TableCell>
+                  <TableCell className="text-right">${pos.currentPrice.toFixed(2)}</TableCell>
+                  <TableCell className="text-right">
+                    ${pos.value.toLocaleString('en-US', { minimumFractionDigits: 0 })}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <span className={pos.pnl >= 0 ? 'text-trading-green' : 'text-trading-red'}>
+                      {pos.pnl >= 0 ? '+' : ''}${pos.pnl.toLocaleString('en-US', { minimumFractionDigits: 0 })}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Badge
+                      variant={pos.pnlPercent >= 0 ? 'secondary' : 'destructive'}
+                      className={pos.pnlPercent >= 0 ? 'bg-trading-green text-foreground' : ''}
+                    >
+                      {pos.pnlPercent >= 0 ? '+' : ''}{pos.pnlPercent.toFixed(1)}%
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {(() => {
+                      const opp = opportunityMap.get(pos.symbol);
+                      if (!opp) return <span className="text-[9px] text-muted-foreground/40">—</span>;
+                      return (
+                        <RecommendationCell
+                          action={opp.action as SignalAction}
+                          score={opp.opportunityScore}
+                          confidence={opp.confidence}
+                          convictionTier={(opp as any).convictionTier as ConvictionTier | undefined}
+                          reasoning={(opp as any).simpleReasoning ?? opp.reasoning}
+                        />
+                      );
+                    })()}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => goToSymbol(pos.symbol)}
+                      >
+                        Ver
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => handleAddTx(pos.symbol)}
+                      >
+                        Op.
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => handleEdit(pos)}
+                      >
+                        Editar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs text-destructive"
+                        onClick={() => handleDelete(pos.symbol)}
+                      >
+                        X
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
 
-      {/* Dialogs */}
-      <PositionDialog
-        open={posDialogOpen}
-        onOpenChange={setPosDialogOpen}
-        editData={editData}
-      />
-      <TransactionDialog
-        open={txDialogOpen}
-        onOpenChange={setTxDialogOpen}
-        defaultSymbol={txSymbol}
-      />
-      <SymbolHistoryDialog
-        open={historyOpen}
-        onOpenChange={setHistoryOpen}
-        symbol={historySymbol}
-      />
+          {/* Dialogs */}
+          <PositionDialog
+            open={posDialogOpen}
+            onOpenChange={setPosDialogOpen}
+            editData={editData}
+          />
+          <TransactionDialog
+            open={txDialogOpen}
+            onOpenChange={setTxDialogOpen}
+            defaultSymbol={txSymbol}
+          />
+          <SymbolHistoryDialog
+            open={historyOpen}
+            onOpenChange={setHistoryOpen}
+            symbol={historySymbol}
+          />
+        </>
+      )}
+
+      {watchlistTab === 'etfs' && (
+        <p className="text-muted-foreground text-sm p-8 text-center">
+          Ver watchlist completo en la tab "ETFs"
+        </p>
+      )}
+      {watchlistTab === 'acciones' && (
+        <p className="text-muted-foreground text-sm p-8 text-center">
+          Acciones curadas — próximamente
+        </p>
+      )}
+      {watchlistTab === 'crypto' && (
+        <p className="text-muted-foreground text-sm p-8 text-center">
+          Crypto — próximamente
+        </p>
+      )}
     </div>
+    </>
   );
 }
 
