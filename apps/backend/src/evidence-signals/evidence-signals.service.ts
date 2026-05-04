@@ -1,12 +1,12 @@
 import { db, schema } from '../db/index.js';
 import { eq, and, gte, sql } from 'drizzle-orm';
-import { getAllSymbols, insertSignalTracking } from '../db/repository.js';
+import { getAllSymbols, insertSignalTracking, insertEvidenceSignalsSnapshot } from '../db/repository.js';
 import { getEarningsHistory, getInsiderTransactions, getOptionsChain, getQuote, getHistoricalQuotes, getFundamentals } from '../shared/yahoo.js';
 import { computePEADSignal } from './pead.service.js';
 import { computeInsiderSignal } from './insider.service.js';
 import { computeOptionsFlowSignal } from './options-flow.service.js';
-import type { EvidenceSignal, EvidenceScanResult } from '@trading/shared';
-import { getScreenedSymbols, invalidateScreenerCache, getPeadOverrides, CURATED_ETF_SYMBOLS, type PeadOverride } from './symbol-screener.service.js';
+import type { EvidenceSignal, EvidenceScanResult, TechSnapshot, FundamentalSnapshot } from '@trading/shared';
+import { getScreenedSymbols, invalidateScreenerCache, getPeadOverrides, getCuratedEtfSymbols, type PeadOverride } from './symbol-screener.service.js';
 import { triggerDeepAnalysis, getAnalysisStatus, invalidateDeepAnalysisCache } from './deep-analysis.service.js';
 import { triggerSignalResolver } from './signal-resolver.service.js';
 import { getMarketRegime, invalidateMarketRegimeCache } from './market-regime.service.js';
@@ -139,6 +139,48 @@ function buildReasoning(signal: EvidenceSignal): string {
   return parts.join(' | ');
 }
 
+function computeTechSnapshot(
+  ohlc: Array<{ close: number }>,
+): TechSnapshot {
+  const empty: TechSnapshot = { rsi14: null, sma20: null, sma50: null, trend: 'mixed', momentum5d: null, atr14: null };
+  if (ohlc.length < 15) return empty;
+  const closes = ohlc.map((c) => c.close);
+  const n = closes.length;
+  const sma = (p: number) => n >= p ? closes.slice(n - p).reduce((a, b) => a + b, 0) / p : null;
+  const sma20 = sma(20);
+  const sma50 = sma(50);
+  let rsi14: number | null = null;
+  if (n >= 15) {
+    const slice = closes.slice(n - 15);
+    const changes = slice.map((c, i) => (i === 0 ? 0 : c - slice[i - 1]));
+    const avgGain = changes.slice(1).map((c) => Math.max(c, 0)).reduce((a, b) => a + b, 0) / 14;
+    const avgLoss = changes.slice(1).map((c) => Math.max(-c, 0)).reduce((a, b) => a + b, 0) / 14;
+    rsi14 = avgLoss === 0 ? 100 : Math.round(100 - 100 / (1 + avgGain / avgLoss));
+  }
+  const cur = closes[n - 1];
+  const trend: TechSnapshot['trend'] =
+    sma20 && sma50 && cur > sma20 && sma20 > sma50 ? 'bullish'
+    : sma20 && sma50 && cur < sma20 && sma20 < sma50 ? 'bearish'
+    : 'mixed';
+  const momentum5d = n >= 6
+    ? Math.round(((closes[n - 1] - closes[n - 6]) / closes[n - 6]) * 10000) / 100
+    : null;
+  // ATR14: simple close-to-close version
+  let atr14: number | null = null;
+  if (n >= 15) {
+    const ranges = closes.slice(n - 15).map((c, i, arr) => i === 0 ? 0 : Math.abs(c - arr[i - 1]));
+    atr14 = Math.round((ranges.slice(1).reduce((a, b) => a + b, 0) / 14) * 100) / 100;
+  }
+  return {
+    rsi14,
+    sma20: sma20 ? Math.round(sma20 * 100) / 100 : null,
+    sma50: sma50 ? Math.round(sma50 * 100) / 100 : null,
+    trend,
+    momentum5d,
+    atr14,
+  };
+}
+
 async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride): Promise<EvidenceSignal> {
   const cached = getCachedSignal(symbol);
   if (cached) return cached;
@@ -155,7 +197,7 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
   const currentPrice = quoteResult.status === 'fulfilled' ? quoteResult.value.current : 0;
 
   // ETFs have no earnings beats or insider buying — skip those signals to avoid noise
-  const isEtf = CURATED_ETF_SYMBOLS.includes(symbol);
+  const isEtf = getCuratedEtfSymbols().includes(symbol);
   const pead = isEtf ? { active: false, beatPercent: 0, daysSinceEarnings: 0, daysInDriftWindow: 0, score: 0, epsActual: null, epsEstimate: null, earningsDate: null, priceConfirmed: false, priceChangePct: null, consecutiveBeats: 0 } : computePEADSignal(
     earningsHistory.status === 'fulfilled' ? earningsHistory.value : [],
     ohlcHistory.status === 'fulfilled' ? ohlcHistory.value : [],
@@ -267,6 +309,24 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
   };
 
   signal.reasoning = buildReasoning(signal) + (fundamentalsNote ? ` | ${fundamentalsNote}` : '');
+
+  const ohlcData = ohlcHistory.status === 'fulfilled' ? ohlcHistory.value : [];
+  signal.techSnapshot = computeTechSnapshot(ohlcData);
+
+  if (fundamentals) {
+    signal.fundamentalSnapshot = {
+      peRatio: fundamentals.peRatio,
+      forwardPE: fundamentals.forwardPE,
+      revenueGrowth: fundamentals.revenueGrowth,
+      operatingMargin: fundamentals.operatingMargin,
+      netMargin: fundamentals.netMargin,
+      debtToEquity: fundamentals.debtToEquity,
+      beta: fundamentals.beta,
+      marketCap: fundamentals.marketCap,
+      priceVs52wHigh: fundamentals.priceVs52wHigh,
+      earningsDate: fundamentals.nextEarningsDate ?? null,
+    };
+  }
 
   setCachedSignal(symbol, signal);
   autoTrackSignal(signal, { fundamentalsMultiplier });
@@ -392,6 +452,21 @@ async function runScan(forceRefresh: boolean) {
         durationMs: Date.now() - scanStartMs,
       }).where(eq(schema.evidenceScanRuns.id, scanRunId)).run();
     }
+
+    // Save historical snapshot
+    const scanDate = new Date().toISOString().slice(0, 10);
+    const allAnalyses = db.select().from(schema.evidenceDeepAnalysis).all();
+    insertEvidenceSignalsSnapshot({
+      scanDate,
+      scannedAt: lastScanAt,
+      signals: JSON.stringify(cached.signals),
+      analyses: JSON.stringify(allAnalyses),
+      marketRegime: lastMarketRegime ? JSON.stringify(lastMarketRegime) : null,
+      totalSymbols: cached.totalSymbols,
+      highConviction: cached.highConviction,
+      mediumConviction: cached.mediumConviction,
+      withSignals: withSignals.length,
+    });
 
     // Fire deep analysis for HIGH/MEDIUM conviction signals (non-blocking)
     triggerDeepAnalysis(withSignals);

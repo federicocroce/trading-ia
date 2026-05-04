@@ -1,6 +1,6 @@
 import type { NewsItem, RawNewsArticle } from '@trading/shared';
 import { getAvailableAdapters } from './sources/index.js';
-import { getActiveSymbolList, getAllSymbols, getWebSearchArticlesForDate } from '../db/repository.js';
+import { getActiveSymbolList, getAllSymbols, getWebSearchArticlesForDate, getEtfSymbols } from '../db/repository.js';
 import { registerNovelTickers } from '../discovery/discovery-registry.js';
 import { isValidTickerFormat } from '../discovery/ticker-validator.js';
 
@@ -142,7 +142,7 @@ export interface AggregationResult {
 
 export async function aggregateNews(): Promise<AggregationResult> {
   const adapters = await getAvailableAdapters();
-  const symbols = getActiveSymbolList();
+  const symbols = [...new Set([...getActiveSymbolList(), ...getEtfSymbols()])];
   const tickerSectorMap = buildTickerSectorMap();
 
   // Fetch from all sources in parallel

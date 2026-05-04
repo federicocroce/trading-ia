@@ -26,6 +26,7 @@ import { classifyAssets } from '../discovery/asset-classifier.js';
 import { getSourceStats } from '../news/news.service.js';
 import {
   getActiveSymbolList,
+  getEtfSymbols,
   getPortfolioPositions,
   getCausalTickersByDate,
   insertOpportunityScan,
@@ -261,8 +262,9 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
   const causalContextMap = new Map(causalRows.map(c => [c.ticker, c.causalSummary]));
   const discovered = getDiscoveredTickers().map(t => t.symbol);
   // Portfolio always included; news-derived tickers replace hardcoded watchlist
-  const allSymbols = [...new Set([...portfolioSymbolsList, ...causalTickers, ...discovered])];
-  console.log(`[opportunities] ${allSymbols.length} simbolos (${portfolioSymbolsList.length} portfolio + ${causalTickers.length} causal + ${discovered.length} descubiertos)`);
+  const etfSymbols = getEtfSymbols();
+  const allSymbols = [...new Set([...portfolioSymbolsList, ...causalTickers, ...discovered, ...etfSymbols])];
+  console.log(`[opportunities] ${allSymbols.length} simbolos (${portfolioSymbolsList.length} portfolio + ${causalTickers.length} causal + ${discovered.length} descubiertos + ${etfSymbols.length} ETFs)`);
 
   // ============================================================
   // PASO 3: Clasificar activos (tipo, sector, mercado)

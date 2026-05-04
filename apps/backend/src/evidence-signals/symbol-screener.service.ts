@@ -6,6 +6,8 @@
  * often-incorrect surprisePercent for PEAD signal calculation.
  */
 
+import { getEtfSymbols } from '../db/repository.js';
+
 const EDGAR_HEADERS = { 'User-Agent': 'trading-dashboard/1.0 (federico@mundi.io)' };
 const NASDAQ_HEADERS = { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' };
 
@@ -58,9 +60,9 @@ export const CURATED_US_SYMBOLS: string[] = [
 ];
 
 // ETFs are tracked separately for options flow only (no PEAD/insider signals)
-export const CURATED_ETF_SYMBOLS: string[] = [
-  'SPY', 'QQQ', 'IWM', 'XLE', 'XLF', 'XLK', 'XLV', 'XLI', 'XLY', 'GLD', 'TLT',
-];
+export function getCuratedEtfSymbols(): string[] {
+  return getEtfSymbols();
+}
 
 // ─── CIK lookup ─────────────────────────────────────────────────────────────
 
