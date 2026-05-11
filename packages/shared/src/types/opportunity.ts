@@ -114,6 +114,14 @@ export interface Opportunity {
     sources: string[];    // e.g. ["ticker:TLT=+1.5", "sector:bonos_largos=+1.2"]
     conflict?: string;    // base sentiment vs radar disagreement note
   };
+  /** Evidencia empírica (PEAD, insider, options flow, sector momentum). 4to eje del composite. */
+  evidenceInfluence?: {
+    score: number;        // -100..+100 (alineado con escala tech/fund)
+    drivers: string[];    // razones humanas: "PEAD activo: beat +14%", "Insider: $4M de 3 buyers"
+    conviction: 'high' | 'medium' | 'low' | 'none';
+    activeSignals: number; // 0..3
+    hasData: boolean;     // true si hay cache vigente, false si símbolo no fue escaneado
+  };
 }
 
 export type ConvictionTier = 'strong' | 'standard' | 'speculative';

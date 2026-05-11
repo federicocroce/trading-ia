@@ -145,6 +145,13 @@ interface Opportunity {
     sources: string[];
     conflict?: string;
   };
+  evidenceInfluence?: {
+    score: number;        // -100..+100
+    drivers: string[];    // razones humanas
+    conviction: 'high' | 'medium' | 'low' | 'none';
+    activeSignals: number;
+    hasData: boolean;
+  };
 }
 
 const actionConfig: Record<SignalAction, { label: string; emoji: string; borderColor: string; bgClass: string; textClass: string; description: string }> = {
@@ -482,9 +489,9 @@ export function OpportunityCard({ opportunity, forceExpanded = false }: { opport
         {/* ── EXPANDED DETAIL ── */}
         {isExpanded && (
           <div className="space-y-3">
-            {/* Breakdown */}
+            {/* Breakdown 4 ejes: Técnico · Fundamental · Sentimiento · Evidencia */}
             {opportunity.breakdown && (
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                 {[
                   { label: 'Técnico', data: opportunity.breakdown.technical, sig: taSignalLabel[opportunity.breakdown.technical.signal] },
                   { label: 'Fundamental', data: opportunity.breakdown.fundamental, sig: faSignalLabel[opportunity.breakdown.fundamental.signal] },
@@ -501,6 +508,37 @@ export function OpportunityCard({ opportunity, forceExpanded = false }: { opport
                     </ul>
                   </div>
                 ))}
+
+                {/* Cuarto eje: Evidencia (PEAD, insider, options flow, sector momentum) */}
+                <div className="space-y-1">
+                  <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Evidencia</p>
+                  {opportunity.evidenceInfluence?.hasData ? (
+                    <>
+                      <p className="text-[10px] font-medium">
+                        {opportunity.evidenceInfluence.conviction === 'high' ? '🟢 Alta' :
+                         opportunity.evidenceInfluence.conviction === 'medium' ? '🟡 Media' :
+                         opportunity.evidenceInfluence.conviction === 'low' ? '🟠 Baja' : '⚪ Sin señal'}
+                        {' '}({opportunity.evidenceInfluence.activeSignals}/3)
+                      </p>
+                      <ScoreBar
+                        score={opportunity.evidenceInfluence.score}
+                        tooltip={`Evidence: ${opportunity.evidenceInfluence.drivers.join(' · ')}`}
+                      />
+                      <ul className="space-y-0.5">
+                        {opportunity.evidenceInfluence.drivers.slice(0, 3).map((d, i) => (
+                          <li key={i} className="text-[9px] text-muted-foreground truncate" title={d}>{d}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[10px] text-muted-foreground italic">Sin datos</p>
+                      <p className="text-[9px] text-muted-foreground">
+                        No hay PEAD, insider trades ni unusual options para este símbolo en la última corrida.
+                      </p>
+                    </>
+                  )}
+                </div>
               </div>
             )}
 

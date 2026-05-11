@@ -43,8 +43,8 @@ export interface QuantContext {
 
 export interface StrategyConfig {
   name: string;
-  shortTermWeights?: { sentiment: number; technical: number; fundamental: number };
-  mediumTermWeights?: { sentiment: number; technical: number; fundamental: number };
+  shortTermWeights?: { sentiment: number; technical: number; fundamental: number; evidence: number };
+  mediumTermWeights?: { sentiment: number; technical: number; fundamental: number; evidence: number };
   buyThreshold: number;
   sellThreshold: number;
   stopLossPercent: number;

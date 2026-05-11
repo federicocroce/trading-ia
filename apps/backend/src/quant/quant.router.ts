@@ -10,11 +10,13 @@ const strategyConfigSchema = z.object({
     sentiment: z.number().min(0).max(1),
     technical: z.number().min(0).max(1),
     fundamental: z.number().min(0).max(1),
+    evidence: z.number().min(0).max(1).default(0),
   }).optional(),
   mediumTermWeights: z.object({
     sentiment: z.number().min(0).max(1),
     technical: z.number().min(0).max(1),
     fundamental: z.number().min(0).max(1),
+    evidence: z.number().min(0).max(1).default(0),
   }).optional(),
   buyThreshold: z.number().min(0).max(100),
   sellThreshold: z.number().min(0).max(100),

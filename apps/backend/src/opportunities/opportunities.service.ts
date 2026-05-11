@@ -44,6 +44,9 @@ import {
 } from '../db/repository.js';
 import {
   buildAlgorithmicOpportunity,
+} from './scoring.js';
+import { getEvidenceScoreMap } from '../evidence-signals/evidence-score.service.js';
+import {
   filterSymbolsByPositiveSectors,
   applyAntiHypeFilters,
   type SentimentInput,
@@ -630,6 +633,11 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
 
   const swingAlertMap = new Map<string, { direction: 'BUY' | 'SELL'; winRate: number; avgReturn: number }>();
 
+  // Cargar evidence map (PEAD, insider, options flow) — 4to eje del composite
+  const evidenceMap = getEvidenceScoreMap(symbolsToScore);
+  const evidenceWithDataCount = Array.from(evidenceMap.values()).filter(e => e.hasData).length;
+  console.log(`[opportunities] Evidence loaded: ${evidenceWithDataCount}/${symbolsToScore.length} symbols con datos vigentes`);
+
   const opportunities: Opportunity[] = symbolsToScore
     .map((symbol) =>
       buildAlgorithmicOpportunity(
@@ -642,6 +650,7 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
         portfolioValue,
         swingAlertMap.get(symbol) ?? null,
         sectorSentimentMap.get(getSectorForSymbolDynamic(symbol) ?? '') ?? null,
+        evidenceMap.get(symbol),
       ),
     )
     .filter((o): o is Opportunity => o !== null)
