@@ -6,34 +6,21 @@ import { Header } from '@/layout/Header';
 import { Sidebar } from '@/layout/Sidebar';
 import { PriceTicker } from '@/prices/PriceTicker';
 import { InfraBar } from '@/layout/InfraBar';
-import { PortfolioTable } from '@/portfolio/PortfolioTable';
-import { TransactionHistory } from '@/portfolio/TransactionHistory';
-import { NewsAndIntelligence } from '@/news/NewsAndIntelligence';
-import { NewsRadar } from '@/news/NewsRadar';
-import { IntelligenceHistory } from '@/news/IntelligenceHistory';
+import { PortfolioPage } from '@/portfolio/PortfolioPage';
 import { ChatPanel } from '@/chat/ChatPanel';
 import { ChatToggle } from '@/layout/ChatToggle';
 import { SymbolDetailPage } from '@/symbol/SymbolDetailPage';
 import { OpportunityDashboard } from '@/opportunities/OpportunityDashboard';
 import { DailySummary } from '@/daily/DailySummary';
-import { BacktestPage } from '@/backtest/BacktestPage';
+import { HistoricoPage } from '@/historico/HistoricoPage';
 import { NavigationContext } from '@/shared/navigation';
 import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
 import { WebSearchBlockedModal } from '@/pipeline/WebSearchBlockedModal';
-import { PipelineConfig } from './intelligence/PipelineConfig.js';
-import { AccuracyDashboard } from './intelligence/AccuracyDashboard.js';
-import { EvidenceSignals } from './evidence-signals/EvidenceSignals.js';
-import { WeeklyPicksPage } from '@/weekly-picks/WeeklyPicksPage';
-import { SectorHeatMap } from '@/macro/SectorHeatMap';
-import { ETFWatchlistPage } from '@/etf/ETFWatchlistPage';
 
-const VALID_TABS = [
-  'portfolio', 'daily', 'opportunities', 'news', 'radar', 'intel-history',
-  'etfs', 'transactions', 'backtest', 'accuracy', 'evidence', 'config', 'picks',
-] as const;
+const VALID_TABS = ['daily', 'opportunities', 'portfolio', 'historico'] as const;
 type TabValue = typeof VALID_TABS[number];
-const DEFAULT_TAB: TabValue = 'portfolio';
+const DEFAULT_TAB: TabValue = 'daily';
 
 function getSymbolFromURL(): string | null {
   const params = new URLSearchParams(window.location.search);
@@ -87,7 +74,6 @@ export function App() {
   const handleTabChange = useCallback((tab: string) => {
     const next = tab as TabValue;
     setActiveTab(next);
-    // Tab change clears symbol detail (back to tab content)
     setSelectedSymbol(null);
     const url = buildURL(next, null);
     window.history.pushState({ tab: next }, '', url);
@@ -108,7 +94,6 @@ export function App() {
     <TooltipProvider>
       <NavigationContext value={navValue}>
         <div className="h-screen flex flex-col">
-          {/* Skip to content for accessibility */}
           <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-100 focus:bg-primary focus:text-primary-foreground focus:px-4 focus:py-2 focus:rounded">
             Ir al contenido principal
           </a>
@@ -134,26 +119,16 @@ export function App() {
 
             <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col overflow-hidden gap-0">
               <TabsList variant="line" className="w-full justify-start rounded-none border-b border-border bg-card px-2">
-                <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
                 <TabsTrigger value="daily">Resumen</TabsTrigger>
                 <TabsTrigger value="opportunities" className="relative">
                   Oportunidades
                   <BuyBadge />
                 </TabsTrigger>
-                <TabsTrigger value="news">Noticias</TabsTrigger>
-                <TabsTrigger value="radar">Radar</TabsTrigger>
-                <TabsTrigger value="intel-history">Histórico Intel</TabsTrigger>
-                <TabsTrigger value="etfs">ETFs</TabsTrigger>
-                <TabsTrigger value="transactions">Operaciones</TabsTrigger>
-                <TabsTrigger value="backtest">Backtest</TabsTrigger>
-                <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
-                <TabsTrigger value="evidence">Señales V2</TabsTrigger>
-                <TabsTrigger value="config">Config</TabsTrigger>
-                <TabsTrigger value="picks">Picks</TabsTrigger>
+                <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
+                <TabsTrigger value="historico">Histórico</TabsTrigger>
               </TabsList>
 
               {selectedSymbol ? (
-                /* Symbol detail overlays the active tab content but tabs stay visible */
                 <div id="main-content" className="flex-1 overflow-y-auto">
                   <SymbolDetailPage symbol={selectedSymbol} onBack={goHome} />
                 </div>
@@ -162,44 +137,14 @@ export function App() {
                   <TabsContent value="daily" className="flex-1 overflow-y-auto">
                     <DailySummary />
                   </TabsContent>
-                  <TabsContent value="portfolio" className="flex-1 overflow-y-auto">
-                    <PortfolioTable />
-                  </TabsContent>
-                  <TabsContent value="transactions" className="flex-1 overflow-y-auto">
-                    <TransactionHistory />
-                  </TabsContent>
-                  <TabsContent value="news" className="flex-1 overflow-y-auto">
-                    <NewsAndIntelligence />
-                  </TabsContent>
-                  <TabsContent value="radar" className="flex-1 overflow-y-auto">
-                    <NewsRadar />
-                  </TabsContent>
-                  <TabsContent value="intel-history" className="flex-1 overflow-y-auto">
-                    <IntelligenceHistory />
-                  </TabsContent>
-                  <TabsContent value="etfs" className="flex-1 overflow-y-auto">
-                    <ETFWatchlistPage />
-                  </TabsContent>
                   <TabsContent value="opportunities" className="flex-1 overflow-y-auto">
                     <OpportunityDashboard />
                   </TabsContent>
-                  <TabsContent value="backtest" className="flex-1 overflow-y-auto">
-                    <BacktestPage />
+                  <TabsContent value="portfolio" className="flex-1 overflow-y-auto">
+                    <PortfolioPage />
                   </TabsContent>
-                  <TabsContent value="accuracy" className="flex-1 overflow-y-auto">
-                    <AccuracyDashboard />
-                  </TabsContent>
-                  <TabsContent value="evidence" className="flex-1 overflow-y-auto">
-                    <EvidenceSignals />
-                  </TabsContent>
-                  <TabsContent value="config" className="flex-1 overflow-y-auto">
-                    <PipelineConfig />
-                  </TabsContent>
-                  <TabsContent value="picks" className="flex-1 overflow-y-auto">
-                    <div className="space-y-6 p-4">
-                      <WeeklyPicksPage />
-                      <SectorHeatMap />
-                    </div>
+                  <TabsContent value="historico" className="flex-1 overflow-y-auto">
+                    <HistoricoPage />
                   </TabsContent>
                 </>
               )}
