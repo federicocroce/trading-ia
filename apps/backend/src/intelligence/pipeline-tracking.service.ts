@@ -43,6 +43,12 @@ export async function trackPipelineRecommendations(): Promise<void> {
         mediumTermScore: opp.horizonScores?.mediumTerm ?? null,
         predictedReturnMid: opp.mediumTerm?.midPercent ?? null,
         marketRegimeAtSignal: regime,
+        // A/B trazabilidad algo vs LLM
+        algoAction: opp.verdict?.layers.algoAction ?? null,
+        llmAction: opp.verdict?.layers.llmAction ?? null,
+        verdictSource: opp.verdict?.source ?? null,
+        evidenceScore: opp.evidenceInfluence?.score ?? null,
+        macroDelta: opp.macroAdjustment?.delta ?? null,
       });
       tracked++;
     } catch (err) {

@@ -29,6 +29,7 @@ import {
   getEtfSymbols,
   getPortfolioPositions,
   getCausalTickersByDate,
+  getCausalMapByDate,
   insertOpportunityScan,
   insertAntiHypeRejections,
   getLatestNewsRadarSnapshot,
@@ -638,6 +639,21 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
   const evidenceWithDataCount = Array.from(evidenceMap.values()).filter(e => e.hasData).length;
   console.log(`[opportunities] Evidence loaded: ${evidenceWithDataCount}/${symbolsToScore.length} symbols con datos vigentes`);
 
+  // Cargar causal chains del día para macro modifier (ajuste -15..+15 al composite)
+  const todayForMacro = getToday();
+  const macroEvents = getCausalMapByDate(todayForMacro);
+  const flatChains = macroEvents.flatMap(evt =>
+    evt.chains.map(c => ({
+      eventId: c.eventId,
+      event: evt.event,
+      ticker: c.ticker,
+      category: c.category,
+      direction: c.direction,
+      impact: c.impact,
+    })),
+  );
+  console.log(`[opportunities] Causal chains loaded: ${flatChains.length} ticker-event pairs (${macroEvents.length} events)`);
+
   const opportunities: Opportunity[] = symbolsToScore
     .map((symbol) =>
       buildAlgorithmicOpportunity(
@@ -651,6 +667,7 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
         swingAlertMap.get(symbol) ?? null,
         sectorSentimentMap.get(getSectorForSymbolDynamic(symbol) ?? '') ?? null,
         evidenceMap.get(symbol),
+        flatChains,
       ),
     )
     .filter((o): o is Opportunity => o !== null)
@@ -760,6 +777,25 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
       opp.catalysts = unified.catalysts;
       opp.risks = unified.risks;
       opp.narrativeDigest = unified.narrative;
+
+      // Actualizar verdict chain con capa LLM (Stage 5b)
+      if (opp.verdict) {
+        opp.verdict.layers.llmAction = unified.action;
+        opp.verdict.layers.llmReason = unified.thesis.slice(0, 120);
+        // Si el LLM cambia la acción, agregar al trace y promover source
+        if (unified.action !== opp.verdict.finalAction) {
+          opp.verdict.trace.push(`llm:${unified.action} (${unified.thesis.slice(0, 60)})`);
+          opp.verdict.finalAction = unified.action;
+          opp.verdict.source = 'llm';
+          // Sincronizar la acción del opp con el verdict final
+          opp.action = unified.action;
+        } else {
+          opp.verdict.trace.push(`llm:confirma`);
+        }
+      } else {
+        // Si por alguna razón no había verdict previo, lo creamos mínimo
+        opp.action = unified.action;
+      }
 
       // deepAnalysis retrocompat (UI puede leerlo desde unifiedAnalysis.wouldDo)
       opp.deepAnalysis = {

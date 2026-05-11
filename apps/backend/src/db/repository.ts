@@ -701,6 +701,12 @@ export function insertSignalTracking(data: {
   consecutiveBeats?: number | null;
   aiVerdict?: string | null;
   aiConfidence?: number | null;
+  // A/B verdict tracking (algo vs LLM divergence resolution)
+  algoAction?: string | null;
+  llmAction?: string | null;
+  verdictSource?: string | null;
+  evidenceScore?: number | null;
+  macroDelta?: number | null;
 }) {
   // Atomic upsert: delete pending + insert new in single transaction
   return db.transaction((trx) => {

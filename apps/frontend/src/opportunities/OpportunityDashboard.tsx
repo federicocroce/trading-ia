@@ -177,10 +177,24 @@ export function OpportunityDashboard() {
   return (
     <div id="opportunity-dashboard-print" className="p-6 space-y-4">
       <TabInfo>
-        <InfoSection title="Qué muestra">Scanner de oportunidades: analiza todos los símbolos del watchlist y asigna señales de trading con score 0-100.</InfoSection>
-        <InfoSection title="Flujo">Precio actual + contexto de noticias + análisis sectorial → LLM (o algoritmo) asigna acción BUY / SELL / WATCH + score de oportunidad + nivel de riesgo + estimación de retorno.</InfoSection>
-        <InfoSection title="Score compuesto">Análisis técnico (momentum, tendencia) · Sentimiento fundamental · Contexto de noticias del día · Outlook sectorial. Rango: 0 (sin oportunidad) → 100 (máxima convicción).</InfoSection>
-        <InfoSection title="Badge & Filtros">El badge verde en la pestaña = cantidad de BUYs activos. Filtrá por sector, por acción (BUY/SELL/WATCH) o solo portfolio. Score sectorial = promedio de todos los activos del sector.</InfoSection>
+        <InfoSection title="Qué muestra">
+          Scanner de oportunidades con drilldown completo por activo. Cada card muestra la acción final (BUY/SELL/HOLD/WATCH), el score compuesto, la cadena de decisión que llevó a esa acción, los 4 ejes de análisis con drivers concretos, conflictos detectados, ajuste macro y niveles de trade.
+        </InfoSection>
+        <InfoSection title="Score compuesto — 4 ejes">
+          <strong>Técnico</strong> (RSI, MACD, SMA, divergencias) · <strong>Fundamental</strong> (P/E, growth, ROE, deuda) · <strong>Sentimiento</strong> (noticias triangulación + radar) · <strong>Evidencia</strong> (PEAD, insider buying, unusual options, sector momentum). Pesos por horizonte: short-term prioriza técnico+sentimiento+evidencia, medium-term prioriza fundamental+técnico+evidencia.
+        </InfoSection>
+        <InfoSection title="Cadena de decisión trazable">
+          Cada card muestra <strong>cómo</strong> se llegó a la acción final: por ejemplo <code>algo:BUY(72) → smart:WATCH (div bajista) → llm:BUY</code>. Capas: <strong>algo</strong> (score puro + scoreToAction) → <strong>veto por eje</strong> (sent crítico, fund muy débil) → <strong>smart override</strong> (divergencias técnicas anticipan reversión) → <strong>LLM</strong> (Stage 5b con thesis). La capa que mandó al final se indica como "fuente".
+        </InfoSection>
+        <InfoSection title="Badges visuales">
+          🚫 <strong>Veto</strong>: un eje extremo cambió la acción (sent &lt; -60, fund &lt; -40 + tech débil, etc).<br />
+          🌐 <strong>Macro</strong>: ajuste -15..+15 al score por causalChains del día.<br />
+          ⚡ <strong>Cross-conflict</strong>: disonancia entre ejes (tech bullish vs fund débil = value trap, smart money antes del tape, hype sin confirmación, etc).<br />
+          📡 <strong>Radar</strong>: bonus/penalty de sentimiento por noticias del radar.
+        </InfoSection>
+        <InfoSection title="Filtros">
+          Por acción (BUY/SELL/WATCH), por sector, por tipo de instrumento (Acciones/ETFs/Crypto/Bonos), solo portfolio. El badge verde en la tab = cantidad de BUYs activos. Score sectorial = promedio del sector.
+        </InfoSection>
       </TabInfo>
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
