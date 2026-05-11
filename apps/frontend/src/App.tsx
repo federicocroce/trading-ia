@@ -9,6 +9,8 @@ import { InfraBar } from '@/layout/InfraBar';
 import { PortfolioTable } from '@/portfolio/PortfolioTable';
 import { TransactionHistory } from '@/portfolio/TransactionHistory';
 import { NewsAndIntelligence } from '@/news/NewsAndIntelligence';
+import { NewsRadar } from '@/news/NewsRadar';
+import { IntelligenceHistory } from '@/news/IntelligenceHistory';
 import { ChatPanel } from '@/chat/ChatPanel';
 import { ChatToggle } from '@/layout/ChatToggle';
 import { SymbolDetailPage } from '@/symbol/SymbolDetailPage';
@@ -26,9 +28,31 @@ import { WeeklyPicksPage } from '@/weekly-picks/WeeklyPicksPage';
 import { SectorHeatMap } from '@/macro/SectorHeatMap';
 import { ETFWatchlistPage } from '@/etf/ETFWatchlistPage';
 
+const VALID_TABS = [
+  'portfolio', 'daily', 'opportunities', 'news', 'radar', 'intel-history',
+  'etfs', 'transactions', 'backtest', 'accuracy', 'evidence', 'config', 'picks',
+] as const;
+type TabValue = typeof VALID_TABS[number];
+const DEFAULT_TAB: TabValue = 'portfolio';
+
 function getSymbolFromURL(): string | null {
   const params = new URLSearchParams(window.location.search);
   return params.get('symbol');
+}
+
+function getTabFromURL(): TabValue {
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get('tab');
+  if (tab && VALID_TABS.includes(tab as TabValue)) return tab as TabValue;
+  return DEFAULT_TAB;
+}
+
+function buildURL(tab: TabValue, symbol: string | null): string {
+  const params = new URLSearchParams();
+  if (tab !== DEFAULT_TAB) params.set('tab', tab);
+  if (symbol) params.set('symbol', symbol);
+  const qs = params.toString();
+  return qs ? `?${qs}` : '/';
 }
 
 function BuyBadge() {
@@ -44,22 +68,35 @@ function BuyBadge() {
 
 export function App() {
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(getSymbolFromURL);
+  const [activeTab, setActiveTab] = useState<TabValue>(getTabFromURL);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { isWaitingUser, resolveWebSearch } = usePipeline();
 
   const goToSymbol = useCallback((symbol: string) => {
     setSelectedSymbol(symbol);
-    window.history.pushState({ symbol }, '', `?symbol=${symbol}`);
-  }, []);
+    const url = buildURL(activeTab, symbol);
+    window.history.pushState({ symbol, tab: activeTab }, '', url);
+  }, [activeTab]);
 
   const goHome = useCallback(() => {
     setSelectedSymbol(null);
-    window.history.pushState({}, '', '/');
+    const url = buildURL(activeTab, null);
+    window.history.pushState({ tab: activeTab }, '', url);
+  }, [activeTab]);
+
+  const handleTabChange = useCallback((tab: string) => {
+    const next = tab as TabValue;
+    setActiveTab(next);
+    // Tab change clears symbol detail (back to tab content)
+    setSelectedSymbol(null);
+    const url = buildURL(next, null);
+    window.history.pushState({ tab: next }, '', url);
   }, []);
 
   useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      setSelectedSymbol(e.state?.symbol ?? getSymbolFromURL());
+    const handlePopState = () => {
+      setSelectedSymbol(getSymbolFromURL());
+      setActiveTab(getTabFromURL());
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -95,67 +132,78 @@ export function App() {
           <div className="flex flex-1 overflow-hidden">
             <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-            {selectedSymbol ? (
-              <div id="main-content" className="flex-1 overflow-y-auto">
-                <SymbolDetailPage symbol={selectedSymbol} onBack={goHome} />
-              </div>
-            ) : (
-              <Tabs defaultValue="portfolio" className="flex-1 flex flex-col overflow-hidden gap-0">
-                <TabsList variant="line" className="w-full justify-start rounded-none border-b border-border bg-card px-2">
-                  <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
-                  <TabsTrigger value="daily">Resumen</TabsTrigger>
-                  <TabsTrigger value="opportunities" className="relative">
-                    Oportunidades
-                    <BuyBadge />
-                  </TabsTrigger>
-                  <TabsTrigger value="news">Noticias</TabsTrigger>
-                  <TabsTrigger value="etfs">ETFs</TabsTrigger>
-                  <TabsTrigger value="transactions">Operaciones</TabsTrigger>
-                  <TabsTrigger value="backtest">Backtest</TabsTrigger>
-                  <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
-                  <TabsTrigger value="evidence">Señales V2</TabsTrigger>
-                  <TabsTrigger value="config">Config</TabsTrigger>
-                  <TabsTrigger value="picks">Picks</TabsTrigger>
-                </TabsList>
+            <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col overflow-hidden gap-0">
+              <TabsList variant="line" className="w-full justify-start rounded-none border-b border-border bg-card px-2">
+                <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
+                <TabsTrigger value="daily">Resumen</TabsTrigger>
+                <TabsTrigger value="opportunities" className="relative">
+                  Oportunidades
+                  <BuyBadge />
+                </TabsTrigger>
+                <TabsTrigger value="news">Noticias</TabsTrigger>
+                <TabsTrigger value="radar">Radar</TabsTrigger>
+                <TabsTrigger value="intel-history">Histórico Intel</TabsTrigger>
+                <TabsTrigger value="etfs">ETFs</TabsTrigger>
+                <TabsTrigger value="transactions">Operaciones</TabsTrigger>
+                <TabsTrigger value="backtest">Backtest</TabsTrigger>
+                <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
+                <TabsTrigger value="evidence">Señales V2</TabsTrigger>
+                <TabsTrigger value="config">Config</TabsTrigger>
+                <TabsTrigger value="picks">Picks</TabsTrigger>
+              </TabsList>
 
-                <TabsContent value="daily" className="flex-1 overflow-y-auto">
-                  <DailySummary />
-                </TabsContent>
-                <TabsContent value="portfolio" className="flex-1 overflow-y-auto">
-                  <PortfolioTable />
-                </TabsContent>
-                <TabsContent value="transactions" className="flex-1 overflow-y-auto">
-                  <TransactionHistory />
-                </TabsContent>
-                <TabsContent value="news" className="flex-1 overflow-y-auto">
-                  <NewsAndIntelligence />
-                </TabsContent>
-                <TabsContent value="etfs" className="flex-1 overflow-y-auto">
-                  <ETFWatchlistPage />
-                </TabsContent>
-                <TabsContent value="opportunities" className="flex-1 overflow-y-auto">
-                  <OpportunityDashboard />
-                </TabsContent>
-                <TabsContent value="backtest" className="flex-1 overflow-y-auto">
-                  <BacktestPage />
-                </TabsContent>
-                <TabsContent value="accuracy" className="flex-1 overflow-y-auto">
-                  <AccuracyDashboard />
-                </TabsContent>
-                <TabsContent value="evidence" className="flex-1 overflow-y-auto">
-                  <EvidenceSignals />
-                </TabsContent>
-                <TabsContent value="config" className="flex-1 overflow-y-auto">
-                  <PipelineConfig />
-                </TabsContent>
-                <TabsContent value="picks" className="flex-1 overflow-y-auto">
-                  <div className="space-y-6 p-4">
-                    <WeeklyPicksPage />
-                    <SectorHeatMap />
-                  </div>
-                </TabsContent>
-              </Tabs>
-            )}
+              {selectedSymbol ? (
+                /* Symbol detail overlays the active tab content but tabs stay visible */
+                <div id="main-content" className="flex-1 overflow-y-auto">
+                  <SymbolDetailPage symbol={selectedSymbol} onBack={goHome} />
+                </div>
+              ) : (
+                <>
+                  <TabsContent value="daily" className="flex-1 overflow-y-auto">
+                    <DailySummary />
+                  </TabsContent>
+                  <TabsContent value="portfolio" className="flex-1 overflow-y-auto">
+                    <PortfolioTable />
+                  </TabsContent>
+                  <TabsContent value="transactions" className="flex-1 overflow-y-auto">
+                    <TransactionHistory />
+                  </TabsContent>
+                  <TabsContent value="news" className="flex-1 overflow-y-auto">
+                    <NewsAndIntelligence />
+                  </TabsContent>
+                  <TabsContent value="radar" className="flex-1 overflow-y-auto">
+                    <NewsRadar />
+                  </TabsContent>
+                  <TabsContent value="intel-history" className="flex-1 overflow-y-auto">
+                    <IntelligenceHistory />
+                  </TabsContent>
+                  <TabsContent value="etfs" className="flex-1 overflow-y-auto">
+                    <ETFWatchlistPage />
+                  </TabsContent>
+                  <TabsContent value="opportunities" className="flex-1 overflow-y-auto">
+                    <OpportunityDashboard />
+                  </TabsContent>
+                  <TabsContent value="backtest" className="flex-1 overflow-y-auto">
+                    <BacktestPage />
+                  </TabsContent>
+                  <TabsContent value="accuracy" className="flex-1 overflow-y-auto">
+                    <AccuracyDashboard />
+                  </TabsContent>
+                  <TabsContent value="evidence" className="flex-1 overflow-y-auto">
+                    <EvidenceSignals />
+                  </TabsContent>
+                  <TabsContent value="config" className="flex-1 overflow-y-auto">
+                    <PipelineConfig />
+                  </TabsContent>
+                  <TabsContent value="picks" className="flex-1 overflow-y-auto">
+                    <div className="space-y-6 p-4">
+                      <WeeklyPicksPage />
+                      <SectorHeatMap />
+                    </div>
+                  </TabsContent>
+                </>
+              )}
+            </Tabs>
 
             <ChatToggle>
               <ChatPanel />

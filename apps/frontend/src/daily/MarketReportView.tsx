@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import type { TopImpactNewsItem } from '@trading/shared';
 import { trpc } from '@/shared/trpc';
+import { WatchlistButton } from '@/shared/WatchlistButton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -7,6 +9,44 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { usePipeline } from '../pipeline/usePipeline';
 import { CausalMapView } from './CausalMapView';
 import { useAiModeModal } from '@/shared/AiModeModal';
+
+// --- Instrument type filter (consistent with watchlist sidebar) ---
+
+type InstrumentFilter = 'all' | 'accion-us' | 'cedear' | 'etf' | 'crypto' | 'bono' | 'commodity';
+
+const INSTRUMENT_LABELS: Record<InstrumentFilter, string> = {
+  all: 'Todos',
+  'accion-us': 'Acciones US',
+  cedear: 'CEDEARs',
+  etf: 'ETFs',
+  crypto: 'Crypto',
+  bono: 'Bonos',
+  commodity: 'Commodities',
+};
+
+// instrumentType strings come from backend market-report.service.ts:
+// 'Accion US' | 'CEDEAR' | 'ETF' | 'Crypto' | 'Bono' | 'Commodity'
+function matchesInstrumentFilter(filter: InstrumentFilter, instrumentType: string | undefined): boolean {
+  if (filter === 'all' || !instrumentType) return filter === 'all';
+  switch (filter) {
+    case 'accion-us': return instrumentType === 'Accion US';
+    case 'cedear': return instrumentType === 'CEDEAR';
+    case 'etf': return instrumentType === 'ETF';
+    case 'crypto': return instrumentType === 'Crypto';
+    case 'bono': return instrumentType === 'Bono';
+    case 'commodity': return instrumentType === 'Commodity';
+  }
+}
+
+// Same classification as Sidebar (when looking up via DB row)
+function dbRowToInstrumentLabel(row: { type?: string | null; plaza?: string | null }): string {
+  if (row.plaza === 'argentina-cedears' || row.type === 'adr') return 'CEDEAR';
+  if (row.type === 'crypto') return 'Crypto';
+  if (row.type === 'bond') return 'Bono';
+  if (row.type === 'etf' || row.plaza === 'etfs-sectors') return 'ETF';
+  if (row.type === 'commodity' || row.plaza === 'commodities') return 'Commodity';
+  return 'Accion US';
+}
 
 const relevanceColor = {
   high: 'bg-red-500/20 text-red-400 border-red-500/30',
@@ -20,8 +60,66 @@ const relevanceLabel = {
   low: 'Baja',
 };
 
+const confidenceColor = {
+  high: 'bg-green-500/20 text-green-400',
+  medium: 'bg-yellow-500/20 text-yellow-400',
+  low: 'bg-muted text-muted-foreground',
+};
+
+const directionColor = {
+  positive: 'text-green-400',
+  negative: 'text-red-400',
+  neutral: 'text-muted-foreground',
+};
+
+const directionIcon = {
+  positive: '▲',
+  negative: '▼',
+  neutral: '—',
+};
+
+function TopImpactNewsList({ items }: { items: TopImpactNewsItem[] }) {
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <span className="text-[10px] text-foreground uppercase tracking-wider font-medium">
+          Top noticias por impacto
+        </span>
+        <p className="text-[9px] text-muted-foreground">Independiente del portfolio — ordenadas por relevancia de mercado</p>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {items.map((item, i) => (
+          <div key={i} className="rounded-md border border-border/50 p-2.5 space-y-1.5">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-[11px] text-foreground leading-snug flex-1">{item.headline}</p>
+              <Badge className={`text-[7px] h-4 shrink-0 ${confidenceColor[item.confidence]}`}>
+                {item.confidence}
+              </Badge>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {item.sectors.map((s, j) => (
+                <span key={j} className={`text-[9px] ${directionColor[s.direction]}`}>
+                  {directionIcon[s.direction]} {s.name}
+                </span>
+              ))}
+            </div>
+            {item.tickers.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {item.tickers.slice(0, 6).map((t, j) => (
+                  <Badge key={j} variant="outline" className="text-[7px] h-3 font-mono">{t}</Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function MarketReportView({ date }: { date?: string }) {
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
+  const [instrumentFilter, setInstrumentFilter] = useState<InstrumentFilter>('all');
 
   const today = new Date().toISOString().slice(0, 10);
   const isHistorical = date !== undefined && date !== today;
@@ -39,18 +137,60 @@ export function MarketReportView({ date }: { date?: string }) {
     }
   );
 
+  // Symbols list for DB lookup (used by alternatives + topImpactNews tickers without instrumentType)
+  const { data: symbols } = trpc.portfolio.symbols.list.useQuery(undefined, {
+    staleTime: 30 * 60_000,
+  });
+
   const report = isHistorical ? historicalData?.marketReport : todayReport;
 
-  const utils = trpc.useUtils();
   const { run, isRunning } = usePipeline();
   const { selectMode, modal } = useAiModeModal();
 
-  const addToWatchlist = trpc.opportunities.addToWatchlist.useMutation({
-    onSuccess: () => utils.opportunities.scan.invalidate(),
-  });
+  // DB-backed lookup for symbols that don't carry instrumentType
+  const symbolToType = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of symbols ?? []) map.set(s.symbol, dbRowToInstrumentLabel(s));
+    return map;
+  }, [symbols]);
 
-  // Find active theme data
-  const activeTheme = report?.themes?.find(t => t.theme === selectedTheme);
+  const symbolMatchesFilter = (symbol: string): boolean => {
+    if (instrumentFilter === 'all') return true;
+    const type = symbolToType.get(symbol);
+    return matchesInstrumentFilter(instrumentFilter, type);
+  };
+
+  // Filtered slices (memoized)
+  const filteredTopRecommendations = useMemo(() => {
+    if (!report?.topRecommendations) return [];
+    if (instrumentFilter === 'all') return report.topRecommendations;
+    return report.topRecommendations.filter(r => matchesInstrumentFilter(instrumentFilter, r.instrumentType));
+  }, [report, instrumentFilter]);
+
+  const filteredAlternatives = useMemo(() => {
+    if (!report?.alternatives) return [];
+    if (instrumentFilter === 'all') return report.alternatives;
+    return report.alternatives.filter(a => symbolMatchesFilter(a.symbol));
+  }, [report, instrumentFilter, symbolToType]);
+
+  const filteredThemes = useMemo(() => {
+    if (!report?.themes) return [];
+    if (instrumentFilter === 'all') return report.themes;
+    return report.themes
+      .map(t => ({
+        ...t,
+        recommendations: t.recommendations.filter(r => matchesInstrumentFilter(instrumentFilter, r.instrumentType)),
+      }))
+      .filter(t => t.recommendations.length > 0);
+  }, [report, instrumentFilter]);
+
+  const filteredTopImpactNews = useMemo(() => {
+    if (!report?.topImpactNews) return [];
+    if (instrumentFilter === 'all') return report.topImpactNews;
+    return report.topImpactNews.filter(item => item.tickers.some(t => symbolMatchesFilter(t)));
+  }, [report, instrumentFilter, symbolToType]);
+
+  const activeTheme = filteredThemes.find(t => t.theme === selectedTheme);
 
   return (
     <>
@@ -102,6 +242,17 @@ export function MarketReportView({ date }: { date?: string }) {
             <span>{new Date(report.generatedAt).toLocaleString('es-AR')}</span>
           </div>
 
+          {/* ======================================================= */}
+          {/* SECCIÓN 1: MERCADO (independiente del portfolio)         */}
+          {/* ======================================================= */}
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-semibold text-blue-400 uppercase tracking-widest">Mercado</span>
+              <div className="flex-1 h-px bg-blue-500/20" />
+            </div>
+            <p className="text-[9px] text-muted-foreground">Análisis independiente — sin sesgo del portfolio</p>
+          </div>
+
           {/* Macro context */}
           <Card size="sm" className="border-l-4 border-l-blue-500">
             <CardHeader>
@@ -112,27 +263,35 @@ export function MarketReportView({ date }: { date?: string }) {
             </CardContent>
           </Card>
 
-          {/* Portfolio impact */}
-          {report.portfolioImpact && (
-            <Card size="sm">
-              <CardHeader>
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Impacto en tu portfolio</span>
-              </CardHeader>
-              <CardContent>
-                <p className="text-xs text-foreground leading-relaxed">{report.portfolioImpact}</p>
-              </CardContent>
-            </Card>
+          {/* Instrument filter chips (consistent with sidebar watchlist) */}
+          <div className="flex gap-2 flex-wrap items-center">
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Filtrar por tipo:</span>
+            {(Object.keys(INSTRUMENT_LABELS) as InstrumentFilter[]).map(f => (
+              <Badge
+                key={f}
+                variant="outline"
+                className={`cursor-pointer text-[10px] transition-colors ${instrumentFilter === f ? 'bg-blue-500/30 text-blue-300 border-blue-500/40' : 'hover:bg-blue-500/10'}`}
+                onClick={() => setInstrumentFilter(f)}
+              >
+                {INSTRUMENT_LABELS[f]}
+              </Badge>
+            ))}
+          </div>
+
+          {/* Top impact news (NEW) */}
+          {filteredTopImpactNews.length > 0 && (
+            <TopImpactNewsList items={filteredTopImpactNews} />
           )}
 
-          {/* ============ TEMAS DEL DIA (causal map) ============ */}
+          {/* Causal map */}
           <CausalMapView date={date} />
 
-          {/* ============ THEME NAVIGATION ============ */}
-          {report.themes && report.themes.length > 0 && (
+          {/* Theme navigation */}
+          {filteredThemes.length > 0 && (
             <div className="space-y-3">
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Tematicas analizadas</span>
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-2">
-                {report.themes.map((t) => (
+                {filteredThemes.map((t) => (
                   <button
                     key={t.theme}
                     onClick={() => setSelectedTheme(selectedTheme === t.theme ? null : t.theme)}
@@ -165,7 +324,7 @@ export function MarketReportView({ date }: { date?: string }) {
             </div>
           )}
 
-          {/* ============ THEME DETAIL (when clicked) ============ */}
+          {/* Theme detail (when clicked) */}
           {activeTheme && (
             <Card size="sm" className="border-l-4 border-l-blue-500">
               <CardHeader>
@@ -189,15 +348,7 @@ export function MarketReportView({ date }: { date?: string }) {
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge className="text-[9px] h-5 bg-green-500/20 text-green-400">{rec.suggestedWeight}%</Badge>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-5 text-[8px] px-1.5"
-                          onClick={() => addToWatchlist.mutate({ symbol: rec.symbol })}
-                          disabled={addToWatchlist.isPending}
-                        >
-                          + Watchlist
-                        </Button>
+                        <WatchlistButton symbol={rec.symbol} />
                       </div>
                     </div>
                     <p className="text-[11px] text-foreground leading-relaxed">{rec.thesis}</p>
@@ -221,14 +372,16 @@ export function MarketReportView({ date }: { date?: string }) {
             </Card>
           )}
 
-          {/* ============ TOP RECS (consolidated, all themes) ============ */}
-          {!selectedTheme && report.topRecommendations.length > 0 && (
+          {/* Top recommendations (consolidated) */}
+          {!selectedTheme && filteredTopRecommendations.length > 0 && (
             <Card size="sm" className="border-l-4 border-l-green-500">
               <CardHeader>
-                <span className="text-[10px] text-green-400 uppercase tracking-wider font-medium">Top recomendaciones (todas las tematicas)</span>
+                <span className="text-[10px] text-green-400 uppercase tracking-wider font-medium">
+                  Top recomendaciones {instrumentFilter !== 'all' ? `(${INSTRUMENT_LABELS[instrumentFilter]})` : '(todas las tematicas)'}
+                </span>
               </CardHeader>
               <CardContent className="space-y-3">
-                {report.topRecommendations.map((rec, i) => (
+                {filteredTopRecommendations.map((rec, i) => (
                   <div key={i} className="rounded-md bg-muted/30 p-3 space-y-1.5">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -239,15 +392,7 @@ export function MarketReportView({ date }: { date?: string }) {
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge className="text-[9px] h-5 bg-green-500/20 text-green-400">{rec.suggestedWeight}%</Badge>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-5 text-[8px] px-1.5"
-                          onClick={() => addToWatchlist.mutate({ symbol: rec.symbol })}
-                          disabled={addToWatchlist.isPending}
-                        >
-                          + Watchlist
-                        </Button>
+                        <WatchlistButton symbol={rec.symbol} />
                       </div>
                     </div>
                     <p className="text-[11px] text-foreground leading-relaxed">{rec.thesis}</p>
@@ -272,14 +417,14 @@ export function MarketReportView({ date }: { date?: string }) {
           )}
 
           {/* Alternatives */}
-          {!selectedTheme && report.alternatives.length > 0 && (
+          {!selectedTheme && filteredAlternatives.length > 0 && (
             <Card size="sm">
               <CardHeader>
                 <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Alternativas</span>
               </CardHeader>
               <CardContent className="space-y-2">
                 {(['A', 'B'] as const).map(tier => {
-                  const tierAlts = report.alternatives.filter(a => a.tier === tier);
+                  const tierAlts = filteredAlternatives.filter(a => a.tier === tier);
                   if (tierAlts.length === 0) return null;
                   return (
                     <div key={tier}>
@@ -291,14 +436,7 @@ export function MarketReportView({ date }: { date?: string }) {
                             <Badge className="text-[7px] h-3.5 bg-muted text-muted-foreground">{alt.sector}</Badge>
                           </div>
                           <p className="text-[9px] text-muted-foreground flex-1">{alt.thesis}</p>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-4 text-[7px] px-1"
-                            onClick={() => addToWatchlist.mutate({ symbol: alt.symbol })}
-                          >
-                            +
-                          </Button>
+                          <WatchlistButton symbol={alt.symbol} />
                         </div>
                       ))}
                     </div>
@@ -323,12 +461,12 @@ export function MarketReportView({ date }: { date?: string }) {
                         {scenario.probability}% prob.
                       </Badge>
                     </div>
-                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-1">
+                    <div className="space-y-0.5">
                       {scenario.distribution.map((d, j) => (
-                        <div key={j} className="flex items-center gap-1 text-[9px]">
-                          <span className="font-mono font-semibold">{d.symbol}</span>
-                          <span className="text-green-400">{d.weight}%</span>
-                          <span className="text-muted-foreground truncate">— {d.reason}</span>
+                        <div key={j} className="flex items-start gap-1 text-[9px]">
+                          <span className="font-mono font-semibold shrink-0">{d.symbol}</span>
+                          <span className="text-green-400 shrink-0">{d.weight}%</span>
+                          <span className="text-muted-foreground">— {d.reason}</span>
                         </div>
                       ))}
                     </div>
@@ -350,6 +488,29 @@ export function MarketReportView({ date }: { date?: string }) {
                 ))}
               </CardContent>
             </Card>
+          )}
+
+          {/* ======================================================= */}
+          {/* SECCIÓN 2: TU PORTFOLIO                                  */}
+          {/* ======================================================= */}
+          {report.portfolioImpact && !selectedTheme && (
+            <>
+              <div className="space-y-1 pt-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] font-semibold text-amber-400 uppercase tracking-widest">Tu Portfolio</span>
+                  <div className="flex-1 h-px bg-amber-500/20" />
+                </div>
+              </div>
+
+              <Card size="sm" className="border-l-4 border-l-amber-500">
+                <CardHeader>
+                  <span className="text-[10px] text-amber-400 uppercase tracking-wider font-medium">Impacto en tu portfolio</span>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-foreground leading-relaxed">{report.portfolioImpact}</p>
+                </CardContent>
+              </Card>
+            </>
           )}
         </div>
       )}

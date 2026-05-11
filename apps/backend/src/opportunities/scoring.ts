@@ -616,9 +616,10 @@ export function applyAntiHypeFilters(
   symbols: string[],
   techMap: Map<string, TechnicalSummary>,
   portfolioSymbols: Set<string>,
-  options?: { includeVolume?: boolean },
+  options?: { includeVolume?: boolean; newsImpactBypass?: Set<string> },
 ): AntiHypeFilterResult {
   const includeVolume = options?.includeVolume ?? true;
+  const newsImpactBypass = options?.newsImpactBypass ?? new Set<string>();
   const filtered: string[] = [];
   const rejected: Array<{ symbol: string; reasons: string[] }> = [];
   const MAX_FAILURES = 1; // pass with 2 of 3 (or 2 of 2 without volume)
@@ -626,6 +627,14 @@ export function applyAntiHypeFilters(
   for (const symbol of symbols) {
     // Portfolio symbols always pass (for SELL signals)
     if (portfolioSymbols.has(symbol)) {
+      filtered.push(symbol);
+      continue;
+    }
+
+    // Symbols mentioned in HIGH-impact recent news bypass anti-hype.
+    // Reason: bonds/commodities can be below SMA200 structurally (bear regime) but
+    // still be relevant when news triggers a reversal. We want the LLM to see them.
+    if (newsImpactBypass.has(symbol)) {
       filtered.push(symbol);
       continue;
     }

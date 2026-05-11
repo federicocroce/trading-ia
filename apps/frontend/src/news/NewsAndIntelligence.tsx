@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -283,6 +284,13 @@ export function NewsAndIntelligence() {
   }
 
   return (
+    <>
+    <TabInfo>
+      <InfoSection title="Qué muestra">Noticias del mercado analizadas por IA: resúmenes, sentimiento y alertas de convergencia entre fuentes.</InfoSection>
+      <InfoSection title="Flujo">Scraping de fuentes configuradas → LLM resume cada artículo → agrupa por fuente → triangulación (múltiples fuentes confirmando el mismo evento = mayor convicción) → sentimiento global del día.</InfoSection>
+      <InfoSection title="Indicadores">Sentimiento por fuente (positivo/negativo/neutro) · Score de relevancia · Alertas cuando ≥2 fuentes convergen en el mismo evento · Total de noticias analizadas.</InfoSection>
+      <InfoSection title="Interacción">Botón "Actualizar" relanza el análisis con las noticias más recientes. Las fuentes se configuran en la pestaña Config.</InfoSection>
+    </TabInfo>
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -463,5 +471,6 @@ export function NewsAndIntelligence() {
         </div>
       </div>
     </div>
+    </>
   );
 }

@@ -13,6 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/shared/trpc';
+import { WatchlistButton } from '@/shared/WatchlistButton';
 
 // --- Types ---
 
@@ -152,6 +153,9 @@ function RecommendationRow({ opp, rank }: { opp: TopRecommendation; rank: number
         <span className="font-mono font-semibold text-sm">{opp.symbol}</span>
         <Badge className={`text-[9px] ${actionColors[opp.action] ?? ''}`}>{opp.action}</Badge>
         <span className="text-[10px] text-muted-foreground truncate flex-1">{opp.sectorLabel}</span>
+        <span onClick={(e) => e.stopPropagation()}>
+          <WatchlistButton symbol={opp.symbol} />
+        </span>
         <span className="text-sm font-mono font-semibold">{opp.opportunityScore}</span>
       </div>
 

@@ -1,6 +1,7 @@
 import { trpc } from '@/shared/trpc';
 import { Button } from '@/components/ui/button';
 import { PickCard } from './PickCard';
+import { TabInfo, InfoSection } from '@/shared/TabInfo';
 
 export function WeeklyPicksPage() {
   const { data: picks, isLoading, refetch } = trpc.macro.weeklyPicks.useQuery();
@@ -13,6 +14,13 @@ export function WeeklyPicksPage() {
   });
 
   return (
+    <>
+    <TabInfo>
+      <InfoSection title="Qué muestra">Selección semanal de alta convicción generada por IA + mapa de calor sectorial para contexto macro.</InfoSection>
+      <InfoSection title="Picks — Flujo">Convergencia de múltiples señales (PEAD + Insider + Options + Momentum) → LLM evalúa cada setup → solo pasan los que superan umbral de convicción HIGH o combinación de ≥2 señales activas.</InfoSection>
+      <InfoSection title="Tiers & Campos">Tier HIGH = mayor convicción. Cada pick incluye: catalizador esperado · ratio riesgo/retorno · timeframe sugerido · razón principal del setup. Si no hay picks = régimen de riesgo o insuficiente evidencia.</InfoSection>
+      <InfoSection title="Sector Heatmap">Mapa de calor del rendimiento relativo por sector. Contexto de qué sectores están liderando o rezagando para calibrar exposición sectorial del portfolio.</InfoSection>
+    </TabInfo>
     <div className="p-6 max-w-2xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -61,5 +69,6 @@ export function WeeklyPicksPage() {
         </div>
       )}
     </div>
+    </>
   );
 }

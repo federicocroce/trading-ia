@@ -146,6 +146,7 @@ export function saveMarketReport(data: {
   status: 'ok' | 'partial' | 'failed';
   macroContext?: string;
   portfolioImpact?: string;
+  topImpactNews?: unknown;
   themes?: unknown;
   topRecommendations?: unknown;
   alternatives?: unknown;
@@ -159,6 +160,7 @@ export function saveMarketReport(data: {
     status: data.status,
     macroContext: data.macroContext ?? null,
     portfolioImpact: data.portfolioImpact ?? null,
+    topImpactNews: data.topImpactNews ? JSON.stringify(data.topImpactNews) : null,
     themes: data.themes ? JSON.stringify(data.themes) : null,
     topRecommendations: data.topRecommendations ? JSON.stringify(data.topRecommendations) : null,
     alternatives: data.alternatives ? JSON.stringify(data.alternatives) : null,
@@ -178,6 +180,7 @@ export function getTodayMarketReport() {
   if (!row) return null;
   return {
     ...row,
+    topImpactNews: row.topImpactNews ? JSON.parse(row.topImpactNews) : null,
     themes: row.themes ? JSON.parse(row.themes) : null,
     topRecommendations: row.topRecommendations ? JSON.parse(row.topRecommendations) : null,
     alternatives: row.alternatives ? JSON.parse(row.alternatives) : null,
@@ -198,6 +201,7 @@ export function getMarketReportByDate(date: string) {
   if (!row) return null;
   return {
     ...row,
+    topImpactNews: row.topImpactNews ? JSON.parse(row.topImpactNews) : null,
     themes: row.themes ? JSON.parse(row.themes) : null,
     topRecommendations: row.topRecommendations ? JSON.parse(row.topRecommendations) : null,
     alternatives: row.alternatives ? JSON.parse(row.alternatives) : null,

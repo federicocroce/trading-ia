@@ -204,6 +204,41 @@
       "when": 1777400000000,
       "tag": "0028_etf_watchlist",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1777500000000,
+      "tag": "0029_top_impact_news",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1777500001000,
+      "tag": "0030_unified_analysis_results",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1777500002000,
+      "tag": "0031_news_body",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1777500003000,
+      "tag": "0032_news_radar_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1777500004000,
+      "tag": "0033_intelligence_and_antihype",
+      "breakpoints": true
     }
   ]
 }

@@ -109,6 +109,11 @@ export interface Opportunity {
   deepAnalysis?: DeepAnalysis;
   convictionTier?: ConvictionTier;
   unifiedAnalysis?: UnifiedAssetAnalysis;
+  radarInfluence?: {
+    bonus: number;        // sentiment score bonus applied (-25..+25)
+    sources: string[];    // e.g. ["ticker:TLT=+1.5", "sector:bonos_largos=+1.2"]
+    conflict?: string;    // base sentiment vs radar disagreement note
+  };
 }
 
 export type ConvictionTier = 'strong' | 'standard' | 'speculative';
@@ -155,6 +160,8 @@ export interface OpportunityScanResult {
   analysisEngine: AnalysisEngine;
   analysisDetail: string;
   source: ScanSource; // 'live' = recién escaneado, 'db' = recuperado de BD
+  antiHypeRejected?: Array<{ symbol: string; reasons: string[] }>;  // for audit/persistence
+  antiHypeMode?: 'strict' | 'relaxed';
 }
 
 export type WeeklyPickTier = 'HIGH' | 'MEDIUM';

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/shared/trpc';
 import { OpportunityCard } from './OpportunityCard';
+import { AntiHypeRejectionsPanel } from './AntiHypeRejectionsPanel';
 import { SectorFilter } from './SectorFilter';
 import { IntelligenceReportSheet } from '@/intelligence/IntelligenceReportSheet';
 import { usePipeline } from '@/pipeline/usePipeline';
@@ -412,6 +413,9 @@ export function OpportunityDashboard() {
           </div>
         );
       })()}
+
+      {/* Anti-hype rejections debug panel */}
+      <AntiHypeRejectionsPanel />
 
       {/* Footer */}
       <div className="flex items-center justify-between text-[10px] text-muted-foreground">

@@ -92,7 +92,7 @@ export function SymbolDetailPage({ symbol, onBack }: SymbolDetailPageProps) {
 
       {/* Chart */}
       <div className="rounded-lg border border-border bg-card p-4">
-        <PriceChart symbol={symbol} onPeriodChange={setPeriodChange} />
+        <PriceChart symbol={symbol} onPeriodChange={setPeriodChange} currentPrice={price?.current} />
       </div>
 
       {/* Cards grid */}

@@ -16,12 +16,31 @@ const COLORS = {
 };
 
 const TIMEFRAMES = [
-  { label: '1D', range: '1d' as const, interval: '5m' as const },
-  { label: '1S', range: '5d' as const, interval: '15m' as const },
-  { label: '1M', range: '1mo' as const, interval: '1h' as const },
-  { label: '1A', range: '1y' as const, interval: '1d' as const },
-  { label: '5A', range: '5y' as const, interval: '1wk' as const },
+  { label: '1D', range: '1d' as const, interval: '5m' as const, periodDays: undefined },
+  { label: '1S', range: '5d' as const, interval: '15m' as const, periodDays: undefined },
+  // Fetch 3mo so we always have data before Easter/long weekends; chart is filtered to 30 days
+  { label: '1M', range: '3mo' as const, interval: '1d' as const, periodDays: 30 },
+  { label: '1A', range: '1y' as const, interval: '1d' as const, periodDays: undefined },
+  { label: '5A', range: '5y' as const, interval: '1wk' as const, periodDays: undefined },
 ];
+
+function filterToPeriod<T extends { date: string }>(data: T[], days: number): T[] {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return data.filter(d => new Date(d.date).getTime() >= cutoff);
+}
+
+// Find the last trading day at or before N calendar days ago and return its open price.
+// This matches TradingView's "1M" methodology: use the session open of the reference day.
+function findPeriodStartOpen(data: { date: string; open: number }[], days: number): number | null {
+  const target = Date.now() - days * 24 * 60 * 60 * 1000;
+  const sorted = [...data].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  let ref: { date: string; open: number } | null = null;
+  for (const candle of sorted) {
+    if (new Date(candle.date).getTime() <= target) ref = candle;
+    else break;
+  }
+  return ref?.open ?? null;
+}
 
 type ChartType = 'candle' | 'line' | 'area';
 
@@ -40,9 +59,10 @@ export interface PeriodChange {
 interface PriceChartProps {
   symbol: string;
   onPeriodChange?: (info: PeriodChange | null) => void;
+  currentPrice?: number;
 }
 
-export function PriceChart({ symbol, onPeriodChange }: PriceChartProps) {
+export function PriceChart({ symbol, onPeriodChange, currentPrice }: PriceChartProps) {
   const [tfIdx, setTfIdx] = useState(2); // default: 1M
   const [chartType, setChartType] = useState<ChartType>('candle');
   const tf = TIMEFRAMES[tfIdx];
@@ -63,12 +83,20 @@ export function PriceChart({ symbol, onPeriodChange }: PriceChartProps) {
       onPeriodChangeRef.current?.(null);
       return;
     }
-    const first = ohlc[0].close;
-    const last = ohlc[ohlc.length - 1].close;
+    let first: number;
+    if (tf.periodDays) {
+      // Use the open of the last trading day at/before N calendar days ago (TradingView methodology)
+      const startOpen = findPeriodStartOpen(ohlc, tf.periodDays);
+      first = startOpen ?? (filterToPeriod(ohlc, tf.periodDays)[0]?.close ?? ohlc[0].close);
+    } else {
+      first = ohlc[0].close;
+    }
+    // Prefer live current price over the last daily close (matches TradingView behavior)
+    const last = currentPrice ?? ohlc[ohlc.length - 1].close;
     const change = last - first;
     const changePercent = (change / first) * 100;
     onPeriodChangeRef.current({ label: tf.label, change, changePercent });
-  }, [tf.label, ohlc]);
+  }, [tf.label, tf.periodDays, ohlc, currentPrice]);
 
   // Create / update chart
   useEffect(() => {
@@ -101,10 +129,10 @@ export function PriceChart({ symbol, onPeriodChange }: PriceChartProps) {
       },
     });
 
-    const isUp = ohlc[ohlc.length - 1].close >= ohlc[0].close;
-
     // Sort + deduplicate by timestamp — lightweight-charts requires strictly ascending unique times
-    const sorted = [...ohlc].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const chartOhlc = tf.periodDays ? filterToPeriod(ohlc, tf.periodDays) : ohlc;
+    const isUp = chartOhlc[chartOhlc.length - 1].close >= chartOhlc[0].close;
+    const sorted = [...chartOhlc].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const seen = new Set<number>();
     const dedupedOhlc = sorted.filter(d => {
       const ts = Math.floor(new Date(d.date).getTime() / 1000);

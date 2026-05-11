@@ -10,11 +10,10 @@ import { useAiModeModal } from '@/shared/AiModeModal';
 
 const SECTOR_PRESETS: { label: string; value: string; sectors: string[] | undefined }[] = [
   { label: 'Todos', value: 'all', sectors: undefined },
-  { label: 'Argentina', value: 'argentina', sectors: ['argentina-energy', 'argentina-finance', 'argentina-cedears'] },
-  { label: 'CEDEARs', value: 'cedears', sectors: ['argentina-cedears'] },
-  { label: 'US Tech', value: 'us-tech', sectors: ['us-tech'] },
-  { label: 'US Energía', value: 'us-energy', sectors: ['us-energy'] },
+  { label: 'Acciones', value: 'acciones', sectors: ['argentina-energy', 'argentina-finance', 'argentina-cedears', 'us-tech', 'us-energy', 'emerging-markets'] },
+  { label: 'ETFs', value: 'etfs', sectors: ['etfs-sectors'] },
   { label: 'Crypto', value: 'crypto', sectors: ['crypto'] },
+  { label: 'Bonos', value: 'bonos', sectors: ['bonds'] },
   { label: 'Commodities', value: 'commodities', sectors: ['commodities'] },
 ];
 
@@ -27,13 +26,13 @@ export function Header() {
   const selectedPreset = SECTOR_PRESETS.find((p) => p.value === presetKey) ?? SECTOR_PRESETS[0];
 
   function getAnalyzeLabel(): string {
-    if (!isRunning) return 'Noticias';
+    if (!isRunning) return 'Ejecutar pipeline';
     const stages = todayRun?.stages;
     if (!stages) return 'Ejecutando...';
-    if (stages.news.status === 'running') return 'Obteniendo noticias...';
+    if (stages.news.status === 'running') return 'Noticias...';
     if (stages.fundamentals?.status === 'running') return 'Fundamentales...';
-    if (stages.analysis.status === 'running') return 'Analizando...';
-    if (stages.report.status === 'running') return 'Generando reporte...';
+    if (stages.analysis.status === 'running') return 'Análisis...';
+    if (stages.report.status === 'running') return 'Reporte...';
     return 'Ejecutando...';
   }
 

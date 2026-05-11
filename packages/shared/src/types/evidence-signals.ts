@@ -48,6 +48,28 @@ export interface OptionsFlowSignal {
 export type EvidenceConviction = 'high' | 'medium' | 'low' | 'none';
 export type EvidenceRecommendation = 'WATCH_CLOSELY' | 'INTERESTING' | 'NO_SIGNAL';
 
+export interface TechSnapshot {
+  rsi14: number | null;
+  sma20: number | null;
+  sma50: number | null;
+  trend: 'bullish' | 'bearish' | 'mixed';
+  momentum5d: number | null;
+  atr14: number | null;
+}
+
+export interface FundamentalSnapshot {
+  peRatio: number | null;
+  forwardPE: number | null;
+  revenueGrowth: number | null;
+  operatingMargin: number | null;
+  netMargin: number | null;
+  debtToEquity: number | null;
+  beta: number | null;
+  marketCap: number | null;
+  priceVs52wHigh: number | null;
+  earningsDate: string | null;
+}
+
 export interface EvidenceSignal {
   symbol: string;
   scannedAt: string;
@@ -69,6 +91,10 @@ export interface EvidenceSignal {
     trend: 'outperforming' | 'underperforming' | 'neutral';
     priceVsSma50Pct: number;
   };
+  /** Technical indicators snapshot — computed at scan time from 3mo OHLC */
+  techSnapshot?: TechSnapshot;
+  /** Fundamental data snapshot — computed at scan time from Yahoo Finance */
+  fundamentalSnapshot?: FundamentalSnapshot;
 }
 
 export type EvidenceMarketRegime = 'bull' | 'bear' | 'neutral';

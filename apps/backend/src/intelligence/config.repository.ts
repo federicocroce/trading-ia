@@ -5,26 +5,26 @@ import { eq } from 'drizzle-orm';
 // ─── Default seeds ────────────────────────────────────────────────────────────
 
 const DEFAULT_DISCOVERY_QUERIES = [
-  { query: 'best stock market opportunities today', lang: 'en' as const, category: 'general', priority: 1 },
-  { query: 'AI semiconductors stocks news today', lang: 'en' as const, category: 'tech', priority: 2 },
-  { query: 'oil energy stocks opportunities today', lang: 'en' as const, category: 'energy', priority: 3 },
-  { query: 'acciones argentinas oportunidades hoy merval cedears', lang: 'es' as const, category: 'argentina', priority: 4 },
-  { query: 'bitcoin criptomonedas oportunidades esta semana', lang: 'es' as const, category: 'crypto', priority: 5 },
-  { query: 'noticias economicas argentina inversiones hoy', lang: 'es' as const, category: 'argentina', priority: 6 },
-  { query: 'bolsa new york oportunidades acciones hoy', lang: 'es' as const, category: 'general', priority: 7 },
+  { query: 'stock market biggest movers today surge rally NYSE NASDAQ', lang: 'en' as const, category: 'general', priority: 1 },
+  { query: 'earnings beat miss surprise stocks today analyst upgrade downgrade', lang: 'en' as const, category: 'general', priority: 2 },
+  { query: 'oil gas energy stocks news today price move', lang: 'en' as const, category: 'energy', priority: 3 },
+  { query: 'acciones argentinas noticias hoy merval cedear movimiento precio', lang: 'es' as const, category: 'argentina', priority: 4 },
+  { query: 'bitcoin ethereum crypto price news today move', lang: 'en' as const, category: 'crypto', priority: 5 },
+  { query: 'fed reserve interest rate inflation news market impact today', lang: 'en' as const, category: 'macro', priority: 6 },
+  { query: 'stock breakout technical analysis today high volume', lang: 'en' as const, category: 'general', priority: 7 },
 ];
 
 const DEFAULT_THEMATIC_QUERIES = [
-  { name: 'Geopolítica y conflictos', keywords: JSON.stringify(['war', 'conflict', 'sanctions', 'military', 'NATO', 'Russia', 'Ukraine', 'Middle East']), priority: 1 },
-  { name: 'Política monetaria', keywords: JSON.stringify(['Fed', 'interest rates', 'inflation', 'CPI', 'FOMC', 'Powell', 'ECB', 'rate hike', 'rate cut']), priority: 2 },
+  { name: 'Política monetaria', keywords: JSON.stringify(['Fed', 'interest rates', 'inflation', 'CPI', 'FOMC', 'Powell', 'ECB', 'rate hike', 'rate cut']), priority: 1 },
+  { name: 'Comercio y aranceles', keywords: JSON.stringify(['tariffs', 'trade', 'China', 'supply chain', 'export', 'import', 'WTO', 'trade war']), priority: 2 },
   { name: 'Tecnología e IA', keywords: JSON.stringify(['AI', 'semiconductor', 'earnings', 'NVIDIA', 'chips', 'data center', 'machine learning', 'Broadcom']), priority: 3 },
-  { name: 'Energía y petróleo', keywords: JSON.stringify(['oil', 'OPEC', 'crude', 'gas', 'renewable', 'energy', 'Brent', 'WTI', 'petroleum']), priority: 4 },
-  { name: 'Mercados emergentes y Argentina', keywords: JSON.stringify(['Argentina', 'IMF', 'emerging', 'Latin America', 'Brazil', 'CEDEAR', 'Merval', 'peso']), priority: 5 },
-  { name: 'Comercio y aranceles', keywords: JSON.stringify(['tariffs', 'trade', 'China', 'supply chain', 'export', 'import', 'WTO', 'trade war']), priority: 6 },
+  { name: 'Mercados emergentes y Argentina', keywords: JSON.stringify(['Argentina', 'IMF', 'emerging', 'Latin America', 'Brazil', 'CEDEAR', 'Merval', 'peso']), priority: 4 },
+  { name: 'Energía y petróleo', keywords: JSON.stringify(['oil', 'OPEC', 'crude', 'gas', 'renewable', 'energy', 'Brent', 'WTI', 'petroleum']), priority: 5 },
+  { name: 'M&A y earnings', keywords: JSON.stringify(['merger', 'acquisition', 'earnings', 'IPO', 'buyout', 'revenue', 'guidance', 'beat', 'miss']), priority: 6 },
   { name: 'Crypto y fintech', keywords: JSON.stringify(['Bitcoin', 'blockchain', 'DeFi', 'SEC', 'Ethereum', 'crypto', 'stablecoin', 'ETF crypto']), priority: 7 },
-  { name: 'Salud y pharma', keywords: JSON.stringify(['FDA', 'biotech', 'drug', 'healthcare', 'clinical trial', 'approval', 'pharma', 'vaccine']), priority: 8 },
-  { name: 'Commodities', keywords: JSON.stringify(['gold', 'copper', 'lithium', 'uranium', 'mining', 'metals', 'silver', 'platinum']), priority: 9 },
-  { name: 'M&A y earnings', keywords: JSON.stringify(['merger', 'acquisition', 'earnings', 'IPO', 'buyout', 'revenue', 'guidance', 'beat', 'miss']), priority: 10 },
+  { name: 'Commodities', keywords: JSON.stringify(['gold', 'copper', 'lithium', 'uranium', 'mining', 'metals', 'silver', 'platinum']), priority: 8 },
+  { name: 'Salud y pharma', keywords: JSON.stringify(['FDA', 'biotech', 'drug', 'healthcare', 'clinical trial', 'approval', 'pharma', 'vaccine']), priority: 9 },
+  { name: 'Geopolítica y conflictos', keywords: JSON.stringify(['war', 'conflict', 'sanctions', 'military', 'NATO', 'Russia', 'Ukraine', 'Middle East']), priority: 10 },
 ];
 
 // ─── Seeding ──────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import type { NewsItem, RawNewsArticle } from '@trading/shared';
 import { getAvailableAdapters } from './sources/index.js';
-import { getActiveSymbolList, getAllSymbols, getWebSearchArticlesForDate, getEtfSymbols } from '../db/repository.js';
-import { registerNovelTickers } from '../discovery/discovery-registry.js';
+import { getAllSymbols, getWebSearchArticlesForDate, getPortfolioPositions } from '../db/repository.js';
+import { registerNovelTickers, getDiscoveredTickers } from '../discovery/discovery-registry.js';
 import { isValidTickerFormat } from '../discovery/ticker-validator.js';
 
 // --- Deduplication ---
@@ -66,11 +66,10 @@ function hasMacroKeywords(title: string): boolean {
   return MACRO_KEYWORDS.some((k) => lower.includes(k));
 }
 
-function classifyImpact(relatedTickers: string[], activeSymbols: string[], title = ''): 'high' | 'medium' | 'low' {
-  const portfolioTickers = relatedTickers.filter((t) => activeSymbols.includes(t));
-  if (portfolioTickers.length >= 2) return 'high';
-  if (portfolioTickers.length === 1) return 'medium';
-  if (hasMacroKeywords(title)) return 'medium';
+function classifyImpact(relatedTickers: string[], title = ''): 'high' | 'medium' | 'low' {
+  if (hasMacroKeywords(title)) return 'high';
+  if (relatedTickers.length >= 2) return 'medium';
+  if (relatedTickers.length === 1) return 'low';
   return 'low';
 }
 
@@ -110,18 +109,19 @@ function classifySectors(relatedTickers: string[], tickerSectorMap: Map<string, 
 
 // --- Convert RawNewsArticle to NewsItem ---
 
-function toNewsItem(article: RawNewsArticle, activeSymbols: string[], tickerSectorMap: Map<string, string[]>): NewsItem {
+function toNewsItem(article: RawNewsArticle, tickerSectorMap: Map<string, string[]>): NewsItem {
   return {
     id: article.externalId,
     time: article.publishedAt,
     title: article.title,
     source: article.source,
-    impact: classifyImpact(article.relatedSymbols, activeSymbols, article.title),
+    impact: classifyImpact(article.relatedSymbols, article.title),
     sectors: classifySectors(article.relatedSymbols, tickerSectorMap),
     sentiment: 'neutral', // Will be classified by LLM later
     url: article.url || undefined,
     relatedTickers: article.relatedSymbols,
     sourceType: article.sourceType,
+    summary: article.summary,
   };
 }
 
@@ -140,9 +140,33 @@ export interface AggregationResult {
 
 // --- Main aggregation ---
 
+// Cold-start seed: broad market tickers used when portfolio + discovery are both empty.
+// Covers all major asset classes so adapters that need a symbol list (Finnhub company-news)
+// still produce articles on first run. Once news drives discovery, this seed is no longer used.
+const COLD_START_SEED = [
+  'SPY', 'QQQ', 'IWM',           // Index ETFs (broad market)
+  'AAPL', 'MSFT', 'NVDA',         // Mega-cap tech
+  'XLE', 'XLF', 'XLK',            // Sector ETFs
+  'TLT', 'HYG',                    // Bonds
+  'GLD', 'USO',                    // Commodities
+  'BTC-USD', 'ETH-USD',           // Crypto
+  'EEM',                            // Emerging markets
+];
+
 export async function aggregateNews(): Promise<AggregationResult> {
   const adapters = await getAvailableAdapters();
-  const symbols = [...new Set([...getActiveSymbolList(), ...getEtfSymbols()])];
+  // Symbols passed to adapters: ONLY portfolio holdings + organically discovered tickers from news.
+  // Watchlist is intentionally excluded — news fetching should not be biased toward user-selected
+  // symbols. Watchlist tickers still get analyzed downstream if they appear in news organically.
+  const portfolioSymbols = getPortfolioPositions().map(p => p.symbol);
+  const discoveredSymbols = getDiscoveredTickers().map(t => t.symbol);
+  let symbols = [...new Set([...portfolioSymbols, ...discoveredSymbols])];
+  // Cold start: if portfolio + discovery are both empty, seed with broad market tickers
+  // so per-symbol adapters (Finnhub company-news, etc.) still produce articles.
+  if (symbols.length === 0) {
+    symbols = [...COLD_START_SEED];
+    console.log('[aggregator] Cold start detected — using broad market seed list');
+  }
   const tickerSectorMap = buildTickerSectorMap();
 
   // Fetch from all sources in parallel
@@ -203,7 +227,7 @@ export async function aggregateNews(): Promise<AggregationResult> {
 
   // Convert to NewsItem and sort by time (newest first)
   const news = deduped
-    .map((a) => toNewsItem(a, symbols, tickerSectorMap))
+    .map((a) => toNewsItem(a, tickerSectorMap))
     .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 
   console.log(
@@ -212,10 +236,22 @@ export async function aggregateNews(): Promise<AggregationResult> {
   );
 
   // --- Discover novel tickers from news ---
+  // AWAIT registration so downstream stages (opportunity scan) see the new tickers
+  // in the same pipeline run. Otherwise discoveries are delayed by 1 cycle.
+  // Extract from BOTH relatedSymbols (adapter-provided) AND title regex
+  // (since Yahoo broad-keyword search often returns empty relatedTickers).
   try {
     const allMentionedTickers = new Set<string>();
+    // Regex matches uppercase ticker patterns: 2-5 letters, optionally with -USD/-USDT for crypto
+    const TITLE_TICKER_REGEX = /\b([A-Z]{2,5}(?:-USD|-USDT)?)\b/g;
     for (const article of deduped) {
+      // 1. Adapter-provided relatedSymbols
       for (const ticker of article.relatedSymbols) {
+        if (isValidTickerFormat(ticker)) allMentionedTickers.add(ticker);
+      }
+      // 2. Title regex extraction (catches tickers when adapter didn't tag them)
+      const titleMatches = article.title.match(TITLE_TICKER_REGEX) ?? [];
+      for (const ticker of titleMatches) {
         if (isValidTickerFormat(ticker)) allMentionedTickers.add(ticker);
       }
     }
@@ -223,14 +259,12 @@ export async function aggregateNews(): Promise<AggregationResult> {
     const novel = [...allMentionedTickers].filter(t => !known.has(t));
 
     if (novel.length > 0) {
-      // Determine source (best guess from adapters)
       const source = Object.keys(sourceStats).includes('Finnhub') ? 'finnhub' as const : 'yahoo' as const;
-      registerNovelTickers(novel, source).catch(err =>
-        console.warn('[aggregator] Error registrando novel tickers:', err),
-      );
-      console.log(`[aggregator] ${novel.length} novel tickers detectados: ${novel.slice(0, 10).join(', ')}${novel.length > 10 ? '...' : ''}`);
+      const registered = await registerNovelTickers(novel, source);
+      console.log(`[aggregator] ${registered}/${novel.length} novel tickers registrados: ${novel.slice(0, 10).join(', ')}${novel.length > 10 ? '...' : ''}`);
     }
-  } catch {
+  } catch (err) {
+    console.warn('[aggregator] Error registrando novel tickers:', (err as Error).message);
     // Non-critical, don't fail aggregation
   }
 

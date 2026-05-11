@@ -49,6 +49,10 @@ export interface MarketDigest {
     action: 'BUY' | 'SELL';
     narrative: string;
   }>;
+  watching?: Array<{
+    symbol: string;
+    narrative: string;  // "noticia que lo trajo + trigger BUY concreto"
+  }>;
   warnings: string[];
   marketMood: 'risk-on' | 'risk-off' | 'mixed';
   wouldDo: string[];      // "Cosas que SÍ haría"
@@ -90,10 +94,18 @@ export interface MarketReportTheme {
   recommendations: MarketReportRecommendation[];
 }
 
+export interface TopImpactNewsItem {
+  headline: string;
+  sectors: Array<{ name: string; direction: 'positive' | 'negative' | 'neutral' }>;
+  confidence: 'high' | 'medium' | 'low';
+  tickers: string[];
+}
+
 export interface MarketReport {
   generatedAt: number;
   macroContext: string;
   portfolioImpact: string;
+  topImpactNews?: TopImpactNewsItem[];
   themes: MarketReportTheme[];
   topRecommendations: MarketReportRecommendation[];
   alternatives: MarketReportAlternative[];
@@ -116,7 +128,7 @@ export interface SectorImpact {
 
 export interface SectorReport {
   sector: string;
-  impact: 'positive' | 'negative' | 'mixed';
+  impact: 'positive' | 'negative' | 'mixed' | 'neutral';
   summary: string;
   keyNews: string[];
   suggestedTickers: string[];

@@ -103,7 +103,7 @@ export async function askGemini(
       const retryable = isRetryableError(msg);
 
       console.warn(
-        `[gemini] ${model} key#${keyIndex + 1} failed${quota ? ' (quota)' : retryable ? ' (network)' : ''}: ${msg.slice(0, 120)}`,
+        `[gemini] ${model} key#${keyIndex + 1} failed${quota ? ' (quota)' : retryable ? ' (network)' : ''}: ${msg}`,
       );
 
       if (quota) {
@@ -111,7 +111,6 @@ export async function askGemini(
       }
 
       lastError = err as Error;
-      if (!retryable) throw err;
     }
   }
 
@@ -172,13 +171,12 @@ export async function askGeminiFlash(
       const retryable = isRetryableError(msg);
 
       console.warn(
-        `[gemini-flash] key#${keyIndex + 1} failed${quota ? ' (quota)' : retryable ? ' (network)' : ''}: ${msg.slice(0, 120)}`,
+        `[gemini-flash] key#${keyIndex + 1} failed${quota ? ' (quota)' : retryable ? ' (network)' : ''}: ${msg}`,
       );
 
       if (quota) markExhausted('gemini', model, dailyResetAt(), keyIndex);
 
       lastError = err as Error;
-      if (!retryable) throw err;
     }
   }
 

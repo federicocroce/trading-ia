@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 const envSchema = z.object({
-  PORT: z.coerce.number().default(3001),
-  FRONTEND_URL: z.string().default('http://localhost:5173'),
+  PORT: z.coerce.number().default(3030),
+  FRONTEND_URL: z.string().default('http://localhost:5050'),
 
   // AI providers (at least one should be available)
   LMSTUDIO_BASE_URL: z.string().default('http://127.0.0.1:1234/v1'),

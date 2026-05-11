@@ -1,10 +1,14 @@
 import { useState } from 'react';
+import { usePrintSection } from '@/shared/usePrintSection';
+import { printWithTitle } from '@/shared/printWithTitle';
+import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import { trpc } from '@/shared/trpc';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import type { EvidenceSignal, EvidenceConviction, EvidenceDeepAnalysis } from '@trading/shared';
+import { WatchlistButton } from '@/shared/WatchlistButton';
 
-type Filter = 'all' | 'high' | 'medium' | 'pead' | 'insider' | 'options' | 'buy' | 'actionable';
+type Filter = 'all' | 'high' | 'medium' | 'pead' | 'insider' | 'options' | 'buy' | 'actionable' | 'portfolio';
 
 function ConvictionBadge({ conviction }: { conviction: EvidenceConviction }) {
   const styles: Record<EvidenceConviction, string> = {
@@ -62,13 +66,16 @@ function SignalCard({
   analysis,
   isAnalyzing,
   aScore,
+  forceExpanded = false,
 }: {
   signal: EvidenceSignal;
   analysis: EvidenceDeepAnalysis | null;
   isAnalyzing: boolean;
   aScore: number;
+  forceExpanded?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const isExpanded = expanded || forceExpanded;
 
   return (
     <Card
@@ -91,6 +98,7 @@ function SignalCard({
                 <span className="text-[10px] text-red-400 font-medium">⬇ mkt</span>
               )}
               {analysis && <VerdictBadge verdict={analysis.verdict} />}
+              <WatchlistButton symbol={signal.symbol} />
             </div>
             <div className="flex flex-wrap gap-1 mb-2">
               <SignalPill label="PEAD" active={signal.pead.active} score={signal.pead.score} />
@@ -123,7 +131,7 @@ function SignalCard({
           </div>
         </div>
 
-        {expanded && (
+        {isExpanded && (
           <div className="mt-4 space-y-3 border-t border-border pt-3">
             {signal.pead.active && (
               <div className="space-y-0.5">
@@ -173,6 +181,103 @@ function SignalCard({
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {signal.optionsFlow.callVolume.toLocaleString()} calls OTM inusuales · vence: {signal.optionsFlow.nearestExpiry}
+                </div>
+              </div>
+            )}
+
+            {/* Tech + Fundamental Snapshot */}
+            {(signal.techSnapshot || signal.fundamentalSnapshot) && (
+              <div className="border-t border-border pt-3">
+                <div className="text-xs font-semibold text-primary mb-2">Técnico &amp; Fundamental</div>
+                <div className="grid grid-cols-2 gap-3">
+                  {signal.techSnapshot && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Técnico</div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                        {signal.techSnapshot.rsi14 != null && (
+                          <>
+                            <span className="text-muted-foreground">RSI14</span>
+                            <span className={`font-medium ${signal.techSnapshot.rsi14 > 70 ? 'text-red-400' : signal.techSnapshot.rsi14 < 30 ? 'text-green-400' : 'text-foreground'}`}>
+                              {signal.techSnapshot.rsi14}
+                            </span>
+                          </>
+                        )}
+                        {signal.techSnapshot.sma20 != null && (
+                          <>
+                            <span className="text-muted-foreground">SMA20</span>
+                            <span className="font-medium text-foreground">{signal.techSnapshot.sma20.toFixed(2)}</span>
+                          </>
+                        )}
+                        {signal.techSnapshot.sma50 != null && (
+                          <>
+                            <span className="text-muted-foreground">SMA50</span>
+                            <span className="font-medium text-foreground">{signal.techSnapshot.sma50.toFixed(2)}</span>
+                          </>
+                        )}
+                        {signal.techSnapshot.momentum5d != null && (
+                          <>
+                            <span className="text-muted-foreground">Mom5d</span>
+                            <span className={`font-medium ${signal.techSnapshot.momentum5d > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {signal.techSnapshot.momentum5d > 0 ? '+' : ''}{signal.techSnapshot.momentum5d.toFixed(1)}%
+                            </span>
+                          </>
+                        )}
+                        <span className="text-muted-foreground">Tend.</span>
+                        <span className={`font-medium ${signal.techSnapshot.trend === 'bullish' ? 'text-green-400' : signal.techSnapshot.trend === 'bearish' ? 'text-red-400' : 'text-yellow-400'}`}>
+                          {signal.techSnapshot.trend === 'bullish' ? '▲ alcista' : signal.techSnapshot.trend === 'bearish' ? '▼ bajista' : '↔ mixto'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {signal.fundamentalSnapshot && (
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Fundamental</div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                        {signal.fundamentalSnapshot.peRatio != null && (
+                          <>
+                            <span className="text-muted-foreground">P/E</span>
+                            <span className="font-medium text-foreground">{signal.fundamentalSnapshot.peRatio.toFixed(1)}x</span>
+                          </>
+                        )}
+                        {signal.fundamentalSnapshot.forwardPE != null && (
+                          <>
+                            <span className="text-muted-foreground">Fwd P/E</span>
+                            <span className="font-medium text-foreground">{signal.fundamentalSnapshot.forwardPE.toFixed(1)}x</span>
+                          </>
+                        )}
+                        {signal.fundamentalSnapshot.revenueGrowth != null && (
+                          <>
+                            <span className="text-muted-foreground">Rev. YoY</span>
+                            <span className={`font-medium ${signal.fundamentalSnapshot.revenueGrowth > 10 ? 'text-green-400' : signal.fundamentalSnapshot.revenueGrowth < -5 ? 'text-red-400' : 'text-foreground'}`}>
+                              {signal.fundamentalSnapshot.revenueGrowth > 0 ? '+' : ''}{signal.fundamentalSnapshot.revenueGrowth.toFixed(1)}%
+                            </span>
+                          </>
+                        )}
+                        {signal.fundamentalSnapshot.operatingMargin != null && (
+                          <>
+                            <span className="text-muted-foreground">Mg. Op.</span>
+                            <span className={`font-medium ${signal.fundamentalSnapshot.operatingMargin > 15 ? 'text-green-400' : signal.fundamentalSnapshot.operatingMargin < 0 ? 'text-red-400' : 'text-foreground'}`}>
+                              {signal.fundamentalSnapshot.operatingMargin.toFixed(1)}%
+                            </span>
+                          </>
+                        )}
+                        {signal.fundamentalSnapshot.debtToEquity != null && (
+                          <>
+                            <span className="text-muted-foreground">D/E</span>
+                            <span className={`font-medium ${signal.fundamentalSnapshot.debtToEquity > 2 ? 'text-red-400' : 'text-foreground'}`}>
+                              {signal.fundamentalSnapshot.debtToEquity.toFixed(2)}
+                            </span>
+                          </>
+                        )}
+                        {signal.fundamentalSnapshot.beta != null && (
+                          <>
+                            <span className="text-muted-foreground">Beta</span>
+                            <span className="font-medium text-foreground">{signal.fundamentalSnapshot.beta.toFixed(2)}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -272,26 +377,55 @@ function TrackedSignals() {
 }
 
 export function EvidenceSignals() {
+  usePrintSection('evidence-signals-print');
+  const today = new Date().toISOString().slice(0, 10);
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [activeTab, setActiveTab] = useState<'signals' | 'confluencia'>('signals');
   const [filter, setFilter] = useState<Filter>('all');
+  const [allExpanded, setAllExpanded] = useState(false);
   const [portfolioSize, setPortfolioSize] = useState<number>(() => {
     const saved = localStorage.getItem('trading_portfolio_size');
     return saved ? Number(saved) : 10000;
   });
   const [mutationError, setMutationError] = useState<string | null>(null);
 
-  const { data, refetch, error } = trpc.evidenceSignals.getAll.useQuery(undefined, {
+  const isToday = selectedDate === today;
+
+  const { data: scanDates = [] } = trpc.evidenceSignals.scanDates.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const dates = scanDates.includes(today) ? scanDates : [today, ...scanDates];
+
+  const { data: liveData, refetch, error } = trpc.evidenceSignals.getAll.useQuery(undefined, {
     staleTime: 30_000,
-    refetchInterval: 10_000,
+    refetchInterval: isToday ? 10_000 : false,
+    enabled: isToday,
   });
+
+  const { data: historicalSnapshot } = trpc.evidenceSignals.snapshotByDate.useQuery(
+    { date: selectedDate },
+    { enabled: !isToday, staleTime: 30 * 60_000 }
+  );
+
+  const data = isToday ? liveData : (historicalSnapshot ? {
+    signals: historicalSnapshot.signals as EvidenceSignal[],
+    marketRegime: historicalSnapshot.marketRegime as { regime: 'bull' | 'bear' | 'neutral'; spyPrice: number; sma200: number; priceVsSma200Pct: number } | null,
+    totalSymbols: historicalSnapshot.totalSymbols,
+    highConviction: historicalSnapshot.highConviction,
+    mediumConviction: historicalSnapshot.mediumConviction,
+    scannedAt: historicalSnapshot.scannedAt,
+  } : undefined);
 
   const { data: status } = trpc.evidenceSignals.scanStatus.useQuery(undefined, {
-    refetchInterval: 3_000,
+    refetchInterval: isToday ? 3_000 : false,
+    enabled: isToday,
   });
 
-  const { data: analyses } = trpc.evidenceSignals.getAllDeepAnalyses.useQuery(undefined, {
+  const { data: liveAnalyses } = trpc.evidenceSignals.getAllDeepAnalyses.useQuery(undefined, {
     staleTime: 30_000,
-    refetchInterval: 15_000,
+    refetchInterval: isToday ? 15_000 : false,
+    enabled: isToday,
   });
+
+  const analyses = isToday ? liveAnalyses : (historicalSnapshot?.analyses ?? []) as EvidenceDeepAnalysis[];
 
   const { data: accuracyStats, refetch: refetchStats } = trpc.evidenceSignals.getAccuracyStats.useQuery(undefined, {
     staleTime: 60_000,
@@ -299,6 +433,21 @@ export function EvidenceSignals() {
 
   const { data: scanHistory } = trpc.evidenceSignals.getScanHistory.useQuery(undefined, {
     staleTime: 30_000,
+  });
+
+  const { data: portfolioSymbolsList } = trpc.portfolio.symbols.list.useQuery(undefined, {
+    staleTime: 5 * 60_000,
+  });
+  const portfolioSet = new Set(
+    (portfolioSymbolsList ?? [])
+      .filter((s) => s.type === 'us' || s.type === 'adr')
+      .map((s) => s.symbol)
+  );
+
+  const { data: convergence } = trpc.evidenceSignals.getConvergence.useQuery(undefined, {
+    staleTime: 60_000,
+    refetchInterval: isToday ? 30_000 : false,
+    enabled: isToday,
   });
 
   const resolveMutation = trpc.evidenceSignals.resolveSignals.useMutation({
@@ -317,6 +466,19 @@ export function EvidenceSignals() {
     onSuccess: () => { refetch(); setMutationError(null); },
     onError: (e) => setMutationError(`Error al iniciar scan: ${e.message}`),
   });
+
+  const newsPipelineMutation = trpc.evidenceSignals.newsPipelineTrigger.useMutation({
+    onSuccess: () => setMutationError(null),
+    onError: (e) => setMutationError(`Error al iniciar pipeline: ${e.message}`),
+  });
+
+  const { data: newsPipelineStatus } = trpc.evidenceSignals.newsPipelineStatus.useQuery(undefined, {
+    refetchInterval: isToday ? 2_500 : false,
+    enabled: isToday,
+  });
+
+  const isNewsPipelineRunning = newsPipelineStatus?.state === 'running';
+  const newsPipelineCurrentStage = newsPipelineStatus?.currentStage;
 
   // Composite actionable score 0-10: regime + sector + conviction + AI verdict
   // Used to sort signals from most to least actionable for a 3-6m hold
@@ -342,20 +504,30 @@ export function EvidenceSignals() {
     return score;
   }
 
-  const filtered = (data?.signals ?? [])
-    .filter((s) => {
-      if (filter === 'high') return s.conviction === 'high';
-      if (filter === 'medium') return s.conviction === 'medium' || s.conviction === 'high';
-      if (filter === 'pead') return s.pead.active;
-      if (filter === 'insider') return s.insider.active;
-      if (filter === 'options') return s.optionsFlow.active;
-      if (filter === 'buy') return analysisMap.get(s.symbol)?.verdict === 'BUY_SETUP';
-    if (filter === 'actionable') return actionableScore(s) >= 7;
-      return s.activeSignals > 0;
-    })
-    .sort((a, b) => actionableScore(b) - actionableScore(a));
+  const allSignals = data?.signals ?? [];
+  const scannedSymbolSet = new Set(allSignals.map((s) => s.symbol));
+
+  const filtered = (filter === 'portfolio'
+    ? allSignals.filter((s) => portfolioSet.has(s.symbol))
+    : allSignals.filter((s) => {
+        if (filter === 'high') return s.conviction === 'high';
+        if (filter === 'medium') return s.conviction === 'medium' || s.conviction === 'high';
+        if (filter === 'pead') return s.pead.active;
+        if (filter === 'insider') return s.insider.active;
+        if (filter === 'options') return s.optionsFlow.active;
+        if (filter === 'buy') return analysisMap.get(s.symbol)?.verdict === 'BUY_SETUP';
+        if (filter === 'actionable') return actionableScore(s) >= 7;
+        return s.activeSignals > 0;
+      })
+  ).sort((a, b) => actionableScore(b) - actionableScore(a));
+
+  // Portfolio symbols not yet scanned (no cache entry)
+  const unscannedPortfolioSymbols = filter === 'portfolio'
+    ? [...portfolioSet].filter((sym) => !scannedSymbolSet.has(sym))
+    : [];
 
   const filters: { id: Filter; label: string }[] = [
+    { id: 'portfolio', label: `📁 Portfolio (${portfolioSet.size})` },
     { id: 'all', label: 'Con señales' },
     { id: 'high', label: 'Alta convicción' },
     { id: 'medium', label: 'Media+' },
@@ -367,7 +539,13 @@ export function EvidenceSignals() {
   ];
 
   return (
-    <div className="p-4 space-y-4">
+    <div id="evidence-signals-print" className="p-4 space-y-4">
+      <TabInfo>
+        <InfoSection title="Qué es">Sistema de señales basado en evidencia concreta (no solo opinión LLM). Detecta setups de alta probabilidad antes de que el precio se mueva.</InfoSection>
+        <InfoSection title="Tipos de señal">PEAD (Post-Earnings Announcement Drift): la acción tiende a seguir subiendo días/semanas después de resultados positivos sorpresivos · Insider Buying: directivos comprando acciones propias con su propio dinero · Options Flow: flujo inusual de opciones que sugiere que alguien sabe algo.</InfoSection>
+        <InfoSection title="Convicción">HIGH: 2+ señales activas convergentes · MEDIUM: 1 señal activa · LOW: señal débil o única · NONE: sin evidencia. La convicción se ajusta por régimen de mercado (bull/bear/neutral).</InfoSection>
+        <InfoSection title="Deep Analysis & Score">Cuando convicción ≥ MEDIUM, el LLM hace análisis profundo y emite veredicto: BUY_SETUP / WAIT / PASS. Score accionable 0-10: régimen (0-3) + convicción ajustada (0-3) + veredicto AI (0-2) + señales adicionales (0-2). Score 7+ = Accionable.</InfoSection>
+      </TabInfo>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -376,14 +554,61 @@ export function EvidenceSignals() {
             PEAD · Insider Buying · Options Flow · Análisis AI
           </p>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => refreshMutation.mutate()}
-          disabled={refreshMutation.isPending || isScanning}
-        >
-          {isScanning ? 'Escaneando...' : 'Escanear'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="h-8 rounded border border-border/50 bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            {dates.map((d) => (
+              <option key={d} value={d}>{d === today ? `${d} (hoy)` : d}</option>
+            ))}
+          </select>
+          {!isToday && (
+            <span className="text-[9px] bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded px-1.5 py-0.5">
+              Historico
+            </span>
+          )}
+          {isToday && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => refreshMutation.mutate()}
+                disabled={refreshMutation.isPending || isScanning || isNewsPipelineRunning}
+              >
+                {isScanning ? 'Escaneando...' : 'Escanear'}
+              </Button>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={() => newsPipelineMutation.mutate()}
+                disabled={newsPipelineMutation.isPending || isNewsPipelineRunning || isScanning}
+              >
+                {isNewsPipelineRunning ? 'Analizando...' : '📰 Analizar desde Noticias'}
+              </Button>
+            </>
+          )}
+          <button
+            onClick={() => setAllExpanded((v) => !v)}
+            title={allExpanded ? 'Colapsar todas las cards' : 'Expandir todas las cards'}
+            className="h-8 px-2 rounded border border-border/50 text-[10px] text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+          >
+            {allExpanded ? '▲ Colapsar' : '▼ Expandir'}
+          </button>
+          <button
+            onClick={() => printWithTitle('señales-v2', selectedDate)}
+            title="Imprimir / Guardar como PDF"
+            className="h-8 px-2 rounded border border-border/50 text-[10px] text-muted-foreground hover:text-foreground hover:border-border transition-colors flex items-center gap-1"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            PDF
+          </button>
+        </div>
       </div>
 
       {/* Scan progress bar */}
@@ -419,6 +644,50 @@ export function EvidenceSignals() {
               }}
             />
           </div>
+        </div>
+      )}
+
+      {/* News pipeline progress */}
+      {isNewsPipelineRunning && newsPipelineStatus && (
+        <div className="rounded-md border border-border/50 bg-muted/30 p-3 space-y-2">
+          <p className="text-xs font-medium text-foreground">Pipeline News-First en ejecución...</p>
+          {(Object.entries(newsPipelineStatus.stages) as [string, { status: string; detail: string; count?: number; total?: number }][]).map(([name, stage]) => {
+            const labels: Record<string, string> = {
+              newsRefresh: '1. Noticias',
+              sectorAnalysis: '2. Sectores (IA)',
+              symbolDiscovery: '3. Símbolos',
+              evidenceSignals: '4. Señales',
+              deepAnalysis: '5. Análisis IA',
+              digest: '6. Digest',
+            };
+            const icon = stage.status === 'ok' ? '✅' : stage.status === 'failed' ? '❌' : stage.status === 'running' ? '⏳' : stage.status === 'skipped' ? '⏭️' : '○';
+            return (
+              <div key={name} className="space-y-0.5">
+                <div className="flex justify-between text-[11px] text-muted-foreground">
+                  <span>{icon} {labels[name] ?? name}{stage.detail ? ` — ${stage.detail}` : ''}</span>
+                  {stage.count != null && stage.total != null && <span>{stage.count}/{stage.total}</span>}
+                </div>
+                {stage.status === 'running' && stage.total != null && stage.count != null && (
+                  <div className="h-1 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-blue-500 transition-all duration-300 rounded-full"
+                      style={{ width: stage.total > 0 ? `${(stage.count / stage.total) * 100}%` : '5%' }}
+                    />
+                  </div>
+                )}
+                {stage.status === 'running' && (stage.total == null || stage.count == null) && (
+                  <div className="h-1 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-500 rounded-full animate-pulse" style={{ width: '40%' }} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {newsPipelineStatus.discoveredSymbols.length > 0 && (
+            <p className="text-[10px] text-muted-foreground">
+              Símbolos descubiertos: {newsPipelineStatus.discoveredSymbols.join(', ')}
+            </p>
+          )}
         </div>
       )}
 
@@ -693,8 +962,37 @@ export function EvidenceSignals() {
         </div>
       )}
 
+      {/* Tab switcher */}
+      <div className="flex gap-1 border-b border-border pb-1">
+        <button
+          onClick={() => setActiveTab('signals')}
+          className={`text-xs px-4 py-1.5 rounded-t-lg transition-colors ${
+            activeTab === 'signals'
+              ? 'bg-primary/10 text-primary border border-primary/30 border-b-transparent'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Señales
+        </button>
+        <button
+          onClick={() => setActiveTab('confluencia')}
+          className={`text-xs px-4 py-1.5 rounded-t-lg transition-colors flex items-center gap-1.5 ${
+            activeTab === 'confluencia'
+              ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30 border-b-transparent'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          ⭐ Confluencia
+          {convergence && convergence.intersection.length > 0 && (
+            <span className="text-[9px] bg-yellow-500/20 text-yellow-400 rounded px-1">
+              {convergence.intersection.length}
+            </span>
+          )}
+        </button>
+      </div>
+
       {/* Filters */}
-      {data && data.totalSymbols > 0 && (
+      {activeTab === 'signals' && (data && data.totalSymbols > 0 || portfolioSet.size > 0) && (
         <div className="flex flex-wrap gap-2">
           {filters.map((f) => (
             <button
@@ -712,6 +1010,7 @@ export function EvidenceSignals() {
         </div>
       )}
 
+      {activeTab === 'signals' && <>
       {/* Empty / no scan yet */}
       {!error && !isScanning && data?.totalSymbols === 0 && (
         <div className="text-center py-16 space-y-3">
@@ -724,7 +1023,7 @@ export function EvidenceSignals() {
       )}
 
       {/* No results after scan */}
-      {!error && !isScanning && data && data.totalSymbols > 0 && filtered.length === 0 && (
+      {!error && !isScanning && data && data.totalSymbols > 0 && filtered.length === 0 && unscannedPortfolioSymbols.length === 0 && (
         <div className="text-center py-8 space-y-1">
           <p className="text-muted-foreground text-sm">Sin señales con este filtro.</p>
           <p className="text-xs text-muted-foreground">
@@ -734,7 +1033,7 @@ export function EvidenceSignals() {
       )}
 
       {/* Results */}
-      {filtered.length > 0 && (
+      {(filtered.length > 0 || unscannedPortfolioSymbols.length > 0) && (
         <div className="space-y-3">
           {filtered.map((signal) => (
             <SignalCard
@@ -743,8 +1042,23 @@ export function EvidenceSignals() {
               analysis={analysisMap.get(signal.symbol) ?? null}
               isAnalyzing={isAnalyzing}
               aScore={actionableScore(signal)}
+              forceExpanded={allExpanded}
             />
           ))}
+          {unscannedPortfolioSymbols.length > 0 && (
+            <div className="rounded-md border border-border/50 p-3">
+              <p className="text-xs text-muted-foreground mb-2">
+                {unscannedPortfolioSymbols.length} símbolo(s) de tu portfolio sin scan todavía — ejecutá "Escanear" para verlos:
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {unscannedPortfolioSymbols.map((sym) => (
+                  <span key={sym} className="text-xs font-medium px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                    {sym}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -786,6 +1100,102 @@ export function EvidenceSignals() {
       )}
 
       <TrackedSignals />
+      </>}
+
+      {/* ─── Confluencia tab ───────────────────────────────────────── */}
+      {activeTab === 'confluencia' && (
+        <div className="space-y-4">
+          {!convergence || (convergence.intersection.length === 0 && convergence.onlyInScan.length === 0 && convergence.onlyInNews.length === 0) ? (
+            <div className="text-center py-16 space-y-2">
+              <p className="text-muted-foreground text-sm">Sin datos de confluencia todavía.</p>
+              <p className="text-xs text-muted-foreground">Ejecutá "Escanear" y "Analizar desde Noticias" para cruzar ambos pipelines.</p>
+            </div>
+          ) : (
+            <>
+              {convergence.intersection.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-yellow-400">En ambos pipelines</span>
+                    <span className="text-[10px] text-muted-foreground">Señales técnicas + confirmación noticial</span>
+                    <span className="ml-auto text-[10px] bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded px-1.5 py-0.5">
+                      {convergence.intersection.length} símbolos
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {convergence.intersection.map((item) => {
+                      const verdictColor = item.analysis?.verdict === 'BUY_SETUP' ? 'text-green-400' : item.analysis?.verdict === 'WAIT' ? 'text-yellow-400' : item.analysis?.verdict === 'PASS' ? 'text-red-400' : 'text-muted-foreground';
+                      const impactColor = item.sectorImpact === 'positive' ? 'text-green-400' : item.sectorImpact === 'negative' ? 'text-red-400' : 'text-muted-foreground';
+                      const scoreColor = item.combinedScore >= 8 ? 'text-green-400 font-bold' : item.combinedScore >= 5 ? 'text-yellow-400' : 'text-muted-foreground';
+                      return (
+                        <div key={item.symbol} className="flex items-center gap-2 rounded-lg bg-yellow-500/5 border border-yellow-500/20 px-3 py-2 text-xs">
+                          <span className="font-bold w-14 shrink-0">{item.symbol}</span>
+                          {item.currentPrice && <span className="text-muted-foreground w-16 shrink-0">${item.currentPrice.toFixed(2)}</span>}
+                          <div className="flex gap-1 shrink-0">
+                            {item.signals.pead && <span className="px-1 py-0.5 rounded text-[9px] bg-blue-500/20 text-blue-400">PEAD</span>}
+                            {item.signals.insider && <span className="px-1 py-0.5 rounded text-[9px] bg-purple-500/20 text-purple-400">INS</span>}
+                            {item.signals.options && <span className="px-1 py-0.5 rounded text-[9px] bg-orange-500/20 text-orange-400">OPT</span>}
+                          </div>
+                          {item.sector && (
+                            <span className={`text-[10px] shrink-0 ${impactColor}`}>
+                              {item.sector}
+                            </span>
+                          )}
+                          {item.analysis && (
+                            <span className={`text-[10px] font-semibold shrink-0 ${verdictColor}`}>
+                              {item.analysis.verdict === 'BUY_SETUP' ? '🟢 BUY' : item.analysis.verdict === 'WAIT' ? '🟡 WAIT' : '🔴 PASS'}
+                            </span>
+                          )}
+                          {item.analysis?.entryZone && item.analysis.entryZone !== 'N/A' && (
+                            <span className="text-[10px] text-muted-foreground shrink-0">
+                              entrada <span className="text-foreground font-medium">{item.analysis.entryZone}</span>
+                            </span>
+                          )}
+                          {item.analysis?.riskReward && (
+                            <span className="text-[10px] text-muted-foreground shrink-0">R/R {item.analysis.riskReward}</span>
+                          )}
+                          <span className={`ml-auto text-xs font-bold shrink-0 ${scoreColor}`}>{item.combinedScore}/9</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                {convergence.onlyInScan.length > 0 && (
+                  <div className="rounded-lg border border-border p-3 space-y-1.5">
+                    <div className="text-xs font-semibold text-muted-foreground">Solo señales técnicas <span className="text-foreground">({convergence.onlyInScan.length})</span></div>
+                    <div className="text-[10px] text-muted-foreground">Sin confirmación noticial todavía</div>
+                    <div className="space-y-1">
+                      {convergence.onlyInScan.map((s) => (
+                        <div key={s.symbol} className="flex items-center gap-2 text-[10px]">
+                          <span className="font-medium text-foreground w-12">{s.symbol}</span>
+                          <span className="text-muted-foreground">{s.conviction}</span>
+                          <span className="ml-auto text-muted-foreground">{s.compositeScore}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {convergence.onlyInNews.length > 0 && (
+                  <div className="rounded-lg border border-border p-3 space-y-1.5">
+                    <div className="text-xs font-semibold text-muted-foreground">Solo noticias <span className="text-foreground">({convergence.onlyInNews.length})</span></div>
+                    <div className="text-[10px] text-muted-foreground">Sin señales técnicas todavía</div>
+                    <div className="space-y-1">
+                      {convergence.onlyInNews.map((s) => (
+                        <div key={s.symbol} className="flex items-center gap-2 text-[10px]">
+                          <span className="font-medium text-foreground w-12">{s.symbol}</span>
+                          {s.sector && <span className={`${s.sectorImpact === 'positive' ? 'text-green-400' : s.sectorImpact === 'negative' ? 'text-red-400' : 'text-muted-foreground'}`}>{s.sector}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

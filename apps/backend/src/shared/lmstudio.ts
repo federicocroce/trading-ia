@@ -70,16 +70,20 @@ function extractJSONFromThinking(text: string): string {
  */
 export async function isLMStudioAvailable(): Promise<boolean> {
   try {
-    const res = await fetch(
-      `${process.env.LMSTUDIO_BASE_URL || DEFAULT_BASE_URL}/models`,
-      { signal: AbortSignal.timeout(3000) },
-    );
-    if (res.ok) {
-      reportOk('LM Studio');
-    } else {
+    const baseUrl = process.env.LMSTUDIO_BASE_URL || DEFAULT_BASE_URL;
+    const res = await fetch(`${baseUrl}/models`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) {
       reportError('LM Studio', `HTTP ${res.status} — LM Studio no responde`);
+      return false;
     }
-    return res.ok;
+    const data = await res.json() as { data?: Array<{ id: string }> };
+    const models = data?.data ?? [];
+    if (models.length === 0) {
+      reportError('LM Studio', 'LM Studio corriendo pero sin modelos cargados');
+      return false;
+    }
+    reportOk('LM Studio');
+    return true;
   } catch {
     reportError('LM Studio', 'LM Studio no disponible (no se pudo conectar)');
     return false;

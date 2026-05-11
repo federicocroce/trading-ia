@@ -30,6 +30,8 @@ import {
   getPortfolioPositions,
   getCausalTickersByDate,
   insertOpportunityScan,
+  insertAntiHypeRejections,
+  getLatestNewsRadarSnapshot,
   insertOpportunitySnapshots,
   getLatestOpportunityScan,
   getOpportunityScans,
@@ -67,6 +69,67 @@ export function getCachedScanResult(): OpportunityScanResult | null {
   return cachedResult;
 }
 
+// LLM occasionally returns wouldDo/wouldNotDo as objects ({ticker, precioEntrada, stop, razon})
+// instead of strings; coerce so the UI never tries to render an object as a React child.
+function coerceTextItem(x: unknown): string {
+  if (typeof x === 'string') return x;
+  if (x && typeof x === 'object') {
+    const o = x as Record<string, unknown>;
+    const ticker = o.ticker ?? o.symbol;
+    const entry = o.precioEntrada ?? o.entry ?? o.entryPrice ?? o.precio;
+    const stop = o.stop ?? o.stopLoss;
+    const target = o.target ?? o.takeProfit;
+    const reason = o.razon ?? (o as Record<string, unknown>)['razón'] ?? o.reason ?? o.narrative ?? o.thesis;
+    if (ticker) {
+      const parts: string[] = [String(ticker)];
+      if (entry != null) parts.push(`@ $${entry}`);
+      if (stop != null) parts.push(`(stop $${stop})`);
+      if (target != null) parts.push(`(target $${target})`);
+      if (reason) parts.push(`— ${reason}`);
+      return parts.join(' ');
+    }
+    try { return JSON.stringify(x); } catch { return ''; }
+  }
+  return x == null ? '' : String(x);
+}
+
+export function getCurrentBuyTickers(): Set<string> {
+  const scan = cachedResult ?? tryLoadFromDB();
+  if (!scan?.opportunities) return new Set();
+  return new Set(
+    scan.opportunities
+      .filter((o: { action?: string }) => o.action === 'BUY')
+      .map((o: { symbol: string }) => o.symbol.toUpperCase())
+  );
+}
+
+export function filterItemsVsBuyTickers(items: string[], buyTickers: Set<string>): string[] {
+  return items.filter(item => {
+    // Drop bare-ticker entries (no concrete reason): require >= 4 words
+    const wordCount = item.replace(/[-•*]/g, '').trim().split(/\s+/).filter(Boolean).length;
+    if (wordCount < 4) return false;
+    if (buyTickers.size === 0) return true;
+    const upper = item.toUpperCase();
+    for (const t of buyTickers) {
+      const escaped = t.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const re = new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`);
+      if (re.test(upper)) return false;
+    }
+    return true;
+  });
+}
+
+function normalizeDigest(d: import('@trading/shared').MarketDigest): import('@trading/shared').MarketDigest {
+  const buyTickers = getCurrentBuyTickers();
+  const wouldNotDoStrings = Array.isArray(d.wouldNotDo) ? d.wouldNotDo.map(coerceTextItem).filter(s => s.length > 0) : [];
+  return {
+    ...d,
+    wouldDo: Array.isArray(d.wouldDo) ? d.wouldDo.map(coerceTextItem).filter(s => s.length > 0) : [],
+    wouldNotDo: filterItemsVsBuyTickers(wouldNotDoStrings, buyTickers),
+    warnings: Array.isArray(d.warnings) ? d.warnings.map(coerceTextItem).filter(s => s.length > 0) : [],
+  };
+}
+
 export function getMarketDigest(): import('@trading/shared').MarketDigest | null {
   if (cachedMarketDigest) return cachedMarketDigest;
   // Try to load today's digest from DB
@@ -74,7 +137,7 @@ export function getMarketDigest(): import('@trading/shared').MarketDigest | null
   const raw = getMarketDigestByDate(today);
   if (raw) {
     try {
-      cachedMarketDigest = JSON.parse(raw) as import('@trading/shared').MarketDigest;
+      cachedMarketDigest = normalizeDigest(JSON.parse(raw) as import('@trading/shared').MarketDigest);
       return cachedMarketDigest;
     } catch { /* ignore */ }
   }
@@ -82,11 +145,11 @@ export function getMarketDigest(): import('@trading/shared').MarketDigest | null
 }
 
 export function setMarketDigest(digest: import('@trading/shared').MarketDigest) {
-  cachedMarketDigest = digest;
+  cachedMarketDigest = normalizeDigest(digest);
   // Persist to DB
   const today = getToday();
   try {
-    upsertMarketDigest(today, JSON.stringify(digest));
+    upsertMarketDigest(today, JSON.stringify(cachedMarketDigest));
   } catch (e) {
     console.warn('[opportunities] Failed to persist market digest to DB:', (e as Error).message?.slice(0, 100));
   }
@@ -390,20 +453,162 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
   console.log(`[opportunities] Fase 1.5: ${secondOrderEffects.length} efectos de segundo orden aplicados`);
 
   // ============================================================
+  // FASE 1.6: Inyectar señales del News Radar v2 al sentimentMap
+  // El radar produce signals agregados (cause+impacts) por sector/ticker desde
+  // las noticias filtradas + LLM. Esos signals se traducen en boost al sentScore
+  // de cada symbol afectado, antes del scoring algorítmico.
+  // ============================================================
+  const radarBoostMap = new Map<string, { bonus: number; sources: string[]; conflict?: string }>();
+  const radarConflictNegative = new Set<string>();  // tickers/sectors que el radar marca como negativos high-conviction
+  try {
+    const radarSnapshotRow = getLatestNewsRadarSnapshot();
+    if (radarSnapshotRow) {
+      const radarAge = Date.now() - new Date(radarSnapshotRow.generatedAt).getTime();
+      const RADAR_FRESH_MS = 6 * 60 * 60 * 1000;  // 6h freshness
+      if (radarAge < RADAR_FRESH_MS) {
+        const aggregatedSignals = JSON.parse(radarSnapshotRow.aggregatedSignals) as Array<{
+          target: string;
+          type: 'ticker' | 'sector';
+          netScore: number;
+          totalScore: number;
+          positiveArticles: string[];
+          negativeArticles: string[];
+        }>;
+
+        // Build direct ticker map
+        const tickerSignals = new Map<string, { netScore: number; total: number }>();
+        const sectorSignals = new Map<string, { netScore: number; total: number }>();
+        for (const s of aggregatedSignals) {
+          if (s.type === 'ticker') tickerSignals.set(s.target.toUpperCase(), { netScore: s.netScore, total: s.totalScore });
+          else sectorSignals.set(s.target.toLowerCase(), { netScore: s.netScore, total: s.totalScore });
+        }
+
+        // Map symbol → boost by checking direct hit + sector parent
+        const { TICKER_TO_SECTOR } = await import('@trading/shared');
+        const SCALE = 12;          // sentiment bonus per unit of netScore
+        const MAX_BONUS = 25;      // cap to avoid radar dominating scoring
+        const SECTOR_DAMP = 0.5;   // sector-derived bonus halved (less precise than direct)
+        const HIGH_CONVICTION = 1.5;  // |netScore| >= this counts as high-conviction signal
+
+        for (const symbol of allSymbols) {
+          const upper = symbol.toUpperCase();
+          let bonus = 0;
+          const sources: string[] = [];
+
+          const direct = tickerSignals.get(upper);
+          if (direct) {
+            bonus += direct.netScore * SCALE;
+            sources.push(`ticker:${upper}=${direct.netScore.toFixed(1)}`);
+          }
+
+          const parentSector = TICKER_TO_SECTOR[upper];
+          if (parentSector) {
+            const sectorSig = sectorSignals.get(parentSector.toLowerCase());
+            if (sectorSig) {
+              bonus += sectorSig.netScore * SCALE * SECTOR_DAMP;
+              sources.push(`sector:${parentSector}=${sectorSig.netScore.toFixed(1)}`);
+            }
+          }
+
+          if (bonus !== 0) {
+            const clamped = Math.max(-MAX_BONUS, Math.min(MAX_BONUS, bonus));
+            radarBoostMap.set(symbol, { bonus: clamped, sources });
+          }
+
+          // Track high-conviction NEGATIVE signals for anti-hype contradiction check
+          const directNeg = direct && direct.netScore <= -HIGH_CONVICTION;
+          const sectorNeg = parentSector && (() => {
+            const ss = sectorSignals.get(parentSector.toLowerCase());
+            return ss && ss.netScore <= -HIGH_CONVICTION;
+          })();
+          if (directNeg || sectorNeg) radarConflictNegative.add(symbol);
+        }
+
+        // Apply boost: scale to -1..+1 sentiment range and merge into sentimentMap.
+        // We use the sent.score (-1..+1) field; radar bonus is added as -0.25..+0.25.
+        for (const [symbol, { bonus, sources }] of radarBoostMap) {
+          const radarDelta = bonus / 100;  // 25 points → 0.25 sentiment delta
+          const existing = sentimentMap.get(symbol);
+          if (existing) {
+            const newScore = Math.max(-1, Math.min(1, existing.score + radarDelta));
+            // Detect conflict: pre-radar score was strongly opposite
+            let conflict: string | undefined;
+            if (Math.sign(existing.score) !== 0 && Math.sign(existing.score) !== Math.sign(radarDelta) && Math.abs(existing.score) > 0.3 && Math.abs(radarDelta) > 0.1) {
+              conflict = `base=${existing.score.toFixed(2)} vs radar=${radarDelta.toFixed(2)}`;
+              radarBoostMap.set(symbol, { bonus, sources, conflict });
+            }
+            sentimentMap.set(symbol, {
+              ...existing,
+              score: newScore,
+              headlines: [...existing.headlines, `[radar] ${sources.join(', ')}`],
+            });
+          } else {
+            // Symbol had no sentimentMap entry — radar creates one
+            sentimentMap.set(symbol, {
+              score: Math.max(-1, Math.min(1, radarDelta)),
+              sentiment: radarDelta > 0 ? 'positive' : 'negative',
+              headlines: [`[radar] ${sources.join(', ')}`],
+            });
+          }
+        }
+
+        const conflicts = [...radarBoostMap.entries()].filter(([, v]) => v.conflict);
+        console.log(
+          `[opportunities] Fase 1.6: radar v2 aplicado a ${radarBoostMap.size} symbols, ${conflicts.length} conflictos detectados` +
+          (conflicts.length > 0 ? ` (${conflicts.slice(0, 3).map(([s, v]) => `${s}: ${v.conflict}`).join('; ')})` : ''),
+        );
+      } else {
+        console.log(`[opportunities] Fase 1.6: radar snapshot stale (${Math.round(radarAge / 60_000)}min) — skipping`);
+      }
+    } else {
+      console.log('[opportunities] Fase 1.6: no radar snapshot available — skipping');
+    }
+  } catch (err) {
+    console.warn('[opportunities] Fase 1.6: radar integration failed:', (err as Error).message?.slice(0, 100));
+  }
+
+  // ============================================================
   updateProgress('Aplicando filtros anti-hype y scoring', 6);
 
   // FASE 2: Filtros anti-hype ANTES del scoring (ahorra procesamiento)
   // ============================================================
   const portfolioSymbols = new Set(positionMap.keys());
   const includeVolume = process.env.ANTIHYPE_VOLUME !== 'off';
+
+  // Build news-impact bypass set: symbols mentioned in HIGH-impact recent news
+  // bypass anti-hype regardless of technical posture (e.g. bonds below SMA200
+  // with Fed news catalyst should still reach the LLM).
+  // EXCEPTION: if radar v2 marks the symbol as high-conviction NEGATIVE, do NOT
+  // bypass — radar contradicts the surface-level positive sentiment.
+  const newsImpactBypass = new Set<string>();
+  let radarOverridesBypass = 0;
+  for (const [symbol, sent] of sentimentMap) {
+    const headlines = sent.headlines?.length ?? 0;
+    if (headlines > 0 && Math.abs(sent.score ?? 0) >= 0.4) {
+      if (radarConflictNegative.has(symbol)) {
+        radarOverridesBypass++;
+        continue;  // radar says negative high-conviction — don't bypass anti-hype
+      }
+      newsImpactBypass.add(symbol);
+    }
+  }
+  if (radarOverridesBypass > 0) {
+    console.log(`[opportunities] Anti-hype bypass overridden for ${radarOverridesBypass} symbols by radar negative conviction`);
+  }
+
   const antiHypeResult = applyAntiHypeFilters(
     filteredSymbols,
     techMap,
     portfolioSymbols,
-    { includeVolume },
+    { includeVolume, newsImpactBypass },
   );
 
   const antiHypeSet = new Set(antiHypeResult.filtered);
+
+  // Capture rejections for persistence (audit trail). Stored on the scan result
+  // and saved alongside the scan in persistScanResult().
+  const antiHypeRejectedForAudit = antiHypeResult.rejected.map(r => ({ symbol: r.symbol, reasons: r.reasons }));
+  const antiHypeModeForAudit = antiHypeResult.mode;
 
   console.log(
     `[opportunities] Fase 2: ${antiHypeResult.passedAll}/${antiHypeResult.totalCandidates} pasan filtros anti-hype [${antiHypeResult.mode}, 2de3]` +
@@ -442,12 +647,20 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
     .filter((o): o is Opportunity => o !== null)
     .sort((a, b) => b.opportunityScore - a.opportunityScore);
 
-  // Mark anti-hype status
+  // Mark anti-hype status + radar audit trail per opportunity
   for (const opp of opportunities) {
     opp.passedAntiHype = antiHypeSet.has(opp.symbol);
+    const radarInfo = radarBoostMap.get(opp.symbol);
+    if (radarInfo) {
+      opp.radarInfluence = {
+        bonus: radarInfo.bonus,
+        sources: radarInfo.sources,
+        conflict: radarInfo.conflict,
+      };
+    }
   }
 
-  console.log(`[opportunities] Fase 2.5: scoring completado — ${opportunities.length} oportunidades`);
+  console.log(`[opportunities] Fase 2.5: scoring completado — ${opportunities.length} oportunidades (radar afectó ${radarBoostMap.size})`);
 
   // Integrate intelligence alerts into opportunity risks
   for (const alert of intelligence.alerts) {
@@ -477,10 +690,45 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
       .flatMap((p) => p.symbolTrends.flatMap((t) => t.topHeadlines))
       .filter((h, i, arr) => arr.indexOf(h) === i)
       .slice(0, 10);
-    const macroContextStr = macroHeadlines.length > 0
-      ? `[CONTEXTO MACRO - noticias recientes]\n${macroHeadlines.map((h) => `- ${h}`).join('\n')}`
-      : '';
 
+    // Radar v2 signals as additional macro context. Top sectores by total volume.
+    let radarContextStr = '';
+    try {
+      const radarRow = getLatestNewsRadarSnapshot();
+      if (radarRow) {
+        const age = Date.now() - new Date(radarRow.generatedAt).getTime();
+        if (age < 6 * 60 * 60 * 1000) {
+          const aggregated = JSON.parse(radarRow.aggregatedSignals) as Array<{
+            target: string; type: 'ticker'|'sector'; netScore: number; totalScore: number;
+            positiveArticles: string[]; negativeArticles: string[];
+          }>;
+          const topSectors = aggregated
+            .filter(s => s.type === 'sector' && Math.abs(s.netScore) >= 0.5)
+            .sort((a, b) => b.totalScore - a.totalScore)
+            .slice(0, 8);
+          const narratives = radarRow.emergingNarratives ? JSON.parse(radarRow.emergingNarratives) as string[] : [];
+          const lines: string[] = [];
+          if (topSectors.length > 0) {
+            lines.push(...topSectors.map(s => `- ${s.target}: ${s.netScore > 0 ? '+' : ''}${s.netScore.toFixed(1)} (${s.positiveArticles.length}pos/${s.negativeArticles.length}neg articles)`));
+          }
+          if (narratives.length > 0) {
+            lines.push('Narrativas:');
+            lines.push(...narratives.slice(0, 3).map(n => `  - ${n}`));
+          }
+          if (lines.length > 0) {
+            radarContextStr = `\n[RADAR v2 - sectores con señal cross-noticia]\n${lines.join('\n')}`;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[opportunities] Could not load radar context for unified analysis:', (err as Error).message?.slice(0, 80));
+    }
+
+    const macroContextStr = (macroHeadlines.length > 0
+      ? `[CONTEXTO MACRO - noticias recientes]\n${macroHeadlines.map((h) => `- ${h}`).join('\n')}`
+      : '') + radarContextStr;
+
+    const discoveredSet = new Set(discovered);
     const unifiedAnalyses = await runUnifiedAnalysis(
       opportunities,
       techMap,
@@ -490,6 +738,7 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
       pipelineRunId,
       macroContextStr,
       causalContextMap,
+      discoveredSet,
     );
 
     for (const opp of opportunities) {
@@ -533,6 +782,8 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
     analysisEngine: usedEngine,
     analysisDetail: engineDetail,
     source: 'live',
+    antiHypeRejected: antiHypeRejectedForAudit,
+    antiHypeMode: antiHypeModeForAudit,
   };
 
   updateProgress('Guardando resultados y generando reporte', 7);
@@ -652,6 +903,19 @@ function persistScanResult(result: OpportunityScanResult): void {
 
     insertOpportunitySnapshots(snapshots);
     console.log(`[opportunities] Persisted scan #${scanId}: ${snapshots.length} snapshots`);
+
+    // Persist anti-hype rejections (audit trail: "why didn't VIST appear?")
+    if (result.antiHypeRejected && result.antiHypeRejected.length > 0) {
+      insertAntiHypeRejections(
+        result.antiHypeRejected.map(r => ({
+          scanId,
+          symbol: r.symbol,
+          reasons: r.reasons,
+          mode: result.antiHypeMode,
+        })),
+      );
+      console.log(`[opportunities] Persisted ${result.antiHypeRejected.length} anti-hype rejections`);
+    }
   } catch (err) {
     console.error('[opportunities] Failed to persist scan result:', (err as Error).message);
   }
@@ -706,11 +970,30 @@ export function getProcessTimestamps() {
 export async function refreshNewsProcess(): Promise<{ newsCount: number }> {
   console.log('[Process A] Actualizando noticias...');
 
-  // 1. Fetch + analyze news
+  // 1. Fetch + analyze news (legacy: sentiment/impact tagging via Groq Light)
   const intelligence = await getIntelligence();
 
   processTimestamps.newsLastRun = Date.now();
   console.log(`[Process A] Completado: ${intelligence.totalNewsCount} noticias`);
+
+  // 2. NEW: News Radar v2 (cause+impacts) — fire-and-forget so we don't block the
+  // user-facing news refresh response. Persists to news_radar_snapshots; UI reads
+  // via radarLatest endpoint. Failure logged but doesn't propagate.
+  void (async () => {
+    try {
+      const { prepareDeepAnalysisNews } = await import('../news/news-intelligence.service.js');
+      const { generateNewsRadar } = await import('../news/news-radar.service.js');
+      const filtered = await prepareDeepAnalysisNews();
+      if (filtered.length > 0) {
+        const snap = await generateNewsRadar(filtered, { persist: true });
+        console.log(`[Process A] News radar v2: ${snap.perArticle.length} articles, ${snap.aggregatedSignals.length} signals`);
+      } else {
+        console.log('[Process A] News radar v2: 0 articles after filters, skipping');
+      }
+    } catch (err) {
+      console.warn('[Process A] News radar v2 failed (non-blocking):', (err as Error).message?.slice(0, 100));
+    }
+  })();
 
   return { newsCount: intelligence.totalNewsCount };
 }

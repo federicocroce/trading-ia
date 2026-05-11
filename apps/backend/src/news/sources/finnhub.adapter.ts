@@ -102,14 +102,10 @@ export const finnhubAdapter: NewsSourceAdapter = {
     const marketNews = await fetchMarketNews(apiKey);
     const articles: RawNewsArticle[] = marketNews.map(toRawArticle);
 
-    // 2. Company news — rotar simbolos priorizando portfolio
-    // Priorizar: portfolio primero, luego rotar el resto por fecha
-    const portfolioSymbols = stockSymbols.slice(0, Math.min(stockSymbols.length, 7)); // Primeros son watchlist/portfolio
-    const otherSymbols = stockSymbols.slice(7);
-    // Rotar otros por hora del dia para cubrir todos con el tiempo
-    const rotationOffset = Math.floor(Date.now() / (3600_000)) % Math.max(1, otherSymbols.length);
-    const rotatedOthers = [...otherSymbols.slice(rotationOffset), ...otherSymbols.slice(0, rotationOffset)];
-    const companySymbols = [...portfolioSymbols, ...rotatedOthers].slice(0, 15);
+    // 2. Company news — rotar todos los simbolos por hora para cobertura uniforme
+    const rotationOffset = Math.floor(Date.now() / (3600_000)) % Math.max(1, stockSymbols.length);
+    const rotatedSymbols = [...stockSymbols.slice(rotationOffset), ...stockSymbols.slice(0, rotationOffset)];
+    const companySymbols = rotatedSymbols.slice(0, 15);
     const companyResults = await Promise.allSettled(
       companySymbols.map((s) => fetchCompanyNews(s, apiKey)),
     );

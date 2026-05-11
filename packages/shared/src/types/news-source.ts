@@ -6,6 +6,8 @@ export interface RawNewsArticle {
   externalId: string;
   title: string;
   summary?: string;
+  body?: string;              // full article body (extracted via Readability, populated lazily)
+  bodyFetchedAt?: string;     // ISO datetime when body was extracted
   url: string;
   publishedAt: string;       // ISO datetime
   source: string;            // "Finnhub", "NewsAPI", "Yahoo", "RSS:Reuters"

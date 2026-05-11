@@ -1,5 +1,6 @@
 // apps/frontend/src/backtest/BacktestPage.tsx
 import { useState, useEffect } from 'react';
+import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import { trpc } from '@/shared/trpc';
 import { StrategyConfigForm } from './StrategyConfigForm';
 import { MetricsCards } from './MetricsCards';
@@ -69,6 +70,13 @@ export function BacktestPage() {
   const showResults = currentRun && currentRun.status === 'completed';
 
   return (
+    <>
+    <TabInfo>
+      <InfoSection title="Qué hace">Simula una estrategia de trading sobre datos históricos reales para evaluar su rendimiento antes de usarla en producción.</InfoSection>
+      <InfoSection title="Configuración">Símbolo a testear · Período (fecha inicio y fin) · Estrategia: parámetros técnicos (SMA rápida/lenta, RSI período/umbral, etc.).</InfoSection>
+      <InfoSection title="Métricas">Retorno total (%) · Sharpe ratio (retorno ajustado por riesgo) · Max Drawdown (peor caída desde un pico) · Win Rate (% de trades ganadores) · Número de trades.</InfoSection>
+      <InfoSection title="Visualización">Equity curve: curva del capital a lo largo del tiempo. Drawdown chart: profundidad de cada caída. Modo comparación para contrastar múltiples configuraciones.</InfoSection>
+    </TabInfo>
     <div className="p-4 space-y-4 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Backtesting de Estrategias</h2>
@@ -154,5 +162,6 @@ export function BacktestPage() {
         </Card>
       )}
     </div>
+    </>
   );
 }

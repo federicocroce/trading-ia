@@ -11,7 +11,9 @@ import {
 import { validateTickers } from './ticker-validator.js';
 import { classifyAsset, getCachedClassification } from './asset-classifier.js';
 
-const MAX_DISCOVERED = 30;
+const MAX_DISCOVERED = 120;
+const DISCOVERY_TTL_DAYS = 14;
+const EVICTION_BATCH_SIZE = 20;  // when at cap, evict bottom 20 by relevance to make room
 
 /**
  * Register novel tickers found in news articles.
@@ -21,8 +23,31 @@ export async function registerNovelTickers(
   tickers: string[],
   source: 'finnhub' | 'yahoo' | 'llm',
 ): Promise<number> {
-  // Already at max?
-  const current = getActiveDiscoveredSymbols();
+  // Already at max? Evict lowest-relevance to make room for new candidates.
+  let current = getActiveDiscoveredSymbols();
+  if (current.length >= MAX_DISCOVERED) {
+    // Sort by (relevanceScore asc, lastSeen asc) — least relevant + oldest first
+    const toEvict = [...current]
+      .sort((a, b) => {
+        const relA = a.relevanceScore ?? 0;
+        const relB = b.relevanceScore ?? 0;
+        if (relA !== relB) return relA - relB;
+        return new Date(a.lastSeen ?? 0).getTime() - new Date(b.lastSeen ?? 0).getTime();
+      })
+      .slice(0, EVICTION_BATCH_SIZE);
+    if (toEvict.length > 0) {
+      console.log(`[Discovery] Evicting ${toEvict.length} low-relevance symbols: ${toEvict.map(t => t.symbol).join(', ')}`);
+      // Lazy import to avoid circular
+      const { db } = await import('../db/index.js');
+      const schema = await import('../db/schema.js');
+      const { inArray } = await import('drizzle-orm');
+      db.update(schema.discoveredSymbols)
+        .set({ active: false })
+        .where(inArray(schema.discoveredSymbols.symbol, toEvict.map(t => t.symbol)))
+        .run();
+      current = getActiveDiscoveredSymbols();
+    }
+  }
   const remaining = MAX_DISCOVERED - current.length;
   if (remaining <= 0) return 0;
 
@@ -31,14 +56,14 @@ export async function registerNovelTickers(
   const novel = tickers.filter(t => !known.has(t));
   if (novel.length === 0) return 0;
 
-  // Validate (max 10 per batch)
-  const toValidate = novel.slice(0, Math.min(10, remaining));
+  // Validate (max 40 per batch — discovery throughput on busy news cycles)
+  const toValidate = novel.slice(0, Math.min(40, remaining));
   const valid = await validateTickers(toValidate);
   if (valid.length === 0) return 0;
 
   // Classify and persist
   let registered = 0;
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+  const expiresAt = new Date(Date.now() + DISCOVERY_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
   for (const symbol of valid) {
     if (registered >= remaining) break;
@@ -221,8 +246,11 @@ export function promoteToWatchlist(symbol: string): boolean {
   const market = classification?.market ?? discovered?.market ?? 'global';
   const instrumentType = classification?.instrumentType ?? discovered?.instrumentType ?? 'us';
 
-  // Map instrumentType to DB type
+  // Map instrumentType to DB type — preserve bonds/ETFs/commodities for accurate classification
   const dbType = instrumentType === 'crypto' ? 'crypto' as const
+    : instrumentType === 'bono' ? 'bond' as const
+    : instrumentType === 'etf' ? 'etf' as const
+    : instrumentType === 'commodity' ? 'commodity' as const
     : (market === 'argentina' || instrumentType === 'cedear') ? 'adr' as const
     : 'us' as const;
 

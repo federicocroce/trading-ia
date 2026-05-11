@@ -7,6 +7,7 @@
  * - Narrative (short summaries): Groq → Qwen local
  */
 
+import { jsonrepair } from 'jsonrepair';
 import { askGroq, askGroqLight } from './groq.js';
 import { askOpenRouter } from './openrouter.js';
 import { askLMStudio } from './lmstudio.js';
@@ -18,7 +19,7 @@ export function setRunAiMode(mode: 'cloud' | 'local'): void {
   _runAiMode = mode;
 }
 
-export type AITask = 'reasoning' | 'classification' | 'narrative';
+export type AITask = 'reasoning' | 'classification' | 'narrative' | 'extraction';
 
 function extractJSON(text: string): string {
   // Handle DeepSeek R1 thinking blocks
@@ -31,11 +32,17 @@ function extractJSON(text: string): string {
   const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenceMatch) return fenceMatch[1].trim();
 
-  // Try to find JSON object/array
-  const jsonStart = text.indexOf('{');
-  const jsonEnd = text.lastIndexOf('}');
-  if (jsonStart !== -1 && jsonEnd !== -1) {
-    return text.slice(jsonStart, jsonEnd + 1);
+  // Try to find JSON object or array (whichever comes first)
+  const objStart = text.indexOf('{');
+  const arrStart = text.indexOf('[');
+  const useArray = arrStart !== -1 && (objStart === -1 || arrStart < objStart);
+
+  if (useArray) {
+    const arrEnd = text.lastIndexOf(']');
+    if (arrEnd !== -1) return text.slice(arrStart, arrEnd + 1);
+  } else if (objStart !== -1) {
+    const objEnd = text.lastIndexOf('}');
+    if (objEnd !== -1) return text.slice(objStart, objEnd + 1);
   }
 
   return text;
@@ -53,7 +60,13 @@ async function tryProvider(
     const cleaned = extractJSON(raw);
 
     if (validateJSON) {
-      JSON.parse(cleaned); // validate
+      try {
+        JSON.parse(cleaned);
+      } catch {
+        const repaired = jsonrepair(cleaned);
+        JSON.parse(repaired); // throws if still invalid
+        return repaired;
+      }
     }
 
     console.log(`[ai-router] ${name} OK`);
@@ -173,15 +186,22 @@ function getProviderChain(
         : [deepseek, groq, qwen];
 
     case 'classification':
-      // Flash para tareas rapidas (2000 req/day con 4 keys) → preserva Pro quota → Groq light → DeepSeek → Qwen
+      // Groq Light primero (confiable, rápido, multi-key) → Gemini Flash como backup → DeepSeek → Qwen
       return geminiAvailable
-        ? [geminiFlash, groqLight, deepseek, qwen]
+        ? [groqLight, geminiFlash, deepseek, qwen]
         : [groqLight, deepseek, qwen];
 
     case 'narrative':
-      // Flash suficiente para texto corto
+      // Groq Light primero → Gemini Flash como backup → Qwen
       return geminiAvailable
-        ? [geminiFlash, groqLight, qwen]
+        ? [groqLight, geminiFlash, qwen]
         : [groqLight, qwen];
+
+    case 'extraction':
+      // Structured extraction (news radar, etc.) — needs accuracy on tickers/sectors.
+      // Groq 70B (Llama 70B) primary with key rotation → Groq Light → Gemini Flash → Qwen.
+      return geminiAvailable
+        ? [groq, groqLight, geminiFlash, qwen]
+        : [groq, groqLight, qwen];
   }
 }

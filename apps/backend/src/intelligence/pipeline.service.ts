@@ -23,7 +23,8 @@ import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAg
 import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, getLastUnifiedAnalyses, setMarketDigest } from '../opportunities/opportunities.service.js';
 import { getLastAggregationStats } from '../news/news.service.js';
 import { getLastTriangulationStats } from '../news/triangulation.service.js';
-import { getIntelligenceFromDB } from '../news/news-intelligence.service.js';
+import { getIntelligenceFromDB, prepareDeepAnalysisNews } from '../news/news-intelligence.service.js';
+import { generateNewsRadar } from '../news/news-radar.service.js';
 import { runWebSearch } from '../web-search/web-search.service.js';
 import { generateWeightProposal, shouldGenerateProposal } from './weight-adjustment.service.js';
 import type { PipelineRun, StageResult, QuantContext, OpportunitySector } from '@trading/shared';
@@ -490,6 +491,21 @@ async function runRemainingStages(runId: number): Promise<void> {
       finishPipelineRun(runId, 'failed');
       return;
     }
+    // Fire-and-forget: news radar v2 (cause+impacts) runs after news succeeds.
+    // Non-blocking: failure logs but doesn't affect downstream stages. Persists
+    // to news_radar_snapshots table; UI reads via radarLatest endpoint.
+    void (async () => {
+      try {
+        const filtered = await prepareDeepAnalysisNews();
+        if (filtered.length > 0) {
+          await generateNewsRadar(filtered, { pipelineRunId: runId, persist: true });
+        } else {
+          console.log('[pipeline] news-radar: 0 articles after filters, skipping');
+        }
+      } catch (err) {
+        console.warn('[pipeline] news-radar failed (non-blocking):', (err as Error).message?.slice(0, 100));
+      }
+    })();
   } else {
     updatePipelineStage(runId, 'news', {
       status: 'skipped', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),

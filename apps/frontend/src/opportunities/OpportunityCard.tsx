@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WatchlistButton } from '@/shared/WatchlistButton';
 import { ReturnEstimateBar } from './ReturnEstimateBar';
 
 type TASignal = 'bullish' | 'bearish' | 'neutral';
@@ -139,6 +140,11 @@ interface Opportunity {
   horizonScores?: { shortTerm: number; mediumTerm: number };
   passedAntiHype?: boolean;
   entryScore?: number;
+  radarInfluence?: {
+    bonus: number;
+    sources: string[];
+    conflict?: string;
+  };
 }
 
 const actionConfig: Record<SignalAction, { label: string; emoji: string; borderColor: string; bgClass: string; textClass: string; description: string }> = {
@@ -284,8 +290,9 @@ function OpportunityScoreBar({ label, value }: { label: string; value: number })
   );
 }
 
-export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
+export function OpportunityCard({ opportunity, forceExpanded = false }: { opportunity: Opportunity; forceExpanded?: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const isExpanded = expanded || forceExpanded;
   const cfg = actionConfig[opportunity.action] ?? actionConfig['WATCH'];
   const tl = opportunity.tradeLevels;
 
@@ -309,6 +316,7 @@ export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
             <span className="text-xs text-muted-foreground font-mono">
               ${opportunity.currentPrice.toFixed(2)}
             </span>
+            <WatchlistButton symbol={opportunity.symbol} />
           </div>
 
           {/* Scores: Señal + Entrada */}
@@ -438,6 +446,31 @@ export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
           </p>
         )}
 
+        {/* ── RADAR INFLUENCE BADGE ── */}
+        {opportunity.radarInfluence && opportunity.radarInfluence.bonus !== 0 && (() => {
+          const ri = opportunity.radarInfluence;
+          const isPositive = ri.bonus > 0;
+          const colorCls = ri.conflict
+            ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
+            : isPositive
+              ? 'bg-trading-green/10 text-trading-green border-trading-green/30'
+              : 'bg-trading-red/10 text-trading-red border-trading-red/30';
+          return (
+            <div className={`flex items-start gap-1.5 px-2 py-1 rounded border text-[10px] ${colorCls}`}>
+              <span className="font-mono shrink-0">📡</span>
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold">
+                  Radar {isPositive ? '+' : ''}{ri.bonus.toFixed(1)}
+                </span>
+                <span className="ml-1.5 opacity-80">{ri.sources.join(' · ')}</span>
+                {ri.conflict && (
+                  <div className="text-[9px] mt-0.5 opacity-90">⚠ Conflicto: {ri.conflict}</div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ── EXPAND TOGGLE ── */}
         <button
           onClick={() => setExpanded(!expanded)}
@@ -447,7 +480,7 @@ export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
         </button>
 
         {/* ── EXPANDED DETAIL ── */}
-        {expanded && (
+        {isExpanded && (
           <div className="space-y-3">
             {/* Breakdown */}
             {opportunity.breakdown && (

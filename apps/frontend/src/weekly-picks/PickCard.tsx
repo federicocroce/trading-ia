@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { WatchlistButton } from '@/shared/WatchlistButton';
 import type { WeeklyPick } from '@trading/shared';
 
 const TIER_CONFIG = {
@@ -37,6 +38,7 @@ export function PickCard({ pick }: PickCardProps) {
           <Badge variant="outline" className={`text-xs ${tier.className}`}>
             {tier.label}
           </Badge>
+          <WatchlistButton symbol={pick.symbol} />
         </div>
         <span className={`text-xs ${sector.className}`}>{sector.label}</span>
       </CardHeader>

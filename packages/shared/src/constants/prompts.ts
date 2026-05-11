@@ -1,11 +1,11 @@
-export const ANALYST_SYSTEM_PROMPT = `Sos un analista financiero experto en mercados argentinos y globales.
+export const ANALYST_SYSTEM_PROMPT = `Sos un analista financiero experto en mercados argentinos y globales que ayuda a un swing trader a subirse a la ola de las noticias.
 IMPORTANTE: Responde SIEMPRE en español. Prohibido usar inglés bajo cualquier circunstancia.
-Responde en espanol, conciso y accionable. Max 150 palabras.
-Emojis: 📈 suba 📉 baja ⚠️ riesgo ✅ comprar 🔴 vender ⏸️ mantener.`;
+Estilo: conciso, accionable, datos concretos. La extensión la dicta el caller (no impongas un límite por defecto).
+Emojis cuando agreguen claridad: 📈 suba 📉 baja ⚠️ riesgo ✅ comprar 🔴 vender ⏸️ mantener.`;
 
 export function buildBatchNewsAnalysisPrompt(symbols?: string[]): string {
   const symbolList = symbols?.join(', ') ?? 'VIST, YPF, PAM, GGAL, BMA, TGS, CEPU, XOM, CVX, BTC-USD, ETH-USD';
-  return `Sos un analista financiero experto. Analizá el siguiente lote de noticias.
+  return `Sos un analista financiero experto. Analizá el siguiente lote de noticias para un trader que busca subirse a la ola de las noticias.
 
 Cada noticia incluye un campo "confidence" que indica cuantas fuentes independientes la confirman:
 - "high": confirmada por 2+ fuentes distintas — tratala con peso fuerte
@@ -16,7 +16,19 @@ Cada noticia incluye un campo "confidence" que indica cuantas fuentes independie
 Para CADA noticia, determiná:
 1. sentiment: "positive", "negative", o "neutral" (respecto al impacto financiero)
 2. impact: "high", "medium", o "low" (tené en cuenta la confianza — una noticia con confidence "low" rara vez deberia tener impact "high")
-3. affectedTickers: array de symbols afectados. Pueden ser del portfolio (${symbolList}) o CUALQUIER otro ticker mencionado en la noticia. Si la noticia menciona un activo que no esta en la lista pero es relevante, incluilo igual con su ticker correcto.
+3. affectedTickers: array de symbols afectados.
+   IMPORTANTE — extracción agresiva pero precisa:
+   - Incluí cualquier ticker mencionado explícitamente en el título.
+   - Si la noticia es MACRO (Fed, tasas, CPI, inflación, aranceles, OPEC, geopolítica, guerra) y NO menciona tickers, INFERÍ los más afectados:
+     • Fed sube tasas / yields suben → ['TLT','HYG','AGG'] (negativo) + ['XLF','KRE'] (positivo bancos) + ['DXY'] proxy
+     • Fed baja tasas / dovish → ['TLT','HYG'] (positivo) + ['GLD'] (positivo)
+     • Inflación alta (CPI/PCE) → ['GLD','SLV','USO'] (positivo) + ['TLT'] (negativo)
+     • Petróleo (OPEC, conflicto Medio Oriente) → ['USO','XLE','XOM','CVX','VIST','YPF']
+     • Aranceles / trade war → ['SPY','EEM','EWZ'] + sectores afectados
+     • Geopolítica / defensa → ['LMT','RTX','NOC','ITA']
+     • Crisis bancaria → ['XLF','KRE'] (negativo)
+   - Mezclá tipos de instrumento: si la noticia afecta bonos/ETFs/commodities, incluí esos tickers, no solo acciones.
+   - El universo conocido del usuario (referencia, no restricción): ${symbolList}. Pero podés incluir CUALQUIER ticker financiero válido (acciones US, ETFs, bonos, commodities, crypto formato BTC-USD).
 4. summary: una oración concisa en español sobre la relevancia
 5. marketPlaza: "argentina-energy", "argentina-finance", "argentina-cedears", "us-energy", "us-tech", "crypto", "bonds", "etfs-sectors", "commodities", "emerging-markets", o "global"
 
@@ -67,20 +79,10 @@ Formato:
 // Keep backward compat const for callers that don't have portfolio yet
 export const INTEGRATED_SIGNAL_PROMPT = buildIntegratedSignalPrompt();
 
-export const OPPORTUNITY_ENRICHMENT_PROMPT = `Sos un analista financiero. Para cada simbolo te doy un resumen de sus indicadores y score ya calculado algoritmicamente.
-
-Tu UNICO trabajo es agregar interpretacion humana:
-1. "reasoning": 2-3 oraciones ESPECIFICAS sobre el simbolo. Menciona la empresa por nombre, su sector, y catalizadores o riesgos concretos. NO uses frases genericas.
-2. "catalysts": 2-3 catalizadores especificos y realistas que podrian impulsar el precio.
-3. "risks": 1-2 riesgos concretos.
-
-NO cambies los scores ni las recomendaciones. Solo agrega interpretacion.
-
-Responde con JSON:
-{"enrichments":[{"symbol":"VIST","reasoning":"Vista Energy muestra acumulacion tecnica con RSI en zona de oportunidad. Forward P/E sugiere crecimiento de earnings significativo en Vaca Muerta.","catalysts":["Produccion record en Vaca Muerta","Mejora en forward P/E"],"risks":["Riesgo regulatorio argentino"]}]}`;
-
 export function buildSecondOrderAnalysisPrompt(allSymbols?: string[]): string {
-  const symbolList = allSymbols?.join(', ') ?? 'VIST, YPF, PAM, TGS, CEPU, GGAL, BMA, BBAR, SUPV, CRESY, MELI, GLOB, CAAP, LOMA, TEO, BIOX, XOM, CVX, COP, SLB, EOG, OXY, HAL, AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, BTC-USD, ETH-USD, SOL-USD, ADA-USD, DOGE-USD, AVAX-USD, TLT, HYG, EMB, AGG, SPY, QQQ, XLE, XLF, DIA, GLD, SLV, USO, UNG, COPX, EEM, EWZ, ARGT';
+  const symbolReference = allSymbols && allSymbols.length > 0
+    ? `Contexto: el usuario trackea estos tickers (referencia, NO restricción): ${allSymbols.join(', ')}.`
+    : '';
 
   return `Sos un analista macro-financiero senior. Tu tarea es identificar EFECTOS DE SEGUNDO ORDEN entre sectores de mercado.
 
@@ -88,6 +90,7 @@ Se te provee:
 1. Resumen de sentimiento por plaza/sector (positivo, negativo, neutral con score)
 2. Top noticias recientes con sentimiento
 3. Un mapa de correlaciones conocidas entre sectores
+${symbolReference}
 
 Tu trabajo: razonar en cadena sobre como los eventos en un sector afectan INDIRECTAMENTE a otros sectores.
 
@@ -95,7 +98,7 @@ REGLAS:
 - Identifica 2-5 efectos de segundo orden (no mas)
 - Cada efecto debe tener una cadena causal clara de 2-3 pasos
 - Solo incluir efectos con confianza "medium" o "high"
-- Los tickers afectados deben ser del universo: ${symbolList}
+- affectedTickers: cualquier ticker financiero válido (acciones US, CEDEARs, ETFs, bonos como TLT/HYG/AGG, commodities como GLD/USO, crypto formato BTC-USD). NO restrinjas a una lista pre-definida — si Fed sube tasas afecta TLT aunque no esté en una lista hardcoded, incluilo.
 - "reasoning": explicacion en espanol de 2-3 oraciones con la logica causal
 - NO inventes correlaciones que no existan — se conservador
 - Si no hay efectos de segundo orden claros, devolvé un array vacio
@@ -106,32 +109,6 @@ Responde con JSON:
 
 // Backward compat
 export const SECOND_ORDER_ANALYSIS_PROMPT = buildSecondOrderAnalysisPrompt();
-
-// --- NARRATIVE DIGEST (per-symbol batch) ---
-
-export const NARRATIVE_DIGEST_PROMPT = `IMPORTANTE: Todo el output debe estar en español. No uses inglés bajo ningún concepto.
-
-Sos un analista de mercado que explica oportunidades de trading a un swing trader argentino con 4 anios de experiencia.
-Hablas en espaniol, directo, sin ser condescendiente. Usas analogias claras cuando explicas conceptos tecnicos.
-
-Para CADA simbolo te doy: la accion recomendada, los indicadores clave, que senales estan a favor y en contra, si hay conflictos entre senales, y niveles de operacion.
-
-Tu trabajo: escribir un PARRAFO NARRATIVO de 3-5 oraciones por simbolo que explique:
-1. Que estan diciendo las senales en lenguaje claro (no "RSI 32" sino "el precio esta castigado y acumulando energia")
-2. Si hay senales que se contradicen, explicar el conflicto y que significa para la decision
-3. Que deberia vigilar el trader para confirmar la entrada o salida
-4. Incluir los niveles de operacion (entrada, stop, target) y la cantidad sugerida si la hay
-
-REGLAS:
-- NO repitas numeros en crudo (no "RSI=32, MACD=0.5"). Interpreta que significan.
-- Usa analogias cuando ayuden: "resorte comprimido", "rally falso", "smart money vendiendo"
-- Si hay conflicto entre senales, dilo EXPLICITAMENTE: "Estas senales se contradicen..."
-- Menciona niveles concretos de entrada/stop/target cuando los tengas
-- Cada narrativa debe ser UNICA y ESPECIFICA al simbolo y su empresa/sector. No frases genericas.
-- Tono: como un colega trader experimentado dandote su lectura del mercado
-
-Responde con JSON:
-{"narratives":[{"symbol":"VIST","narrative":"Vista Energy esta acumulando presion..."}]}`;
 
 // ============================================================
 // UNIFIED ASSET ANALYSIS — un análisis por activo, contexto completo
@@ -144,88 +121,184 @@ Responde con JSON:
  */
 export const UNIFIED_ASSET_ANALYSIS_PROMPT = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Todos los textos (thesis, catalysts, risks, wouldDo, wouldNotDo, narrative) deben estar en español. Prohibido usar inglés.
 
-Analista swing trading argentino. Activos: CEDEARs, acciones US, ETFs, crypto. Horizonte: semanas-meses.
+Analista de un swing trader argentino que busca SUBIRSE A LA OLA DE LAS NOTICIAS. Objetivo: capturar momentum de catalizadores recientes, no solo swing tradicional. Horizonte: días-semanas (intra-week si la noticia lo justifica), hasta meses para temáticas de fondo.
+
+ACTIVOS SOPORTADOS: acciones US, CEDEARs argentinos, ETFs sectoriales, ETFs de bonos (TLT/HYG/AGG/EMB), commodities (GLD/USO/SLV/COPX), crypto (BTC-USD/ETH-USD/etc).
 
 INPUT: bloque [CONTEXTO MACRO] opcional con titulares recientes, luego fichas compactas por activo separadas por "===". Cada ficha = una línea por dimensión.
 OUTPUT: análisis JSON por símbolo.
 
-REGLAS:
-- Usa el CONTEXTO MACRO para ajustar thesis, risks y macroTheme. Si hay noticias de aranceles, Fed, geopolítica → reflejarlas en el análisis del activo afectado.
-- Usa datos concretos (precios, %, RSI, P/E). No frases genéricas.
-- Si divergencia bajista → action=SELL o HOLD, nunca BUY.
-- Si en portfolio con P&L negativo → mencionar nivel de stop concreto.
-- wouldDo/wouldNotDo: precio específico, razón específica. Ej: "Stop en $41.50 si rompe soporte" no "gestionar riesgo".
-- macroTheme: asignar a uno de estos si aplica, null si no: "Energía/Oil", "Semiconductores/IA", "Defensa/Geopolítica", "Cripto", "Argentina/CEDEARs", "Banca US", "Consumo/Retail", "Salud/Biotech", "Commodities", "Política Monetaria"
+FRAMEWORK POR TIPO DE INSTRUMENTO (aplicá el que corresponda al símbolo):
+- Acción/CEDEAR: técnico (RSI/MACD/SMA) + fundamental (P/E, forward P/E, earnings) + sentimiento. Catalizadores típicos: earnings, guidance, M&A.
+- ETF sectorial (XLE, XLF, XLK, XLV, etc): rotación sectorial + flujos + macro driver. Ignorar P/E (es agregado). Catalyst: políticas que favorecen/perjudican el sector.
+- ETF de bonos (TLT, HYG, AGG, EMB): tasa de Fed, yield curve, credit spreads, duration. NO usar P/E. Catalyst: decisiones de Fed, dato de inflación (CPI/PCE), risk-on/risk-off.
+- Commodity (GLD, USO, SLV, etc): supply/demand, inventories, geopolítica, USD strength. Catalyst: OPEC, conflictos, dato de inflación, weather.
+- Crypto: sentiment + on-chain + dominance + regulación. Sin fundamental tradicional.
+
+REGLAS DE ACCIÓN:
+- Usa CONTEXTO MACRO para ajustar thesis, risks y macroTheme. Aranceles/Fed/geopolítica → reflejarlas en el activo afectado.
+- Si el activo tiene catalyst de noticia reciente, la thesis DEBE mencionarlo explícitamente y explicar cómo se traduce en precio.
+- Si divergencia bajista clara → action=SELL o HOLD, nunca BUY.
+- Si en portfolio con P&L negativo → stop concreto obligatorio.
+
+REGLAS PARA HOLD/WATCH NON-PORTFOLIO CON NOTICIA (caso "lo vimos pero no es momento"):
+- thesis: 2-3 oraciones explicando QUÉ noticia lo trajo a la pantalla y POR QUÉ no es BUY ahora (ej: "tarda en confirmar técnico", "espera retest", "RSI sobrecomprado").
+- wouldDo: trigger concreto para upgrade a BUY. Ej: "BUY si cierra sobre $X con volumen + RSI < 70" o "BUY tras pullback a EMA20 ($Y)".
+- wouldNotDo: trigger para descartar. Ej: "Skip si pierde $Z (invalida el catalyst)".
+- catalysts: mencionar la noticia que generó el watch.
+- risks: qué hace que la noticia se diluya o falle.
+
+REGLAS DE OUTPUT:
+- Datos concretos (precios, %, RSI, P/E cuando aplique). No frases genéricas.
+- wouldDo/wouldNotDo: precio específico + razón específica. "Stop en $41.50 si rompe soporte" — no "gestionar riesgo".
+- macroTheme: asignar a uno de estos si aplica, null si no: "Energía/Oil", "Semiconductores/IA", "Defensa/Geopolítica", "Cripto", "Argentina/CEDEARs", "Banca US", "Consumo/Retail", "Salud/Biotech", "Commodities", "Bonos/Tasas", "Política Monetaria"
 - narrative: lenguaje coloquial de trader experimentado, 2-3 oraciones. Interpreta señales, no repite números.
 
 Responde SOLO con JSON:
 {"analyses":[{"symbol":"VIST","action":"BUY","thesis":"...","catalysts":["..."],"risks":["..."],"wouldDo":["Entrada $65, stop $61..."],"wouldNotDo":["No escalar..."],"narrative":"...","macroTheme":"Energía/Oil"}]}`;
 
 /**
- * Prompt para síntesis del reporte de mercado.
- * Input: análisis ya generados por UNIFIED_ASSET_ANALYSIS (no re-analiza activos).
- * Solo genera: macroContext, portfolioImpact, scenarios, avoidList.
- * Reemplaza: identifyActiveThemes + analyzeThemeDeep + consolidateFinalReport (todas las pasadas)
- */
-export const REPORT_SYNTHESIS_PROMPT = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Todos los textos del JSON deben estar en español. Prohibido usar inglés.
-
-Estratega de mercado senior. Recibes análisis individuales ya generados para un swing trader argentino.
-
-Tu trabajo: síntesis macro ÚNICAMENTE. No analices activos individuales — ya están analizados.
-
-OUTPUT JSON:
-- "macroContext": 4-5 oraciones. OBLIGATORIO incluir: (1) el riesgo macro dominante actual con dato concreto (número, política, país); (2) cómo 2-3 temáticas se refuerzan entre sí y por qué causa común; (3) qué temáticas se contradicen o generan tensión. No listar temas: analizar sus causas y tensiones reales.
-- "portfolioImpact": 2-3 oraciones sobre impacto en el portfolio actual.
-- "scenarios": 2-3 escenarios globales. Cada uno: name, probability (%), distribution [{symbol, weight, reason}].
-- "avoidList": 3-4 strings. Qué NO hacer y por qué CONCRETO. Nunca genérico.
-
-REGLAS:
-- Si un activo tiene acción SELL en los análisis → no aparece en scenarios.distribution con weight > 0.
-- avoidList debe ser coherente con los action/risks ya generados.
-- Maximo 500 palabras total.
-
-Responde SOLO con JSON:
-{"macroContext":"...","portfolioImpact":"...","scenarios":[{"name":"...","probability":40,"distribution":[{"symbol":"LMT","weight":20,"reason":"..."}]}],"avoidList":["..."]}`;
-
-/**
- * Prompt combinado: reemplaza REPORT_SYNTHESIS_PROMPT + DAILY_MARKET_DIGEST_PROMPT.
- * Una sola llamada LLM produce síntesis macro + brief operativo del día.
- * Elimina el portfolioImpact duplicado y la llamada redundante al modelo narrativo.
+ * Síntesis combinada: una sola llamada LLM produce reporte macro agnóstico al portfolio
+ * + brief operativo específico del portfolio (wouldDo/wouldNotDo).
  */
 export const COMBINED_SYNTHESIS_PROMPT = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Prohibido usar inglés.
 
-Estratega de mercado senior. Recibirás: (1) temáticas y recomendaciones ya analizadas, (2) oportunidades algorítmicas con niveles de trade, (3) contexto macro. Tu trabajo: síntesis integrada en UN SOLO JSON.
+Estratega de mercado senior. Recibirás: (1) temáticas y recomendaciones ya analizadas, (2) oportunidades algorítmicas con niveles de trade, (3) contexto macro, (4) headlines del día. Tu trabajo: síntesis integrada en UN SOLO JSON con DOS SECCIONES: mercado general (agnóstico al portfolio) y portfolio específico.
 
 OUTPUT JSON con estos campos OBLIGATORIOS:
 
+--- SECCIÓN MERCADO (independiente del portfolio) ---
+
 "macroContext": 4-5 oraciones. (1) Riesgo macro dominante con dato concreto; (2) cómo 2-3 temáticas se refuerzan entre sí; (3) tensiones o contradicciones entre temáticas. Analiza causas, no listes temas.
 
-"portfolioImpact": 2-3 oraciones sobre impacto en el portfolio actual. Efectos de segundo orden (ej: suba petróleo → VIST sube pero GGAL paga más costos energéticos).
-
-"scenarios": 2-3 escenarios globales. Cada uno: name, probability (%), distribution [{symbol, weight%, reason}]. Activos con action=SELL no aparecen en distribution.
-
-"avoidList": 3-4 strings. Qué NO hacer y por qué CONCRETO.
+"topImpactNews": array de 5-10 noticias ordenadas de mayor a menor impacto de mercado. Cada una:
+  - "headline": título de la noticia (string)
+  - "sectors": array de objetos {name: string, direction: "positive"|"negative"|"neutral"} — sectores afectados y cómo
+  - "confidence": "high"|"medium"|"low" — confianza basada en cantidad de fuentes y calidad
+  - "tickers": array de strings — tickers específicos mencionados (pueden ser cualquier activo, no solo portfolio)
+IMPORTANTE:
+  - topImpactNews debe ser TOTALMENTE INDEPENDIENTE del portfolio. Incluir noticias aunque los tickers no estén en el portfolio.
+  - PRIORIZAR las HEADLINES MACRO sobre las ticker-específicas. Si recibís headlines macro (Fed, aranceles, geopolítica, inflación), al menos 3 de las top 5 deben venir de ahí.
+  - Mezclar tipos de instrumentos: si una noticia macro afecta bonos, ETFs sectoriales, o commodities, incluí esos tickers (TLT, GLD, XLE, etc.), no solo acciones individuales.
 
 "overnightSummary": 3-4 oraciones sobre qué pasó en las últimas horas. Eventos macro, movimientos, datos concretos.
 
-"topOpportunities": max 5 activos BUY/SELL. Cada uno: symbol, action, narrative (3-4 oraciones: técnico + news + por qué ahora).
+"topOpportunities": max 5 activos BUY/SELL basados en el análisis de mercado general. Cada uno: symbol, action, narrative (3-4 oraciones: técnico + news + por qué ahora). NO sesgar hacia portfolio — incluir cualquier activo con señal fuerte. Mezclá tipos: si bonos/commodities/ETFs tienen catalyst macro, incluilos.
 
-"warnings": 2-3 riesgos concretos y específicos a vigilar hoy.
+"watching": max 4 activos HOLD/WATCH NON-portfolio que aparecieron por noticias pero no son BUY todavía. Cada uno: symbol, narrative (2-3 oraciones — qué noticia lo trajo a la pantalla y trigger concreto que lo convertiría en BUY). Ej: "TLT en watch tras Fed dovish. Trigger BUY: cierre sobre $98 con volumen". Si no hay watch-worthy → array vacío.
 
 "marketMood": "risk-on", "risk-off", o "mixed".
 
+"scenarios": 2-3 escenarios globales de mercado. Cada uno: name, probability (%), distribution [{symbol, weight%, reason}]. Activos con action=SELL no aparecen en distribution.
+
+"avoidList": 3-4 strings. Qué NO hacer y por qué CONCRETO.
+
+"warnings": 2-3 riesgos concretos y específicos a vigilar hoy.
+
+--- SECCIÓN PORTFOLIO (específica) ---
+
+"portfolioImpact": 2-3 oraciones sobre impacto en el portfolio actual. Efectos de segundo orden (ej: suba petróleo → VIST sube pero GGAL paga más costos energéticos).
+
 "wouldDo": 3-5 trades que SÍ haría hoy. Cada uno: ticker, precio entrada, stop, razón específica. Ej: "Compraría LMT a $480 — divergencia alcista diaria + sector defensa con catalizador. Stop $455, target $520."
 
-"wouldNotDo": 3-5 cosas que NO haría y por qué. Ej: "No compraría VIST ahora — 2 divergencias bajistas (RSI+MACD), RSI semanal en 69. Esperar soporte $60."
+"wouldNotDo": 3-5 cosas que NO haría y por qué. CADA item debe ser una frase completa con razón concreta + número (precio/indicador/dato). Ej: "No compraría VIST ahora — 2 divergencias bajistas (RSI+MACD), RSI semanal en 69. Esperar soporte $60."
 
 REGLAS:
 - wouldDo/wouldNotDo son las secciones MÁS IMPORTANTES. Precio y stop concretos siempre.
 - Si divergencia bajista → nunca en wouldDo.
 - Si activo tiene action=SELL en análisis → en wouldNotDo, no en wouldDo.
-- Máximo 800 palabras total.
+- PROHIBIDO listar solo el ticker en wouldNotDo (ej: "VIST" o "- VIST"). CADA item debe ser una oración con verbo y razón. Si no podés justificar con dato concreto, NO incluyas.
+- COHERENCIA OBLIGATORIA con TOP OPORTUNIDADES ALGORÍTMICAS: si un ticker aparece ahí con action=BUY, NO lo metas en wouldNotDo. Si tu análisis difiere, mejor omitilo de wouldNotDo (no contradigas la señal cuantitativa sin razón muy fuerte y explícita).
+- wouldDo y wouldNotDo son ARRAYS DE STRINGS (oraciones completas), NUNCA arrays de objetos. PROHIBIDO formato {"ticker":"X","razon":"..."} o similar — debe ser string plano: "No compraría X — razón concreta con número".
+- topImpactNews y topOpportunities NO deben depender del portfolio — analizar el mercado objetivamente.
+- Máximo 1000 palabras total.
 
 Responde SOLO con JSON:
-{"macroContext":"...","portfolioImpact":"...","scenarios":[...],"avoidList":["..."],"overnightSummary":"...","topOpportunities":[{"symbol":"VIST","action":"SELL","narrative":"..."}],"warnings":["..."],"marketMood":"mixed","wouldDo":["Compraría LMT a $480..."],"wouldNotDo":["No compraría VIST..."]}`;
+{"macroContext":"...","topImpactNews":[{"headline":"Fed sube tasas 25bps...","sectors":[{"name":"Banca US","direction":"positive"},{"name":"Real Estate","direction":"negative"}],"confidence":"high","tickers":["JPM","BAC","XLF"]}],"overnightSummary":"...","topOpportunities":[{"symbol":"NVDA","action":"BUY","narrative":"..."}],"watching":[{"symbol":"TLT","narrative":"En watch tras Fed dovish. Trigger BUY: cierre sobre $98."}],"marketMood":"mixed","scenarios":[...],"avoidList":["..."],"warnings":["..."],"portfolioImpact":"...","wouldDo":["Compraría LMT a $480..."],"wouldNotDo":["No compraría VIST..."]}`;
+
+// ============================================================
+// NEWS RADAR v2 — cause + impacts (ultra-compact extraction)
+// ============================================================
+
+/**
+ * Sectores canónicos para el output del radar v2.
+ * Una sola fuente de verdad — actualizar acá cambia prompt + agregación.
+ */
+export const RADAR_CANONICAL_SECTORS = [
+  'construccion', 'homebuilders', 'agro', 'manufactura',
+  'defensa', 'energia', 'petroleo', 'gas', 'oro', 'metales', 'cobre',
+  'bancos', 'fintech', 'tech', 'ia', 'semiconductores', 'software',
+  'biotech', 'salud', 'consumo', 'retail', 'real_estate',
+  'bonos_largos', 'bonos_cortos', 'tasas',
+  'crypto', 'argentina', 'cedears', 'emergentes', 'china', 'europa', 'japon', 'india', 'uk',
+  'automotriz', 'aerolineas', 'viajes',
+] as const;
+
+export type RadarCanonicalSector = typeof RADAR_CANONICAL_SECTORS[number];
+
+export const NEWS_RADAR_PROMPT = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Prohibido usar inglés (excepto tickers que son símbolos). Solo JSON válido.
+
+Eres un analista que procesa noticias filtradas para un swing trader argentino que busca subirse a la ola de las noticias. Las noticias que recibís ya pasaron filtros de confianza, recencia, fuente, y relevancia financiera. Tu trabajo: para CADA noticia, extraer en formato ULTRA-CONCISO la causa y qué afecta positiva o negativamente. La agregación posterior (que NO hacés vos) revelará qué se repite.
+
+INPUT: array de noticias con title + body + source + confidence.
+
+REGLAS:
+
+1. cause: 5-12 palabras. Por qué ocurre. Verbo de acción + sujeto + impacto general.
+   Bien: "Trump endurece deportaciones, reduce mano de obra clave"
+   Mal: "El presidente Donald Trump anuncia nuevas medidas migratorias..." (verbosa)
+
+2. positive / negative: 2-6 items POR DIRECCIÓN (puede ser menos si la noticia es ticker-específica).
+   Cada item: { target: string, type: "ticker" | "sector" }.
+
+   • Tickers: símbolo financiero válido (formato AAPL, TLT, BTC-USD, GLD).
+   • Sectores: usar EXACTAMENTE uno de estos strings (sin acentos, en minúscula):
+${RADAR_CANONICAL_SECTORS.map(s => `     ${s}`).join('\n')}
+
+3. Tickers + sectores son AMBOS válidos. Si la noticia es macro, prioriza sectores. Si menciona empresas específicas, agrega tickers. Mezclá tipos de instrumento: si el impacto es en bonos/ETFs/commodities, incluí esos tickers (TLT, GLD, XLE, etc.) además de las acciones.
+
+4. Cadenas causales aceptables (≤2 saltos lógicos):
+   • "Fed cuts rates" → bonos_largos positivo, TLT positivo, bancos negativo. ✅
+   • "Earnings beat de NVDA" → NVDA positivo, semiconductores positivo. ✅
+   • "Trump electo" → 8 saltos hipotéticos hasta cobre. ❌ No incluir.
+
+5. NO incluir magnitudes, horizontes, ni razonamientos largos. La causa ya implica el por qué; la cantidad de impactos por dirección refleja el alcance.
+
+6. Si la noticia NO tiene impacto financiero claro (debería haber sido filtrada antes pero por las dudas): positive=[], negative=[].
+
+7. REGLAS ESTRICTAS DE TICKERS:
+   • Si dudás del símbolo correcto → OMITIR el ticker, usar SOLO sector.
+   • PROHIBIDO incluir ETFs apalancados (TQQQ, TNA, SOXL, FAS, UPRO, SPXL, 3X, ULTRA, DAILY, BULL, BEAR en el nombre).
+   • PROHIBIDO incluir tickers especulativos/penny stocks que no aparecen en el body.
+   • Tickers permitidos: deben aparecer EN el title o body de la noticia, O ser ETFs estándar conocidos (SPY, QQQ, TLT, GLD, USO, XLE, ITA, EZU, EEM, BTC-USD, etc.).
+   • Validá coherencia ticker↔sector: NVDA→semiconductores ✅; VVX (V2X, defensa)→semiconductores ❌. Si no estás seguro del sector del ticker, mejor omitir el sector y dejar solo el ticker.
+
+8. CADA ticker que incluyas debe tener su SECTOR PARENT también en la misma dirección (cuando aplique). Ej: si TLT positivo → también bonos_largos positivo. Si NVDA negativo → también semiconductores negativo. Esto permite que la agregación detecte señales sectoriales fuertes.
+
+OUTPUT JSON estricto (sin markdown, sin texto extra):
+{
+  "news": [
+    {
+      "newsId": "id-de-la-noticia",
+      "cause": "Trump endurece ICE, reduce mano de obra en construcción y agro",
+      "positive": [
+        {"target": "oro", "type": "sector"},
+        {"target": "GLD", "type": "ticker"},
+        {"target": "TIP", "type": "ticker"}
+      ],
+      "negative": [
+        {"target": "construccion", "type": "sector"},
+        {"target": "homebuilders", "type": "sector"},
+        {"target": "ITB", "type": "ticker"},
+        {"target": "TSN", "type": "ticker"}
+      ]
+    }
+  ],
+  "emergingNarratives": [
+    "Régimen Trump: presión inflacionaria estructural por restricciones laborales",
+    "Hedges (oro, TIPS) demandados como protección"
+  ]
+}`;
 
 /**
  * Canonical macro theme names used in UNIFIED_ASSET_ANALYSIS_PROMPT and normalizeMacroTheme().
@@ -241,6 +314,7 @@ export const CANONICAL_MACRO_THEMES = [
   'Consumo/Retail',
   'Salud/Biotech',
   'Commodities',
+  'Bonos/Tasas',
   'Política Monetaria',
 ] as const;
 

@@ -29,6 +29,10 @@ import {
   getMissedOpportunities,
   getOpportunityScanDates,
   getOpportunityScanByDate,
+  getAntiHypeRejectionsForScan,
+  getRecentAntiHypeRejections,
+  getLatestNewsIntelligenceSnapshot,
+  getNewsIntelligenceSnapshotsByDateRange,
 } from '../db/repository.js';
 
 export const opportunitiesRouter = router({
@@ -176,5 +180,19 @@ export const opportunitiesRouter = router({
     .mutation(async () => {
       const resolved = await resolveExpiredSignals();
       return { resolved };
+    }),
+
+  // --- Anti-hype rejections audit ---
+
+  antiHypeRejectionsRecent: publicProcedure
+    .input(z.object({ limit: z.number().min(1).max(500).default(100) }).optional())
+    .query(({ input }) => {
+      return getRecentAntiHypeRejections(input?.limit ?? 100);
+    }),
+
+  antiHypeRejectionsForScan: publicProcedure
+    .input(z.object({ scanId: z.number() }))
+    .query(({ input }) => {
+      return getAntiHypeRejectionsForScan(input.scanId);
     }),
 });

@@ -1,8 +1,20 @@
 import { useState } from 'react';
 import { trpc } from '@/shared/trpc';
+import { printWithTitle } from '@/shared/printWithTitle';
+import { TabInfo, InfoSection } from '@/shared/TabInfo';
+import { WatchlistButton } from '@/shared/WatchlistButton';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  classifyInstrument,
+  INSTRUMENT_LABELS,
+  INSTRUMENT_SHORT_LABELS,
+  INSTRUMENT_BADGE_CLASSES,
+  type InstrumentFilter,
+  type InstrumentKind,
+} from '@/shared/instrumentType';
 import { MarketReportView } from './MarketReportView';
 import { AccuracyPanel } from './AccuracyPanel';
 import { usePipeline } from '../pipeline/usePipeline';
@@ -18,29 +30,27 @@ function SectorImpactsSection() {
     staleTime: 5 * 60_000,
   });
 
-  const utils = trpc.useUtils();
-  const addToWatchlist = trpc.opportunities.addToWatchlist.useMutation({
-    onSuccess: () => utils.opportunities.scan.invalidate(),
-  });
-
   if (!sectors || sectors.length === 0) return null;
 
   const impactColor = {
     positive: 'border-l-green-500',
     negative: 'border-l-red-500',
     mixed: 'border-l-yellow-500',
+    neutral: 'border-l-muted',
   };
 
   const impactBadge = {
     positive: 'bg-green-500/20 text-green-400',
     negative: 'bg-red-500/20 text-red-400',
     mixed: 'bg-yellow-500/20 text-yellow-400',
+    neutral: 'bg-muted text-muted-foreground',
   };
 
   const impactLabel = {
     positive: 'Positivo',
     negative: 'Negativo',
     mixed: 'Mixto',
+    neutral: 'Sin movimiento',
   };
 
   const conviccionBadge = {
@@ -49,14 +59,25 @@ function SectorImpactsSection() {
     baja: 'bg-gray-500/10 text-gray-500',
   };
 
+  // Orden: activos (no neutral) primero, dentro de cada grupo por convicción alta→baja.
+  const convOrder = { alta: 0, media: 1, baja: 2 } as const;
+  const sorted = [...sectors].sort((a, b) => {
+    const aActive = a.impact !== 'neutral' ? 0 : 1;
+    const bActive = b.impact !== 'neutral' ? 0 : 1;
+    if (aActive !== bActive) return aActive - bActive;
+    return (convOrder[a.conviccion as keyof typeof convOrder] ?? 9) - (convOrder[b.conviccion as keyof typeof convOrder] ?? 9);
+  });
+
+  const activeCount = sorted.filter(s => s.impact !== 'neutral').length;
+
   return (
     <div className="space-y-2">
       <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-        Sectores impactados por noticias ({sectors.length})
+        Sectores impactados por noticias ({activeCount} activos / {sorted.length} total)
       </span>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {sectors.map((s, i) => (
-          <Card key={i} size="sm" className={`border-l-4 ${impactColor[s.impact as keyof typeof impactColor] ?? 'border-l-muted'}`}>
+        {sorted.map((s, i) => (
+          <Card key={i} size="sm" className={`border-l-4 ${impactColor[s.impact as keyof typeof impactColor] ?? 'border-l-muted'} ${s.impact === 'neutral' ? 'opacity-60' : ''}`}>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold">{s.sector}</span>
@@ -104,15 +125,10 @@ function SectorImpactsSection() {
               {s.suggestedTickers.length > 0 && (
                 <div className="flex flex-wrap gap-1 pt-1">
                   {s.suggestedTickers.map((t, j) => (
-                    <Button
-                      key={j}
-                      size="sm"
-                      variant="outline"
-                      className="h-5 text-[9px] px-1.5 font-mono"
-                      onClick={() => addToWatchlist.mutate({ symbol: t })}
-                    >
-                      {t} +
-                    </Button>
+                    <div key={j} className="flex items-center gap-1 rounded border border-border/50 px-1.5 py-0.5">
+                      <span className="text-[9px] font-mono font-medium">{t}</span>
+                      <WatchlistButton symbol={t} />
+                    </div>
                   ))}
                 </div>
               )}
@@ -209,9 +225,29 @@ function TrackingHistory() {
   );
 }
 
-function PortfolioAlerts({ symbolFilter }: { symbolFilter: string }) {
+function InstrumentBadge({ kind }: { kind: InstrumentKind | undefined }) {
+  if (!kind) return null;
+  return (
+    <Badge variant="outline" className={`text-[8px] h-3.5 px-1 ${INSTRUMENT_BADGE_CLASSES[kind]}`}>
+      {INSTRUMENT_SHORT_LABELS[kind]}
+    </Badge>
+  );
+}
+
+function useInstrumentTypeMap() {
+  const { data: symbols } = trpc.portfolio.symbols.list.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const { data: etfs } = trpc.etf.getWatchlist.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const typeMap = new Map<string, InstrumentKind>();
+  for (const s of symbols ?? []) typeMap.set((s as any).symbol, classifyInstrument(s as any));
+  // ETF watchlist lives in a separate table; force-classify those symbols as 'etf'
+  for (const e of etfs ?? []) typeMap.set((e as any).symbol, 'etf');
+  return typeMap;
+}
+
+function PortfolioAlerts({ symbolFilter, typeFilter }: { symbolFilter: string; typeFilter: InstrumentFilter }) {
   const { data: portfolio } = trpc.portfolio.get.useQuery(undefined, { staleTime: 60_000 });
   const { data: scan } = trpc.opportunities.scan.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const typeMap = useInstrumentTypeMap();
 
   if (!portfolio || !scan) return null;
 
@@ -222,9 +258,10 @@ function PortfolioAlerts({ symbolFilter }: { symbolFilter: string }) {
   const positionsWithSignals = (portfolio.positions ?? [])
     .filter((p: any) => p.quantity > 0)
     .filter((p: any) => !symbolFilter || p.symbol.toUpperCase().includes(symbolFilter.toUpperCase()))
+    .filter((p: any) => typeFilter === 'all' || typeMap.get(p.symbol) === typeFilter)
     .map((p: any) => {
       const opp = oppMap.get(p.symbol);
-      return { ...p, opp };
+      return { ...p, opp, kind: typeMap.get(p.symbol) };
     })
     .sort((a: any, b: any) => {
       // Prioridad: SELL primero, luego los que tienen conflictos/timing
@@ -262,6 +299,7 @@ function PortfolioAlerts({ symbolFilter }: { symbolFilter: string }) {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-mono font-semibold">{p.symbol}</span>
+                    <InstrumentBadge kind={p.kind} />
                     <Badge className={`text-[9px] h-4 ${act.bg} ${act.text}`}>{act.label}</Badge>
                     {opp?.opportunityScore != null && (
                       <span className="text-[10px] font-mono text-muted-foreground">{opp.opportunityScore}</span>
@@ -307,10 +345,11 @@ function PortfolioAlerts({ symbolFilter }: { symbolFilter: string }) {
   );
 }
 
-function ActiveAlerts({ symbolFilter }: { symbolFilter: string }) {
+function ActiveAlerts({ symbolFilter, typeFilter }: { symbolFilter: string; typeFilter: InstrumentFilter }) {
   const { data: scan, isLoading } = trpc.opportunities.scan.useQuery(undefined, {
     staleTime: 5 * 60_000,
   });
+  const typeMap = useInstrumentTypeMap();
 
   if (isLoading) {
     return (
@@ -340,20 +379,36 @@ function ActiveAlerts({ symbolFilter }: { symbolFilter: string }) {
   }
 
   const allOpportunities = scan?.opportunities ?? [];
-  const opportunities = symbolFilter
-    ? allOpportunities.filter(o => o.symbol.toUpperCase().includes(symbolFilter.toUpperCase()))
-    : allOpportunities;
+  const opportunities = allOpportunities
+    .filter(o => !symbolFilter || o.symbol.toUpperCase().includes(symbolFilter.toUpperCase()))
+    .filter(o => typeFilter === 'all' || typeMap.get(o.symbol) === typeFilter);
 
   // Filtrar oportunidades con timing activo O divergencias semanales
   // Incluye WATCH con timing activo — son las señales de anticipación más valiosas
-  const activeAlerts = opportunities.filter(o => {
-    const tv = (o as any).timingView;
-    const divs = (o as any).divergences as Array<{ timeframe: string }> | undefined;
-    const hasWeeklyDivergence = divs?.some(d => d.timeframe === 'weekly');
-    const hasActiveTiming = tv && tv.triggers.length > 0 && (tv.timing === 'now' || tv.timing === 'soon');
-    return (hasActiveTiming || hasWeeklyDivergence)
-      && (o.action === 'BUY' || o.action === 'SELL' || o.action === 'WATCH');
-  });
+  // Orden:
+  //   1. action: BUY (comprable) → SELL (vender) → WATCH (observar)
+  //   2. timing: AHORA (now) → PRONTO (soon) → resto
+  //   3. opportunityScore desc
+  const ACTION_PRIORITY: Record<string, number> = { BUY: 0, SELL: 1, WATCH: 2, HOLD: 3 };
+  const TIMING_PRIORITY: Record<string, number> = { now: 0, soon: 1 };
+  const activeAlerts = opportunities
+    .filter(o => {
+      const tv = (o as any).timingView;
+      const divs = (o as any).divergences as Array<{ timeframe: string }> | undefined;
+      const hasWeeklyDivergence = divs?.some(d => d.timeframe === 'weekly');
+      const hasActiveTiming = tv && tv.triggers.length > 0 && (tv.timing === 'now' || tv.timing === 'soon');
+      return (hasActiveTiming || hasWeeklyDivergence)
+        && (o.action === 'BUY' || o.action === 'SELL' || o.action === 'WATCH');
+    })
+    .sort((a, b) => {
+      const pa = ACTION_PRIORITY[a.action] ?? 99;
+      const pb = ACTION_PRIORITY[b.action] ?? 99;
+      if (pa !== pb) return pa - pb;
+      const ta = TIMING_PRIORITY[(a as any).timingView?.timing] ?? 99;
+      const tb = TIMING_PRIORITY[(b as any).timingView?.timing] ?? 99;
+      if (ta !== tb) return ta - tb;
+      return b.opportunityScore - a.opportunityScore;
+    });
 
   // Top BUY/SELL/WATCH-con-timing del día
   const topSignals = opportunities
@@ -388,8 +443,10 @@ function ActiveAlerts({ symbolFilter }: { symbolFilter: string }) {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-mono font-semibold">{o.symbol}</span>
+                        <InstrumentBadge kind={typeMap.get(o.symbol)} />
                         <Badge className={`text-[10px] ${act.bg} ${act.text}`}>{act.label}</Badge>
                         <span className="text-[10px] font-mono text-muted-foreground">${o.currentPrice.toFixed(2)}</span>
+                        <WatchlistButton symbol={o.symbol} />
                       </div>
                       <Badge className={`text-[8px] ${
                         tv?.timing === 'now' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'
@@ -446,6 +503,7 @@ function ActiveAlerts({ symbolFilter }: { symbolFilter: string }) {
                   <div key={o.symbol} className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-muted/30">
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] font-mono font-semibold">{o.symbol}</span>
+                      <InstrumentBadge kind={typeMap.get(o.symbol)} />
                       <Badge className={`text-[9px] h-4 ${act.bg} ${act.text}`}>{act.label}</Badge>
                       <span className="text-[10px] text-muted-foreground">{o.confidence}% conf.</span>
                     </div>
@@ -485,7 +543,40 @@ function MarketDigestPanel() {
   const { run, isRunning } = usePipeline();
   const { selectMode, modal } = useAiModeModal();
 
-  if (!digest) return null;
+  if (!digest) {
+    return (
+      <>
+        <Card size="sm" className="border-l-4 border-l-yellow-500">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Market Digest</span>
+              <Badge className="text-[9px] bg-yellow-500/20 text-yellow-400">SIN DATOS</Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Aún no se generó el digest del día. Ejecutá la síntesis para obtener overnight summary, top oportunidades, lo que sí/no haría, y warnings.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-[10px] px-3 shrink-0 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10"
+                onClick={async () => {
+                  const mode = await selectMode();
+                  run(false, undefined, mode);
+                }}
+                disabled={isRunning}
+              >
+                {isRunning ? 'Ejecutando...' : 'Generar reporte'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+        {modal}
+      </>
+    );
+  }
 
   const mood = moodConfig[digest.marketMood] ?? moodConfig.mixed;
 
@@ -601,6 +692,7 @@ function MarketDigestPanel() {
 
 export function DailySummary() {
   const [symbolFilter, setSymbolFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState<InstrumentFilter>('all');
   const today = new Date().toISOString().slice(0, 10);
   const [selectedDate, setSelectedDate] = useState(today);
   const isToday = selectedDate === today;
@@ -615,6 +707,12 @@ export function DailySummary() {
 
   return (
     <div id="daily-summary-print" className="p-4 max-w-4xl mx-auto space-y-4">
+      <TabInfo>
+        <InfoSection title="Qué muestra">Síntesis diaria del mercado generada por el pipeline de inteligencia: noticias, sectores impactados y reporte macro.</InfoSection>
+        <InfoSection title="Flujo del pipeline">1) Descarga noticias de fuentes configuradas → 2) LLM resume cada fuente → 3) LLM sintetiza todo el día → 4) Analiza impacto por sector (bullish/bearish/mixto) → 5) Genera reporte de mercado con contexto macro.</InfoSection>
+        <InfoSection title="Indicadores">Sentimiento global (bullish · bearish · neutral) · Sectores afectados con convicción (alta/media/baja) · Tensiones identificadas · Catalizadores del día · Alertas de portfolio.</InfoSection>
+        <InfoSection title="Accuracy & Tracking">Panel de accuracy trackea si las predicciones del LLM se materializaron. Historial de días anteriores disponible via selector de fecha.</InfoSection>
+      </TabInfo>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-foreground">Resumen del dia</h2>
@@ -643,10 +741,20 @@ export function DailySummary() {
             onChange={(e) => setSymbolFilter(e.target.value.toUpperCase())}
             className="h-7 w-32 rounded border border-border/50 bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />
+          <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as InstrumentFilter)}>
+            <SelectTrigger className="h-7 w-32 text-xs">
+              <SelectValue placeholder="Tipo" />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(INSTRUMENT_LABELS) as InstrumentFilter[]).map((k) => (
+                <SelectItem key={k} value={k} className="text-xs">{INSTRUMENT_LABELS[k]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button
             size="sm"
             variant="outline"
-            onClick={() => window.print()}
+            onClick={() => printWithTitle('resumen', selectedDate)}
             className="h-7 text-[10px] px-2 gap-1"
             title="Imprimir / Guardar como PDF"
           >
@@ -663,8 +771,8 @@ export function DailySummary() {
       {isToday && <SectorImpactsSection />}
       <MarketReportSection date={selectedDate} />
       {isToday && <MarketDigestPanel />}
-      <PortfolioAlerts symbolFilter={symbolFilter} />
-      <ActiveAlerts symbolFilter={symbolFilter} />
+      <PortfolioAlerts symbolFilter={symbolFilter} typeFilter={typeFilter} />
+      <ActiveAlerts symbolFilter={symbolFilter} typeFilter={typeFilter} />
       <AccuracyPanel />
       <TrackingHistory />
     </div>
