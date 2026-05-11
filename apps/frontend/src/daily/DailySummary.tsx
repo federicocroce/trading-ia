@@ -17,6 +17,10 @@ import {
 } from '@/shared/instrumentType';
 import { MarketReportView } from './MarketReportView';
 import { AccuracyPanel } from './AccuracyPanel';
+import { RadarSummaryWidget } from './widgets/RadarSummaryWidget';
+import { SectorRotationWidget } from './widgets/SectorRotationWidget';
+import { EarningsWidget } from './widgets/EarningsWidget';
+import { TopNewsWidget } from './widgets/TopNewsWidget';
 import { usePipeline } from '../pipeline/usePipeline';
 import { usePrintSection } from '@/shared/usePrintSection';
 import { useAiModeModal } from '@/shared/AiModeModal';
@@ -708,10 +712,26 @@ export function DailySummary() {
   return (
     <div id="daily-summary-print" className="p-4 max-w-4xl mx-auto space-y-4">
       <TabInfo>
-        <InfoSection title="Qué muestra">Síntesis diaria del mercado generada por el pipeline de inteligencia: noticias, sectores impactados y reporte macro.</InfoSection>
-        <InfoSection title="Flujo del pipeline">1) Descarga noticias de fuentes configuradas → 2) LLM resume cada fuente → 3) LLM sintetiza todo el día → 4) Analiza impacto por sector (bullish/bearish/mixto) → 5) Genera reporte de mercado con contexto macro.</InfoSection>
-        <InfoSection title="Indicadores">Sentimiento global (bullish · bearish · neutral) · Sectores afectados con convicción (alta/media/baja) · Tensiones identificadas · Catalizadores del día · Alertas de portfolio.</InfoSection>
-        <InfoSection title="Accuracy & Tracking">Panel de accuracy trackea si las predicciones del LLM se materializaron. Historial de días anteriores disponible via selector de fecha.</InfoSection>
+        <InfoSection title="Qué muestra">
+          Vista única que centraliza TODO el panorama del mercado: digest del día (wouldDo/wouldNotDo), top oportunidades, alertas de portfolio, sectores impactados por noticias, rotación sectorial vs SPY, radar de noticias con impactos positivos/negativos por ticker y sector, top noticias del día con triangulación, earnings próximos, eventos macro, y accuracy del sistema. Diseñado como landing principal — todo lo que necesitás para entender el mercado en una sola pantalla.
+        </InfoSection>
+        <InfoSection title="Orden de lectura sugerido">
+          1) <strong>Market Digest</strong>: mood + qué pasó + wouldDo/wouldNotDo concreto.<br />
+          2) <strong>Alertas de portfolio</strong>: posiciones con señales urgentes.<br />
+          3) <strong>Sectores impactados</strong>: convicción + tensiones + catalizadores.<br />
+          4) <strong>Radar de noticias</strong>: top tickers/sectores positivos/negativos + exposición de tu portfolio a negativos.<br />
+          5) <strong>Rotación sectorial</strong>: líderes vs rezagados vs SPY (1m y 3m).<br />
+          6) <strong>Top noticias</strong>: las 6 más relevantes con confianza de triangulación.<br />
+          7) <strong>Earnings</strong>: reportes próximos 7 días con consenso analistas.<br />
+          8) <strong>Reporte completo</strong>: themes, scenarios, alternatives.<br />
+          9) <strong>Accuracy</strong>: tracking de señales pasadas.
+        </InfoSection>
+        <InfoSection title="Datos en vivo vs históricos">
+          Usá el selector de fecha para volver a días anteriores (modo histórico, sin widgets dinámicos). Por defecto muestra HOY con todos los widgets refrescándose cada 5 minutos.
+        </InfoSection>
+        <InfoSection title="Cuándo regenerar">
+          El botón "Ejecutar pipeline" en el header dispara la regeneración completa (~3-5 min). Hacelo si la última corrida es de hace varias horas o si pasaron eventos macro relevantes.
+        </InfoSection>
       </TabInfo>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -768,11 +788,32 @@ export function DailySummary() {
         </div>
       </div>
 
-      {isToday && <SectorImpactsSection />}
-      <MarketReportSection date={selectedDate} />
+      {/* 1. Digest del día — mood + wouldDo/wouldNotDo (lo más importante primero) */}
       {isToday && <MarketDigestPanel />}
+
+      {/* 2. Alertas de portfolio urgentes */}
       <PortfolioAlerts symbolFilter={symbolFilter} typeFilter={typeFilter} />
       <ActiveAlerts symbolFilter={symbolFilter} typeFilter={typeFilter} />
+
+      {/* 3. Sectores impactados por noticias (convicción + catalizadores) */}
+      {isToday && <SectorImpactsSection />}
+
+      {/* 4. Radar de noticias agregado (top sectores/tickers + portfolio exposure) */}
+      {isToday && <RadarSummaryWidget />}
+
+      {/* 5. Rotación sectorial (líderes vs rezagados vs SPY) */}
+      {isToday && <SectorRotationWidget />}
+
+      {/* 6. Top noticias del día con triangulación */}
+      {isToday && <TopNewsWidget />}
+
+      {/* 7. Earnings próximos 7 días */}
+      {isToday && <EarningsWidget />}
+
+      {/* 8. Reporte completo: themes, scenarios, alternatives */}
+      <MarketReportSection date={selectedDate} />
+
+      {/* 9. Accuracy + tracking histórico de señales */}
       <AccuracyPanel />
       <TrackingHistory />
     </div>
