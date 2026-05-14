@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { trpc } from '@/shared/trpc';
+import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
@@ -37,6 +38,12 @@ export function PipelineConfig() {
   const [newThemeKeywords, setNewThemeKeywords] = useState('');
 
   return (
+    <>
+    <TabInfo>
+      <InfoSection title="Qué configura">El pipeline automático de análisis de noticias e inteligencia de mercado que alimenta las tabs Resumen, Noticias y Oportunidades.</InfoSection>
+      <InfoSection title="Discovery Queries">Queries de búsqueda web usadas en Stage 1 del pipeline para encontrar noticias relevantes. Se pueden activar/desactivar individualmente. Más queries = más cobertura pero más tiempo de procesamiento.</InfoSection>
+      <InfoSection title="Flujo del pipeline">Stage 1: búsqueda web con las queries activas → Stage 2: LLM resume cada resultado → Stage 3: síntesis global + análisis sectorial → Stage 4: reporte de mercado. El pipeline corre automáticamente según schedule o manualmente desde el botón del header.</InfoSection>
+    </TabInfo>
     <div className="space-y-6 p-4">
       <Card>
         <CardHeader>
@@ -152,5 +159,6 @@ export function PipelineConfig() {
         </CardContent>
       </Card>
     </div>
+    </>
   );
 }

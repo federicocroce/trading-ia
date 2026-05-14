@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { trpc } from '@/shared/trpc';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { History, Play } from 'lucide-react';
 import { getStaleness } from '@/hooks/useDataStaleness';
 import { PipelineHistoryModal } from '@/pipeline/PipelineHistoryModal';
 import { PipelineStatusToast } from '@/pipeline/PipelineStatusToast';
@@ -84,22 +87,14 @@ interface StagePillProps {
   light: StageLight;
   timestamp: number | null;
   detail?: string;
-  onForceRun: () => void;
-  onOpenModal: () => void;
-  disabled?: boolean;
 }
 
-function StagePill({ label, light, timestamp, detail, onForceRun, onOpenModal, disabled }: StagePillProps) {
+function StagePill({ label, light, timestamp, detail }: StagePillProps) {
   const s = getStaleness(timestamp);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          className={`flex items-center gap-1 transition-opacity ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:opacity-80'}`}
-          onClick={disabled ? undefined : onForceRun}
-          onContextMenu={(e) => { e.preventDefault(); if (!disabled) onOpenModal(); }}
-          disabled={disabled}
-        >
+        <div className="flex items-center gap-1 cursor-help">
           <div className={`w-1.5 h-1.5 rounded-full ${STAGE_DOT[light]}`} />
           <span className={`text-[10px] font-mono ${STAGE_TEXT[light]}`}>
             {label}
@@ -112,13 +107,12 @@ function StagePill({ label, light, timestamp, detail, onForceRun, onOpenModal, d
               {s.label}
             </span>
           )}
-        </button>
+        </div>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs space-y-1">
         <p className="font-semibold text-xs">{label}</p>
         {detail && <p className="text-[10px] text-muted-foreground">{detail}</p>}
-        <p className="text-[10px] text-blue-400">Click → re-ejecutar este paso (fuerza override de BD)</p>
-        <p className="text-[10px] text-muted-foreground">Click derecho → ver historial</p>
+        <p className="text-[10px] text-muted-foreground">Para re-ejecutar este paso usá el botón "Re-ejecutar paso" →</p>
         {light === 'failed' && <p className="text-[10px] text-red-400">Último intento falló</p>}
         {light === 'pending' && <p className="text-[10px] text-yellow-400">No corrió hoy</p>}
         {light === 'ok' && timestamp && <p className="text-[10px] text-green-400">OK — {getStaleness(timestamp).label}</p>}
@@ -181,6 +175,7 @@ export function InfraBar() {
 
   const { todayRun, history, isRunning, run, rerunStage } = usePipeline();
   const { selectMode, modal } = useAiModeModal();
+  const [stageToRerun, setStageToRerun] = useState<'news' | 'fundamentals' | 'analysis' | 'report' | ''>('');
 
   const services: ServiceState[] = (health?.services as ServiceState[]) ?? [];
   const hasServiceProblems = services.some((s) => s.status !== 'ok');
@@ -216,7 +211,7 @@ export function InfraBar() {
   return (
     <>
       <div
-        className={`h-6 flex items-center px-3 gap-3 border-b text-[10px] shrink-0 transition-colors ${
+        className={`h-8 flex items-center px-3 gap-3 border-b text-[10px] shrink-0 transition-colors ${
           hasServiceProblems ? 'bg-red-500/5 border-red-500/20' : 'bg-background border-border'
         }`}
         role="status"
@@ -242,43 +237,31 @@ export function InfraBar() {
         {/* Separador */}
         <span className="text-border shrink-0">|</span>
 
-        {/* Pipeline stages — click directo fuerza re-ejecución del stage */}
+        {/* Pipeline stages — solo informativos. Re-ejecución vía botón explicito → */}
         <div className="flex items-center gap-3">
           <StagePill
             label="Noticias"
             light={stageLight('news', timestamps?.news ?? null)}
             timestamp={timestamps?.news ?? null}
             detail={newsDetail}
-            onForceRun={async () => { const mode = await selectMode(); rerunStage('news', mode); }}
-            onOpenModal={openModal}
-            disabled={isRunning}
           />
           <StagePill
             label="Fundamentales"
             light={stageLight('fundamentals', timestamps?.fundamentals ?? null)}
             timestamp={timestamps?.fundamentals ?? null}
             detail={fundamentalsDetail ?? 'Datos fundamentales de Yahoo Finance'}
-            onForceRun={async () => { const mode = await selectMode(); rerunStage('fundamentals', mode); }}
-            onOpenModal={openModal}
-            disabled={isRunning}
           />
           <StagePill
             label="Análisis"
             light={stageLight('analysis', timestamps?.analysis ?? null)}
             timestamp={timestamps?.analysis ?? null}
             detail={analysisDetail}
-            onForceRun={async () => { const mode = await selectMode(); rerunStage('analysis', mode); }}
-            onOpenModal={openModal}
-            disabled={isRunning}
           />
           <StagePill
             label="Reporte"
             light={stageLight('report', reportTs)}
             timestamp={reportTs}
             detail={reportDetail}
-            onForceRun={async () => { const mode = await selectMode(); rerunStage('report', mode); }}
-            onOpenModal={openModal}
-            disabled={isRunning}
           />
         </div>
 
@@ -287,11 +270,57 @@ export function InfraBar() {
 
         {/* Pipeline corriendo — indicador animado */}
         {isRunning && (
-          <div className="flex items-center gap-1.5 border-l border-border pl-2 ml-auto">
+          <div className="flex items-center gap-1.5 border-l border-border pl-2">
             <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
             <span className="text-[10px] text-blue-400">Pipeline ejecutando...</span>
           </div>
         )}
+
+        {/* Spacer empuja botones a la derecha */}
+        <div className="ml-auto flex items-center gap-2">
+          {/* Re-ejecutar paso puntual con dropdown */}
+          <Select
+            value={stageToRerun}
+            onValueChange={async (v) => {
+              if (!v) return;
+              setStageToRerun(v as typeof stageToRerun);
+              const stage = v as 'news' | 'fundamentals' | 'analysis' | 'report';
+              const mode = await selectMode();
+              rerunStage(stage, mode);
+              setStageToRerun('');
+            }}
+            disabled={isRunning}
+          >
+            <SelectTrigger className="h-5 text-[10px] px-2 gap-1 bg-card border-border/60 w-auto min-w-32">
+              <Play className="h-2.5 w-2.5 text-blue-400" />
+              <SelectValue placeholder="Re-ejecutar paso" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="news" className="text-xs">Noticias</SelectItem>
+              <SelectItem value="fundamentals" className="text-xs">Fundamentales</SelectItem>
+              <SelectItem value="analysis" className="text-xs">Análisis</SelectItem>
+              <SelectItem value="report" className="text-xs">Reporte</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Historial */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={openModal}
+                variant="outline"
+                size="sm"
+                className="h-5 px-2 text-[10px] gap-1 border-border/60"
+              >
+                <History className="h-2.5 w-2.5" />
+                Historial
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="text-xs">Ver historial de runs del pipeline</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       <PipelineHistoryModal

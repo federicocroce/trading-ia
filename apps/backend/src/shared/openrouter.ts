@@ -14,14 +14,12 @@ function getClient(): OpenAI {
 }
 
 const OPENROUTER_FREE_MODELS = [
-  'deepseek/deepseek-r1:free',
-  'deepseek/deepseek-r1-distill-llama-70b:free',
   'qwen/qwen3-235b-a22b:free',
-  'nousresearch/hermes-3-llama-3.1-405b:free',
   'qwen/qwen3-30b-a3b:free',
-  'nvidia/nemotron-3-super-120b-a12b:free',
   'meta-llama/llama-3.3-70b-instruct:free',
+  'meta-llama/llama-4-scout:free',
   'google/gemma-4-31b-it:free',
+  'microsoft/phi-4-reasoning:free',
 ] as const;
 
 export async function askOpenRouter(
@@ -58,8 +56,10 @@ export async function askOpenRouter(
     } catch (err) {
       const msg = (err as Error).message || '';
       const is429 = msg.includes('429') || msg.includes('rate_limit');
+      const is404 = msg.includes('404') || msg.includes('No endpoints found') || msg.includes('not found');
       const shouldRotate =
         is429 ||
+        is404 ||
         msg.includes('decommissioned') ||
         msg.includes('no longer supported') ||
         msg.includes('overloaded') ||
@@ -68,6 +68,7 @@ export async function askOpenRouter(
       console.warn(`[openrouter] ${model} failed: ${msg.slice(0, 120)}`);
 
       if (is429) markExhausted('openrouter', model, minuteResetAt());
+      if (is404) markExhausted('openrouter', model, new Date(Date.now() + 24 * 60 * 60 * 1000));
 
       lastError = err as Error;
       if (!shouldRotate) throw err;

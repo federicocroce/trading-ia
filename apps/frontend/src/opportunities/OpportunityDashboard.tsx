@@ -1,10 +1,13 @@
 import { useState } from 'react';
 import { usePrintSection } from '@/shared/usePrintSection';
+import { printWithTitle } from '@/shared/printWithTitle';
+import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/shared/trpc';
 import { OpportunityCard } from './OpportunityCard';
+import { AntiHypeRejectionsPanel } from './AntiHypeRejectionsPanel';
 import { SectorFilter } from './SectorFilter';
 import { IntelligenceReportSheet } from '@/intelligence/IntelligenceReportSheet';
 import { usePipeline } from '@/pipeline/usePipeline';
@@ -71,7 +74,9 @@ export function OpportunityDashboard() {
   const [selectedSectors, setSelectedSectors] = useState<OpportunitySector[]>([]);
   const [actionFilter, setActionFilter] = useState<'BUY' | 'SELL' | 'WATCH' | null>(null);
   const [portfolioFilter, setPortfolioFilter] = useState(false);
+  const [allExpanded, setAllExpanded] = useState(false);
   const [symbolFilter, setSymbolFilter] = useState('');
+  const [instrumentFilter, setInstrumentFilter] = useState<string | null>(null);
   usePrintSection('opportunity-dashboard-print');
   const utils = trpc.useUtils();
 
@@ -139,6 +144,13 @@ export function OpportunityDashboard() {
     inPortfolio: boolean;
     portfolioQuantity?: number;
     timestamp: number;
+    classification?: {
+      instrumentType: string;
+      sector: string;
+      industry: string;
+      market: string;
+      name: string;
+    };
   }>;
 
   const sectorSummaries = (data.sectorSummary ?? []) as SectorSummary[];
@@ -164,6 +176,26 @@ export function OpportunityDashboard() {
 
   return (
     <div id="opportunity-dashboard-print" className="p-6 space-y-4">
+      <TabInfo>
+        <InfoSection title="Qué muestra">
+          Scanner de oportunidades con drilldown completo por activo. Cada card muestra la acción final (BUY/SELL/HOLD/WATCH), el score compuesto, la cadena de decisión que llevó a esa acción, los 4 ejes de análisis con drivers concretos, conflictos detectados, ajuste macro y niveles de trade.
+        </InfoSection>
+        <InfoSection title="Score compuesto — 4 ejes">
+          <strong>Técnico</strong> (RSI, MACD, SMA, divergencias) · <strong>Fundamental</strong> (P/E, growth, ROE, deuda) · <strong>Sentimiento</strong> (noticias triangulación + radar) · <strong>Evidencia</strong> (PEAD, insider buying, unusual options, sector momentum). Pesos por horizonte: short-term prioriza técnico+sentimiento+evidencia, medium-term prioriza fundamental+técnico+evidencia.
+        </InfoSection>
+        <InfoSection title="Cadena de decisión trazable">
+          Cada card muestra <strong>cómo</strong> se llegó a la acción final: por ejemplo <code>algo:BUY(72) → smart:WATCH (div bajista) → llm:BUY</code>. Capas: <strong>algo</strong> (score puro + scoreToAction) → <strong>veto por eje</strong> (sent crítico, fund muy débil) → <strong>smart override</strong> (divergencias técnicas anticipan reversión) → <strong>LLM</strong> (Stage 5b con thesis). La capa que mandó al final se indica como "fuente".
+        </InfoSection>
+        <InfoSection title="Badges visuales">
+          🚫 <strong>Veto</strong>: un eje extremo cambió la acción (sent &lt; -60, fund &lt; -40 + tech débil, etc).<br />
+          🌐 <strong>Macro</strong>: ajuste -15..+15 al score por causalChains del día.<br />
+          ⚡ <strong>Cross-conflict</strong>: disonancia entre ejes (tech bullish vs fund débil = value trap, smart money antes del tape, hype sin confirmación, etc).<br />
+          📡 <strong>Radar</strong>: bonus/penalty de sentimiento por noticias del radar.
+        </InfoSection>
+        <InfoSection title="Filtros">
+          Por acción (BUY/SELL/WATCH), por sector, por tipo de instrumento (Acciones/ETFs/Crypto/Bonos), solo portfolio. El badge verde en la tab = cantidad de BUYs activos. Score sectorial = promedio del sector.
+        </InfoSection>
+      </TabInfo>
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
@@ -247,7 +279,14 @@ export function OpportunityDashboard() {
             className="h-7 w-32 rounded border border-border/50 bg-background px-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
           />
           <button
-            onClick={() => window.print()}
+            onClick={() => setAllExpanded((v) => !v)}
+            title={allExpanded ? 'Colapsar todas' : 'Expandir todas'}
+            className="h-7 px-2 rounded border border-border/50 text-[10px] text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+          >
+            {allExpanded ? '▲ Colapsar' : '▼ Expandir'}
+          </button>
+          <button
+            onClick={() => printWithTitle('oportunidades', selectedDate)}
             title="Imprimir / Guardar como PDF"
             className="h-7 px-2 rounded border border-border/50 text-[10px] text-muted-foreground hover:text-foreground hover:border-border transition-colors flex items-center gap-1"
           >
@@ -298,6 +337,24 @@ export function OpportunityDashboard() {
               {inPortfolioCount} en portfolio
             </Badge>
           )}
+          <div className="flex gap-1 flex-wrap mt-1">
+            {[
+              { label: 'Acciones', value: 'accion' },
+              { label: 'ETFs', value: 'etf' },
+              { label: 'Crypto', value: 'crypto' },
+              { label: 'Bonos', value: 'bono' },
+              { label: 'Commodities', value: 'commodity' },
+            ].map(({ label, value }) => (
+              <Badge
+                key={value}
+                variant="outline"
+                className={`text-[10px] cursor-pointer transition-all ${instrumentFilter === value ? 'bg-blue-500/40 text-blue-300 ring-1 ring-blue-500' : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'}`}
+                onClick={() => setInstrumentFilter(instrumentFilter === value ? null : value)}
+              >
+                {label}
+              </Badge>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -353,6 +410,11 @@ export function OpportunityDashboard() {
           filtered = filtered.filter((o) => o.inPortfolio);
         }
 
+        // Instrument type filter
+        if (instrumentFilter !== null) {
+          filtered = filtered.filter((o) => o.classification?.instrumentType === instrumentFilter);
+        }
+
         return filtered.length === 0 ? (
           <div className="text-muted-foreground text-sm py-4">
             No se encontraron oportunidades con los filtros seleccionados.
@@ -360,11 +422,14 @@ export function OpportunityDashboard() {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {filtered.map((o) => (
-              <OpportunityCard key={o.symbol} opportunity={o} />
+              <OpportunityCard key={o.symbol} opportunity={o} forceExpanded={allExpanded} />
             ))}
           </div>
         );
       })()}
+
+      {/* Anti-hype rejections debug panel */}
+      <AntiHypeRejectionsPanel />
 
       {/* Footer */}
       <div className="flex items-center justify-between text-[10px] text-muted-foreground">

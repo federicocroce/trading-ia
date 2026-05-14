@@ -8,8 +8,8 @@ import type { StrategyConfig } from '@trading/shared';
 const PRESETS: Record<string, StrategyConfig> = {
   base: {
     name: 'Base',
-    shortTermWeights: { sentiment: 0.40, technical: 0.40, fundamental: 0.20 },
-    mediumTermWeights: { sentiment: 0.20, technical: 0.35, fundamental: 0.45 },
+    shortTermWeights: { technical: 0.35, sentiment: 0.30, evidence: 0.20, fundamental: 0.15 },
+    mediumTermWeights: { fundamental: 0.35, technical: 0.30, evidence: 0.20, sentiment: 0.15 },
     buyThreshold: 62,
     sellThreshold: 52,
     stopLossPercent: 8,
@@ -17,8 +17,8 @@ const PRESETS: Record<string, StrategyConfig> = {
   },
   momentum: {
     name: 'Momentum',
-    shortTermWeights: { sentiment: 0.35, technical: 0.55, fundamental: 0.10 },
-    mediumTermWeights: { sentiment: 0.20, technical: 0.55, fundamental: 0.25 },
+    shortTermWeights: { technical: 0.50, sentiment: 0.25, evidence: 0.15, fundamental: 0.10 },
+    mediumTermWeights: { technical: 0.50, fundamental: 0.25, evidence: 0.15, sentiment: 0.10 },
     buyThreshold: 65,
     sellThreshold: 50,
     stopLossPercent: 6,
@@ -26,8 +26,8 @@ const PRESETS: Record<string, StrategyConfig> = {
   },
   fundamental: {
     name: 'Fundamental',
-    shortTermWeights: { sentiment: 0.20, technical: 0.20, fundamental: 0.60 },
-    mediumTermWeights: { sentiment: 0.10, technical: 0.25, fundamental: 0.65 },
+    shortTermWeights: { fundamental: 0.50, evidence: 0.25, technical: 0.15, sentiment: 0.10 },
+    mediumTermWeights: { fundamental: 0.55, evidence: 0.20, technical: 0.15, sentiment: 0.10 },
     buyThreshold: 60,
     sellThreshold: 48,
     stopLossPercent: 10,
@@ -35,8 +35,8 @@ const PRESETS: Record<string, StrategyConfig> = {
   },
   balanced: {
     name: 'Balanceado',
-    shortTermWeights: { sentiment: 0.33, technical: 0.34, fundamental: 0.33 },
-    mediumTermWeights: { sentiment: 0.33, technical: 0.34, fundamental: 0.33 },
+    shortTermWeights: { technical: 0.25, fundamental: 0.25, sentiment: 0.25, evidence: 0.25 },
+    mediumTermWeights: { technical: 0.25, fundamental: 0.25, sentiment: 0.25, evidence: 0.25 },
     buyThreshold: 62,
     sellThreshold: 52,
     stopLossPercent: 8,

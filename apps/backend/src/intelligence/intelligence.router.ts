@@ -28,6 +28,7 @@ import {
 } from './config.repository.js';
 import { getStageArtifactsByRun, getUnifiedBatchesByRun } from './pipeline-artifacts.repository.js';
 import { getAccuracyReport } from './accuracy.service.js';
+import { getEarningsContext } from './earnings-calendar.service.js';
 import {
   getPendingProposal,
   getWeightHistory,
@@ -52,6 +53,13 @@ export const intelligenceRouter = router({
   reportDates: publicProcedure.query(() => {
     return getReportDates();
   }),
+
+  earningsCalendar: publicProcedure
+    .input(z.object({ daysAhead: z.number().int().min(1).max(30).default(7) }).optional())
+    .query(async ({ input }) => {
+      const ctx = await getEarningsContext(input?.daysAhead ?? 7);
+      return ctx.upcomingEarnings;
+    }),
 
   reportsByDate: publicProcedure
     .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))

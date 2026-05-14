@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WatchlistButton } from '@/shared/WatchlistButton';
 import { ReturnEstimateBar } from './ReturnEstimateBar';
 
 type TASignal = 'bullish' | 'bearish' | 'neutral';
@@ -139,6 +140,56 @@ interface Opportunity {
   horizonScores?: { shortTerm: number; mediumTerm: number };
   passedAntiHype?: boolean;
   entryScore?: number;
+  radarInfluence?: {
+    bonus: number;
+    sources: string[];
+    conflict?: string;
+  };
+  evidenceInfluence?: {
+    score: number;        // -100..+100
+    drivers: string[];    // razones humanas
+    conviction: 'high' | 'medium' | 'low' | 'none';
+    activeSignals: number;
+    hasData: boolean;
+  };
+  verdict?: {
+    finalAction: SignalAction;
+    layers: {
+      algoAction: SignalAction;
+      algoScore: number;
+      smartAction: SignalAction;
+      smartReason?: string;
+      llmAction?: SignalAction;
+      llmReason?: string;
+    };
+    trace: string[];
+    source: 'algo' | 'smart' | 'llm';
+  };
+  axisVeto?: {
+    type: string;
+    axis: 'sentiment' | 'fundamental' | 'technical' | 'evidence';
+    value: number;
+    threshold: number;
+    forcedAction: SignalAction;
+    reason: string;
+  };
+  macroAdjustment?: {
+    delta: number;
+    drivers: Array<{
+      eventId: string;
+      event: string;
+      category: string;
+      direction: 'positive' | 'negative';
+      impact: 'direct' | 'indirect';
+    }>;
+  };
+  crossConflicts?: Array<{
+    type: string;
+    severity: 'high' | 'medium' | 'low';
+    axes: Array<'technical' | 'fundamental' | 'sentiment' | 'evidence'>;
+    explanation: string;
+    suggestion: string;
+  }>;
 }
 
 const actionConfig: Record<SignalAction, { label: string; emoji: string; borderColor: string; bgClass: string; textClass: string; description: string }> = {
@@ -284,8 +335,9 @@ function OpportunityScoreBar({ label, value }: { label: string; value: number })
   );
 }
 
-export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
+export function OpportunityCard({ opportunity, forceExpanded = false }: { opportunity: Opportunity; forceExpanded?: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const isExpanded = expanded || forceExpanded;
   const cfg = actionConfig[opportunity.action] ?? actionConfig['WATCH'];
   const tl = opportunity.tradeLevels;
 
@@ -309,6 +361,7 @@ export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
             <span className="text-xs text-muted-foreground font-mono">
               ${opportunity.currentPrice.toFixed(2)}
             </span>
+            <WatchlistButton symbol={opportunity.symbol} />
           </div>
 
           {/* Scores: Señal + Entrada */}
@@ -438,6 +491,87 @@ export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
           </p>
         )}
 
+        {/* ── AXIS VETO BADGE ── */}
+        {opportunity.axisVeto && (
+          <div className="flex items-start gap-1.5 px-2 py-1 rounded border text-[10px] bg-red-500/10 text-red-400 border-red-500/30">
+            <span className="font-mono shrink-0">🚫</span>
+            <div className="flex-1 min-w-0">
+              <span className="font-semibold">
+                Veto {opportunity.axisVeto.axis} ({opportunity.axisVeto.value.toFixed(0)})
+              </span>
+              <div className="text-[9px] mt-0.5 opacity-90">{opportunity.axisVeto.reason}</div>
+            </div>
+          </div>
+        )}
+
+        {/* ── MACRO ADJUSTMENT BADGE ── */}
+        {opportunity.macroAdjustment && opportunity.macroAdjustment.delta !== 0 && (() => {
+          const ma = opportunity.macroAdjustment;
+          const isPositive = ma.delta > 0;
+          const colorCls = isPositive
+            ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+            : 'bg-orange-500/10 text-orange-400 border-orange-500/30';
+          return (
+            <div className={`flex items-start gap-1.5 px-2 py-1 rounded border text-[10px] ${colorCls}`}>
+              <span className="font-mono shrink-0">🌐</span>
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold">
+                  Macro {isPositive ? '+' : ''}{ma.delta} al score
+                </span>
+                <div className="text-[9px] mt-0.5 opacity-90">
+                  {ma.drivers.slice(0, 2).map(d => `${d.direction === 'positive' ? '+' : '−'}${d.event} (${d.impact})`).join(' · ')}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── CROSS-CONFLICT BADGES ── */}
+        {opportunity.crossConflicts && opportunity.crossConflicts.length > 0 && (
+          <div className="space-y-1">
+            {opportunity.crossConflicts.map((c, i) => {
+              const sevColor = c.severity === 'high' ? 'bg-red-500/10 text-red-300 border-red-500/30' :
+                              c.severity === 'medium' ? 'bg-orange-500/10 text-orange-300 border-orange-500/30' :
+                              'bg-yellow-500/10 text-yellow-300 border-yellow-500/30';
+              return (
+                <div key={i} className={`flex items-start gap-1.5 px-2 py-1 rounded border text-[10px] ${sevColor}`}>
+                  <span className="font-mono shrink-0">⚡</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-semibold uppercase">{c.severity}</span>
+                    <span className="ml-1 opacity-90">{c.explanation}</span>
+                    <div className="text-[9px] mt-0.5 italic opacity-80">→ {c.suggestion}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── RADAR INFLUENCE BADGE ── */}
+        {opportunity.radarInfluence && opportunity.radarInfluence.bonus !== 0 && (() => {
+          const ri = opportunity.radarInfluence;
+          const isPositive = ri.bonus > 0;
+          const colorCls = ri.conflict
+            ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
+            : isPositive
+              ? 'bg-trading-green/10 text-trading-green border-trading-green/30'
+              : 'bg-trading-red/10 text-trading-red border-trading-red/30';
+          return (
+            <div className={`flex items-start gap-1.5 px-2 py-1 rounded border text-[10px] ${colorCls}`}>
+              <span className="font-mono shrink-0">📡</span>
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold">
+                  Radar {isPositive ? '+' : ''}{ri.bonus.toFixed(1)}
+                </span>
+                <span className="ml-1.5 opacity-80">{ri.sources.join(' · ')}</span>
+                {ri.conflict && (
+                  <div className="text-[9px] mt-0.5 opacity-90">⚠ Conflicto: {ri.conflict}</div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* ── EXPAND TOGGLE ── */}
         <button
           onClick={() => setExpanded(!expanded)}
@@ -447,11 +581,11 @@ export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
         </button>
 
         {/* ── EXPANDED DETAIL ── */}
-        {expanded && (
+        {isExpanded && (
           <div className="space-y-3">
-            {/* Breakdown */}
+            {/* Breakdown 4 ejes: Técnico · Fundamental · Sentimiento · Evidencia */}
             {opportunity.breakdown && (
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                 {[
                   { label: 'Técnico', data: opportunity.breakdown.technical, sig: taSignalLabel[opportunity.breakdown.technical.signal] },
                   { label: 'Fundamental', data: opportunity.breakdown.fundamental, sig: faSignalLabel[opportunity.breakdown.fundamental.signal] },
@@ -468,6 +602,61 @@ export function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
                     </ul>
                   </div>
                 ))}
+
+                {/* Cuarto eje: Evidencia (PEAD, insider, options flow, sector momentum) */}
+                <div className="space-y-1">
+                  <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Evidencia</p>
+                  {opportunity.evidenceInfluence?.hasData ? (
+                    <>
+                      <p className="text-[10px] font-medium">
+                        {opportunity.evidenceInfluence.conviction === 'high' ? '🟢 Alta' :
+                         opportunity.evidenceInfluence.conviction === 'medium' ? '🟡 Media' :
+                         opportunity.evidenceInfluence.conviction === 'low' ? '🟠 Baja' : '⚪ Sin señal'}
+                        {' '}({opportunity.evidenceInfluence.activeSignals}/3)
+                      </p>
+                      <ScoreBar
+                        score={opportunity.evidenceInfluence.score}
+                        tooltip={`Evidence: ${opportunity.evidenceInfluence.drivers.join(' · ')}`}
+                      />
+                      <ul className="space-y-0.5">
+                        {opportunity.evidenceInfluence.drivers.slice(0, 3).map((d, i) => (
+                          <li key={i} className="text-[9px] text-muted-foreground truncate" title={d}>{d}</li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[10px] text-muted-foreground italic">Sin datos</p>
+                      <p className="text-[9px] text-muted-foreground">
+                        No hay PEAD, insider trades ni unusual options para este símbolo en la última corrida.
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Cadena de decisión: algo → smart → llm */}
+            {opportunity.verdict && (
+              <div className="rounded-md bg-muted/30 border border-border/50 px-2 py-1.5 space-y-1">
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Cadena de decisión</p>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {opportunity.verdict.trace.map((step, i) => (
+                    <span key={i} className="text-[9px] font-mono">
+                      {i > 0 && <span className="text-muted-foreground mx-1">→</span>}
+                      <span className={
+                        step.startsWith('algo:') ? 'text-blue-300' :
+                        step.startsWith('veto:') ? 'text-red-300' :
+                        step.startsWith('smart:') ? 'text-yellow-300' :
+                        step.startsWith('llm:') ? 'text-green-300' : 'text-foreground'
+                      }>{step}</span>
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[9px] text-muted-foreground">
+                  Veredicto final: <span className="text-foreground font-semibold">{opportunity.verdict.finalAction}</span>
+                  {' · '}fuente: <span className="text-foreground">{opportunity.verdict.source}</span>
+                </p>
               </div>
             )}
 

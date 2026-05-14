@@ -62,6 +62,33 @@ export function getStoredDailyReport(): DailyReportData | null {
   }
 }
 
+export function getStoredDailyReportByDate(date: string): DailyReportData | null {
+  const row = getDailyReportByDate(date);
+  if (!row) return null;
+
+  try {
+    return {
+      reportDate: row.reportDate,
+      reportType: row.reportType as 'morning' | 'on-demand',
+      generatedAt: new Date(row.createdAt).getTime(),
+      newsSourceStats: JSON.parse(row.newsSourceStats),
+      totalNewsCount: row.totalNewsCount,
+      triangulationStats: JSON.parse(row.triangulationStats),
+      secondOrderEffects: JSON.parse(row.secondOrderEffects),
+      antiHypeResults: JSON.parse(row.antiHypeResults),
+      topRecommendations: JSON.parse(row.topRecommendations),
+      allOpportunities: [],
+      sectorSummary: JSON.parse(row.sectorSummary),
+      totalSymbolsScanned: row.totalSymbolsScanned,
+      analysisEngine: row.analysisEngine,
+      analysisDetail: row.analysisDetail,
+    };
+  } catch (err) {
+    console.warn('[daily-report] Failed to parse stored report:', (err as Error).message);
+    return null;
+  }
+}
+
 /**
  * Persist a daily report to the database.
  * Called by the opportunity scan pipeline after completing a live scan.

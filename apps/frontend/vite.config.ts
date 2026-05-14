@@ -11,7 +11,8 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: 5050,
+    strictPort: true,
     proxy: {
       '/trpc': 'http://localhost:3001',
       '/ws': {

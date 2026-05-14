@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { trpc } from '@/shared/trpc';
+import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -75,6 +76,13 @@ export function AccuracyDashboard() {
   const { summary, byAction, bySector, byConfidenceTier, entryAccuracy, targetAccuracy, stopAccuracy, trend, missedOpps } = data;
 
   return (
+    <>
+    <TabInfo>
+      <InfoSection title="Qué hace">Trackea la precisión histórica de las señales generadas por el pipeline de IA comparando predicciones vs movimiento real del precio.</InfoSection>
+      <InfoSection title="Flujo">Por cada señal emitida, el sistema espera N días → consulta el precio real → marca como ganada (acertó dirección) o perdida → calcula win rate acumulado por tipo de señal.</InfoSection>
+      <InfoSection title="Métricas">Win Rate global (%) · Señales resueltas · Señales pendientes de resolución · Win rate por tipo (técnico / fundamental / sentimiento).</InfoSection>
+      <InfoSection title="Gestión de pesos">Permite ajustar cuánto pesa cada tipo de señal en el score compuesto de Oportunidades. Los pesos se recalibran en base al historial de accuracy. Proposals pendientes = sugerencias del sistema para mejorar los pesos.</InfoSection>
+    </TabInfo>
     <div className="space-y-6 p-4">
       <div className="flex gap-2">
         {PERIOD_OPTIONS.map(opt => (
@@ -420,5 +428,6 @@ export function AccuracyDashboard() {
         </Card>
       )}
     </div>
+    </>
   );
 }

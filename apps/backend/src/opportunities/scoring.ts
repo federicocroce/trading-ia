@@ -19,6 +19,7 @@ import { OPPORTUNITY_UNIVERSE, getSectorForSymbol } from '@trading/shared';
 import { getActiveWeights } from '../intelligence/weight-adjustment.service.js';
 import { getSectorForSymbolDynamic, getSectorLabelDynamic, getClassificationForSymbol } from '../discovery/discovery-registry.js';
 import { detectSignalConflicts } from './signal-conflicts.js';
+import { applyAxisVetos, detectCrossConflicts, resolveFinalVerdict, computeMacroAdjustment } from './verdicts.service.js';
 
 // --- Normalización a escala 0-100 ---
 
@@ -34,24 +35,31 @@ export function normalizeSentiment(score: number): number {
   return (score + 1) * 50; // -1..+1 → 0..100
 }
 
-// --- Pesos por horizonte ---
+export function normalizeEvidence(score: number): number {
+  return (score + 100) / 2; // -100..+100 → 0..100
+}
+
+// --- Pesos por horizonte (4 ejes: tech, fund, sent, evidence) ---
 
 export interface HorizonWeights {
   sentiment: number;
   technical: number;
   fundamental: number;
+  evidence: number;
 }
 
 export const SHORT_TERM_WEIGHTS: HorizonWeights = {
-  sentiment: 0.40,
-  technical: 0.40,
-  fundamental: 0.20,
+  technical: 0.35,
+  sentiment: 0.30,
+  evidence: 0.20,
+  fundamental: 0.15,
 };
 
 export const MEDIUM_TERM_WEIGHTS: HorizonWeights = {
-  sentiment: 0.20,
-  technical: 0.35,
-  fundamental: 0.45,
+  fundamental: 0.35,
+  technical: 0.30,
+  evidence: 0.20,
+  sentiment: 0.15,
 };
 
 // --- Scoring ---
@@ -61,15 +69,18 @@ export function computeHorizonScore(
   fundScore: number,
   sentScore: number,
   weights: HorizonWeights,
+  evidenceScore = 0,
 ): number {
   const normTech = normalizeTechnical(techScore);
   const normFund = normalizeFundamental(fundScore);
   const normSent = normalizeSentiment(sentScore);
+  const normEvidence = normalizeEvidence(evidenceScore);
 
   return Math.round(
     normSent * weights.sentiment +
     normTech * weights.technical +
-    normFund * weights.fundamental,
+    normFund * weights.fundamental +
+    normEvidence * weights.evidence,
   );
 }
 
@@ -78,8 +89,8 @@ export function computeCompositeScore(
   fundScore: number,
   sentScore: number,
   overrideWeights?: { shortTerm: HorizonWeights; mediumTerm: HorizonWeights },
+  evidenceScore = 0,
 ): { shortTerm: number; mediumTerm: number; composite: number } {
-  // Priority: explicit override > DB active weights > static defaults
   let shortWeights: HorizonWeights;
   let medWeights: HorizonWeights;
   if (overrideWeights) {
@@ -88,18 +99,45 @@ export function computeCompositeScore(
   } else {
     try {
       const w = getActiveWeights();
-      shortWeights = { technical: w.shortTerm.technical, fundamental: w.shortTerm.fundamental, sentiment: w.shortTerm.sentiment };
-      medWeights = { technical: w.mediumTerm.technical, fundamental: w.mediumTerm.fundamental, sentiment: w.mediumTerm.sentiment };
+      // Back-compat: DB weights may not have evidence yet — default 0 and renormalize
+      const dbShort = w.shortTerm as Partial<HorizonWeights>;
+      const dbMed = w.mediumTerm as Partial<HorizonWeights>;
+      shortWeights = withEvidenceDefault(dbShort);
+      medWeights = withEvidenceDefault(dbMed);
     } catch {
-      // Fall back to static defaults if DB not available
       shortWeights = SHORT_TERM_WEIGHTS;
       medWeights = MEDIUM_TERM_WEIGHTS;
     }
   }
-  const shortTerm = computeHorizonScore(techScore, fundScore, sentScore, shortWeights);
-  const mediumTerm = computeHorizonScore(techScore, fundScore, sentScore, medWeights);
+  const shortTerm = computeHorizonScore(techScore, fundScore, sentScore, shortWeights, evidenceScore);
+  const mediumTerm = computeHorizonScore(techScore, fundScore, sentScore, medWeights, evidenceScore);
   const composite = Math.round(shortTerm * 0.4 + mediumTerm * 0.6);
   return { shortTerm, mediumTerm, composite };
+}
+
+/**
+ * Back-compat: pesos viejos de DB (3 ejes) → 4 ejes. Si no hay evidence, se
+ * asigna 0.20 a evidence proporcionalmente al recorte de los 3 ejes existentes.
+ * Si los pesos ya suman ≈1.20 (incluyen evidence), se respetan tal cual.
+ */
+function withEvidenceDefault(w: Partial<HorizonWeights>): HorizonWeights {
+  const tech = w.technical ?? 0;
+  const fund = w.fundamental ?? 0;
+  const sent = w.sentiment ?? 0;
+  const evidence = w.evidence;
+  if (evidence != null && evidence > 0) {
+    return { technical: tech, fundamental: fund, sentiment: sent, evidence };
+  }
+  // Old 3-axis weights: reserve 20% for evidence by scaling others to 80%
+  const total = tech + fund + sent;
+  if (total === 0) return SHORT_TERM_WEIGHTS;
+  const scale = 0.80 / total;
+  return {
+    technical: tech * scale,
+    fundamental: fund * scale,
+    sentiment: sent * scale,
+    evidence: 0.20,
+  };
 }
 
 // --- Confianza por confluencia de señales ---
@@ -616,9 +654,10 @@ export function applyAntiHypeFilters(
   symbols: string[],
   techMap: Map<string, TechnicalSummary>,
   portfolioSymbols: Set<string>,
-  options?: { includeVolume?: boolean },
+  options?: { includeVolume?: boolean; newsImpactBypass?: Set<string> },
 ): AntiHypeFilterResult {
   const includeVolume = options?.includeVolume ?? true;
+  const newsImpactBypass = options?.newsImpactBypass ?? new Set<string>();
   const filtered: string[] = [];
   const rejected: Array<{ symbol: string; reasons: string[] }> = [];
   const MAX_FAILURES = 1; // pass with 2 of 3 (or 2 of 2 without volume)
@@ -626,6 +665,14 @@ export function applyAntiHypeFilters(
   for (const symbol of symbols) {
     // Portfolio symbols always pass (for SELL signals)
     if (portfolioSymbols.has(symbol)) {
+      filtered.push(symbol);
+      continue;
+    }
+
+    // Symbols mentioned in HIGH-impact recent news bypass anti-hype.
+    // Reason: bonds/commodities can be below SMA200 structurally (bear regime) but
+    // still be relevant when news triggers a reversal. We want the LLM to see them.
+    if (newsImpactBypass.has(symbol)) {
       filtered.push(symbol);
       continue;
     }
@@ -1250,17 +1297,24 @@ export function buildAlgorithmicOpportunity(
   portfolioValue?: number,
   swingAlert?: { direction: 'BUY' | 'SELL'; winRate: number; avgReturn: number } | null,
   sectorSentiment?: number | null,
+  evidenceResult?: { score: number; drivers: string[]; conviction: 'high' | 'medium' | 'low' | 'none'; activeSignals: number; hasData: boolean },
+  causalChains?: Array<{ eventId: string; event?: string; ticker: string; category: string; direction: 'positive' | 'negative'; impact: 'direct' | 'indirect' }>,
 ): Opportunity | null {
   const techScore = tech?.score ?? 0;
   const fundScore = fund?.score ?? 0;
   const sentScore = sent?.score ?? 0;
+  const evidenceScore = evidenceResult?.score ?? 0;
 
   const sector = getSectorForSymbolDynamic(symbol);
   if (!sector) return null;
 
-  // TODO(V2): pass calibrated weights from quant stage via getLatestCalibratedWeights()
-  // The quant stage runs after analysis, so only previous-run weights are available here.
-  const { shortTerm, mediumTerm, composite } = computeCompositeScore(techScore, fundScore, sentScore);
+  const { shortTerm, mediumTerm, composite: compositeBase } = computeCompositeScore(techScore, fundScore, sentScore, undefined, evidenceScore);
+
+  // === MACRO ADJUSTMENT: causalChains agregan/restan al composite ===
+  const macroAdjustment = causalChains ? computeMacroAdjustment(symbol, causalChains) : undefined;
+  let composite = compositeBase + (macroAdjustment?.delta ?? 0);
+  if (composite < 0) composite = 0;
+  if (composite > 100) composite = 100;
   const confluenceDetail = computeConfluenceDetail(tech, fund, sent);
   const confidence = confluenceDetail.confluencePercent;
 
@@ -1277,7 +1331,17 @@ export function buildAlgorithmicOpportunity(
     baseAction: baseActionForConflicts as 'BUY' | 'SELL' | 'HOLD' | 'WATCH',
   };
   const hasConflicts = tech ? detectSignalConflicts(tech.indicators, sent ? { score: sent.score } : undefined, conflictOptions).length > 0 : false;
-  const action = scoreToAction(composite, inPortfolio, confidence, hasConflicts);
+  let action = scoreToAction(composite, inPortfolio, confidence, hasConflicts);
+  const algoActionPreVeto = action;
+
+  // === AXIS VETO: si un eje individual está crítico, sobreescribe la acción ===
+  const vetoResult = applyAxisVetos(action, techScore, fundScore, sentScore, evidenceScore, inPortfolio);
+  const axisVeto = vetoResult.veto;
+  action = vetoResult.action;
+
+  // === CROSS-DIMENSION CONFLICTS: detectar disonancias entre los 4 ejes ===
+  const crossConflicts = detectCrossConflicts(techScore, fundScore, sentScore, evidenceScore);
+
   const technicalAction = techScoreToAction(techScore, inPortfolio);
   const fundamentalAction = fundScoreToAction(fundScore, inPortfolio);
   const sentimentAction = sentScoreToAction(sentScore, inPortfolio);
@@ -1443,6 +1507,16 @@ export function buildAlgorithmicOpportunity(
     divergences: tech?.divergences,
     weekly: tech?.weekly,
     signalConflicts: tech ? detectSignalConflicts(tech.indicators, sent ? { score: sent.score } : undefined, conflictOptions) : undefined,
+    evidenceInfluence: evidenceResult ? {
+      score: evidenceResult.score,
+      drivers: evidenceResult.drivers,
+      conviction: evidenceResult.conviction,
+      activeSignals: evidenceResult.activeSignals,
+      hasData: evidenceResult.hasData,
+    } : undefined,
+    axisVeto: axisVeto ?? undefined,
+    crossConflicts: crossConflicts.length > 0 ? crossConflicts : undefined,
+    macroAdjustment: macroAdjustment ?? undefined,
   };
 
   // === SMART ACTION: override based on divergences + trade levels ===
@@ -1494,6 +1568,16 @@ export function buildAlgorithmicOpportunity(
     currentPrice: result.currentPrice,
     stopLoss: result.tradeLevels?.stopLoss,
     action: result.action,
+  });
+
+  // === FINAL VERDICT CHAIN: trazabilidad algo → smart → (llm en otra fase) ===
+  result.verdict = resolveFinalVerdict({
+    algoAction: algoActionPreVeto,
+    algoScore: composite,
+    smartAction: result.action,
+    smartReason: result.simpleReasoning?.split('.')[0],
+    veto: axisVeto,
+    // llmAction y llmReason se inyectan después en unified-analysis si aplica
   });
 
   return result;

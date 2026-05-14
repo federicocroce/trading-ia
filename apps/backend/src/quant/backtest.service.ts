@@ -70,7 +70,7 @@ async function executeBacktest(params: {
     const window = allOhlcv.slice(0, i + 1);
     const indicators = computeIndicators(window);
     const { score: techScore } = scoreTechnical(indicators);
-    const score = computeHorizonScore(techScore, 0, 0, shortWeights);
+    const score = computeHorizonScore(techScore, 0, 0, shortWeights, 0);
 
     if (buyAndHoldEntry === null) {
       buyAndHoldEntry = today.close;

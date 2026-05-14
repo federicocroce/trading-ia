@@ -1,34 +1,54 @@
-import type { MarketReport, MarketReportRecommendation, UnifiedAssetAnalysis, MarketDigest, SecondOrderEffect, SectorSummary, QuantContext, Opportunity } from '@trading/shared';
+import type { MarketReport, MarketReportRecommendation, TopImpactNewsItem, UnifiedAssetAnalysis, MarketDigest, SecondOrderEffect, SectorSummary, QuantContext, Opportunity } from '@trading/shared';
 import { COMBINED_SYNTHESIS_PROMPT, CANONICAL_MACRO_THEMES } from '@trading/shared';
 import { callAIWithModel } from '../shared/ai-router.js';
 import {
   getNewsArticlesForToday,
   getAllSymbols,
+  type MacroEventRow,
 } from '../db/repository.js';
 import { getPortfolioPositions, getActiveSymbolList } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
 import { registerNovelTickers } from '../discovery/discovery-registry.js';
 import {
   getTodayMarketReport,
+  getMarketReportByDate,
   saveMarketReport,
 } from './pipeline.repository.js';
+import { getCurrentBuyTickers, filterItemsVsBuyTickers } from '../opportunities/opportunities.service.js';
 
-export function getCachedMarketReport(): MarketReport | null {
-  const row = getTodayMarketReport();
-  if (!row) return null;
+function filterAvoidListVsBuy(items: string[], buyTickers: Set<string>): string[] {
+  return filterItemsVsBuyTickers(items, buyTickers);
+}
+
+function rowToMarketReport(row: NonNullable<ReturnType<typeof getTodayMarketReport>>): MarketReport {
+  const rawAvoid = (row.avoidList as unknown[]) ?? [];
+  const avoidStrings = rawAvoid
+    .map(x => (typeof x === 'string' ? x : (x && typeof x === 'object' ? JSON.stringify(x) : '')))
+    .filter(s => s.length > 0);
   return {
     generatedAt: row.generatedAt ? new Date(row.generatedAt).getTime() : Date.now(),
     macroContext: row.macroContext ?? '',
     portfolioImpact: row.portfolioImpact ?? '',
+    topImpactNews: (row.topImpactNews as MarketReport['topImpactNews']) ?? undefined,
     themes: (row.themes as MarketReport['themes']) ?? [],
     topRecommendations: (row.topRecommendations as MarketReport['topRecommendations']) ?? [],
     alternatives: (row.alternatives as MarketReport['alternatives']) ?? [],
     scenarios: (row.scenarios as MarketReport['scenarios']) ?? [],
-    avoidList: (row.avoidList as string[]) ?? [],
+    avoidList: filterItemsVsBuyTickers(avoidStrings, getCurrentBuyTickers()),
     engine: row.engine ?? 'pipeline-thematic',
     status: (row.status as MarketReport['status']) ?? 'ok',
     errors: (row.errors as string[]) ?? [],
   };
+}
+
+export function getCachedMarketReport(): MarketReport | null {
+  const row = getTodayMarketReport();
+  return row ? rowToMarketReport(row) : null;
+}
+
+export function getCachedMarketReportByDate(date: string): MarketReport | null {
+  const row = getMarketReportByDate(date);
+  return row ? rowToMarketReport(row) : null;
 }
 
 // ============================================================
@@ -44,6 +64,7 @@ const THEME_KEYWORDS: Array<[string, string[]]> = [
   ['Banca US', ['banca', 'bank', 'finanzas', 'finance', 'jpmorgan', 'goldman', 'wells fargo']],
   ['Salud/Biotech', ['farma', 'pharma', 'salud', 'health', 'biotech', 'fda', 'medicamento']],
   ['Commodities', ['commodity', 'commodit', 'oro', 'gold', 'cobre', 'copper', 'litio', 'lithium', 'uranium', 'mineria', 'mining', 'metal']],
+  ['Bonos/Tasas', ['bono', 'bonos', 'bond', 'bonds', 'treasury', 'treasuries', 'yield', 'duration', 'tlt', 'hyg', 'agg', 'emb', 'lqd', 'shy', 'ief', 'tip', 'credit spread']],
   ['Política Monetaria', ['política monetaria', 'politica monetaria', 'federal reserve', 'fed ', 'interest rate', 'tasa de interés', 'tasa de interes', 'inflacion', 'inflación', 'banco central']],
   ['Consumo/Retail', ['consumo', 'retail', 'consumer', 'minorista', 'comercio minorista', 'amazon', 'walmart']],
 ];
@@ -112,6 +133,8 @@ export interface DigestInputs {
   intelligence: { totalNewsCount: number; topHeadlines?: string[]; plazaSummaries?: Array<{ plaza: string; sentiment: string; score: number }> };
   sectorSummary: SectorSummary[];
   quantContext?: QuantContext | null;
+  earningsContext?: string;
+  causalMap?: MacroEventRow[];
 }
 
 function buildFallbackDigest(opportunities: Opportunity[], effects: SecondOrderEffect[], headlines: string[]): MarketDigest {
@@ -158,20 +181,31 @@ export async function generateMarketReport(
     }),
   ].join('\n');
 
-  // Headlines for synthesis
+  // Headlines for synthesis — split into macro vs ticker-specific so the LLM
+  // can produce balanced topImpactNews (not just stock earnings news).
   const todayArticles = getNewsArticlesForToday('medium');
-  const dbHeadlines = todayArticles
-    .map(a => `- ${a.title} [${(a as any).sentiment ?? '?'}]`)
-    .slice(0, 20);
+  const MACRO_KEYWORDS = /fed|federal reserve|interest rate|rate cut|rate hike|inflation|cpi|pce|recession|gdp|tariff|trade war|sanction|geopolitical|opec|ecb|china|war|conflict|treasury|yield|aranceles|guerra|inflacion|reserva federal/i;
+  const macroHeadlines: string[] = [];
+  const tickerHeadlines: string[] = [];
+  for (const a of todayArticles) {
+    const line = `- ${a.title} [${(a as any).sentiment ?? '?'}]`;
+    if (MACRO_KEYWORDS.test(a.title)) {
+      macroHeadlines.push(line);
+    } else {
+      tickerHeadlines.push(line);
+    }
+  }
 
   // Build symbol metadata from DB
   const allDbSymbols = getAllSymbols();
   const symbolMetaMap = new Map<string, { name: string; instrumentType: string }>();
   for (const s of allDbSymbols) {
     let instrumentType = 'Accion US';
-    if (s.plaza === 'argentina-cedears') instrumentType = 'CEDEAR';
+    if (s.plaza === 'argentina-cedears' || s.type === 'adr') instrumentType = 'CEDEAR';
     else if (s.type === 'crypto') instrumentType = 'Crypto';
-    else if (s.plaza === 'etfs-sectors') instrumentType = 'ETF';
+    else if (s.type === 'bond') instrumentType = 'Bono';
+    else if (s.type === 'etf' || s.plaza === 'etfs-sectors') instrumentType = 'ETF';
+    else if (s.type === 'commodity' || s.plaza === 'commodities') instrumentType = 'Commodity';
     symbolMetaMap.set(s.symbol, { name: s.name || s.symbol, instrumentType });
   }
 
@@ -181,8 +215,10 @@ export async function generateMarketReport(
   const themeMap = new Map<string, MarketReportRecommendation[]>();
 
   for (const [symbol, analysis] of precomputedAnalyses) {
+    // Include all analyses that reached this stage — unified-analysis already
+    // filtered to: portfolio + BUY/SELL + HOLD/WATCH-with-news. Showing every
+    // analyzed symbol gives the user "we saw this in news but it's not buy time yet".
     const isInPortfolio = portfolioSymbolSet.has(symbol);
-    if (!isInPortfolio && (analysis.action === 'HOLD' || analysis.action === 'WATCH')) continue;
 
     const theme = normalizeMacroTheme(analysis.macroTheme);
     if (!themeMap.has(theme)) themeMap.set(theme, []);
@@ -234,7 +270,9 @@ export async function generateMarketReport(
     '',
     portfolioContext,
     '',
-    `HEADLINES:\n${dbHeadlines.slice(0, 15).join('\n')}`,
+    `HEADLINES MACRO (priorizá estas para topImpactNews):\n${macroHeadlines.slice(0, 10).join('\n') || '(ninguna detectada)'}`,
+    '',
+    `HEADLINES TICKER-ESPECÍFICAS:\n${tickerHeadlines.slice(0, 10).join('\n') || '(ninguna)'}`,
   ];
 
   // Enrich with digest-specific context when available
@@ -260,12 +298,30 @@ export async function generateMarketReport(
       const regimeLabel: Record<string, string> = { trending_bull: 'Tendencia alcista', trending_bear: 'Tendencia bajista', mean_reverting: 'Mercado lateral', volatile: 'Alta volatilidad' };
       userMsgParts.push(`\nRÉGIMEN DE MERCADO: ${regimeLabel[r.regime] ?? r.regime} (confianza: ${r.confidence}%)`);
     }
+
+    if (digestInputs.earningsContext) {
+      userMsgParts.push(`\n${digestInputs.earningsContext}`);
+    }
+
+    if (digestInputs.causalMap && digestInputs.causalMap.length > 0) {
+      const causalLines = digestInputs.causalMap
+        .sort((a, b) => (a.magnitude === 'high' ? -1 : b.magnitude === 'high' ? 1 : 0))
+        .slice(0, 8)
+        .map(evt => {
+          const chainSummary = evt.chains.slice(0, 4)
+            .map(c => `${c.ticker}(${c.direction === 'positive' ? '+' : '-'}): ${c.reason.slice(0, 60)}`)
+            .join('; ');
+          return `[${evt.magnitude.toUpperCase()}] ${evt.event} → ${chainSummary}`;
+        });
+      userMsgParts.push(`\nEVENTOS MACRO CAUSALES:\n${causalLines.join('\n')}`);
+    }
   }
 
   const combinedUserMsg = userMsgParts.join('\n');
 
   let macroContext = themeSummaries;
   let portfolioImpact = '';
+  let topImpactNews: TopImpactNewsItem[] = [];
   let scenarios: MarketReport['scenarios'] = [];
   let avoidList: string[] = [];
   let actualEngine = 'pipeline-thematic';
@@ -278,6 +334,16 @@ export async function generateMarketReport(
 
     macroContext = p.macroContext ?? themeSummaries;
     portfolioImpact = p.portfolioImpact ?? '';
+    topImpactNews = Array.isArray(p.topImpactNews)
+      ? p.topImpactNews.slice(0, 10).map((n: any) => ({
+          headline: n.headline ?? '',
+          sectors: Array.isArray(n.sectors)
+            ? n.sectors.map((s: any) => ({ name: s.name ?? '', direction: ['positive', 'negative', 'neutral'].includes(s.direction) ? s.direction : 'neutral' }))
+            : [],
+          confidence: ['high', 'medium', 'low'].includes(n.confidence) ? n.confidence : 'medium',
+          tickers: Array.isArray(n.tickers) ? n.tickers : [],
+        }))
+      : [];
     scenarios = Array.isArray(p.scenarios)
       ? p.scenarios.map((s: any) => ({
           name: s.name ?? '',
@@ -287,9 +353,47 @@ export async function generateMarketReport(
             : [],
         }))
       : [];
-    avoidList = Array.isArray(p.avoidList) ? p.avoidList : [];
-
     // Build digest from same response
+    const buyTickers = new Set(
+      (digestInputs?.opportunities ?? [])
+        .filter(o => o.action === 'BUY')
+        .map(o => o.symbol.toUpperCase())
+    );
+    avoidList = filterAvoidListVsBuy(Array.isArray(p.avoidList) ? p.avoidList : [], buyTickers);
+    const coerceToString = (item: unknown): string => {
+      if (typeof item === 'string') return item.trim();
+      if (item && typeof item === 'object') {
+        // LLM sometimes returns {ticker, razon} or {symbol, reason} instead of plain strings
+        const obj = item as Record<string, unknown>;
+        const ticker = String(obj.ticker ?? obj.symbol ?? '').trim();
+        const reason = String(obj.razon ?? obj.reason ?? obj.razonamiento ?? '').trim();
+        if (ticker && reason) return `No operaría ${ticker} — ${reason}`;
+        if (reason) return reason;
+        if (ticker) return ticker; // bare ticker — will get dropped by word-count filter below
+      }
+      return '';
+    };
+    const sanitizeWouldNotDo = (raw: unknown): string[] => {
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .map(coerceToString)
+        .filter(Boolean)
+        .filter(item => {
+          // Drop bare-ticker entries (e.g. "VIST", "- YPF"): require >= 4 words
+          const wordCount = item.replace(/[-•*]/g, '').trim().split(/\s+/).filter(Boolean).length;
+          if (wordCount < 4) return false;
+          // Drop entries that mention any BUY-action ticker (avoid contradicting algo signal)
+          const upper = item.toUpperCase();
+          for (const t of buyTickers) {
+            const escaped = t.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+            const re = new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`);
+            if (re.test(upper)) return false;
+          }
+          return true;
+        })
+        .slice(0, 5);
+    };
+
     digest = {
       generatedAt: Date.now(),
       overnightSummary: p.overnightSummary ?? '',
@@ -297,10 +401,13 @@ export async function generateMarketReport(
       topOpportunities: Array.isArray(p.topOpportunities)
         ? p.topOpportunities.slice(0, 5).map((o: any) => ({ symbol: o.symbol ?? '', action: o.action ?? 'BUY', narrative: o.narrative ?? '' }))
         : [],
+      watching: Array.isArray(p.watching)
+        ? p.watching.slice(0, 4).map((o: any) => ({ symbol: o.symbol ?? '', narrative: o.narrative ?? '' })).filter((o: any) => o.symbol)
+        : [],
       warnings: Array.isArray(p.warnings) ? p.warnings.slice(0, 3) : [],
       marketMood: ['risk-on', 'risk-off', 'mixed'].includes(p.marketMood) ? p.marketMood : 'mixed',
       wouldDo: Array.isArray(p.wouldDo) ? p.wouldDo.slice(0, 5) : [],
-      wouldNotDo: Array.isArray(p.wouldNotDo) ? p.wouldNotDo.slice(0, 5) : [],
+      wouldNotDo: sanitizeWouldNotDo(p.wouldNotDo),
     };
 
     console.log('[MarketReport] Combined synthesis OK — report + digest generados');
@@ -326,6 +433,7 @@ export async function generateMarketReport(
     generatedAt: Date.now(),
     macroContext,
     portfolioImpact,
+    topImpactNews: topImpactNews.length > 0 ? topImpactNews : undefined,
     themes,
     topRecommendations: topRecs,
     alternatives,
@@ -348,6 +456,7 @@ export async function generateMarketReport(
     status: report.status ?? 'ok',
     macroContext: report.macroContext,
     portfolioImpact: report.portfolioImpact,
+    topImpactNews: report.topImpactNews,
     themes: report.themes,
     topRecommendations: report.topRecommendations,
     alternatives: report.alternatives,

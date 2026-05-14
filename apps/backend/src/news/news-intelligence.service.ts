@@ -11,11 +11,14 @@ import type {
   MarketPlaza,
 } from '@trading/shared';
 import { buildBatchNewsAnalysisPrompt, getPlazaForSymbol, PLAZA_CONFIG } from '@trading/shared';
-import { getActiveSymbolList, updateNewsAnalysis, getActiveSentimentKeywords } from '../db/repository.js';
+import { updateNewsAnalysis, getActiveSentimentKeywords, insertNewsIntelligenceSnapshot } from '../db/repository.js';
+import { getLastTriangulationStats } from './triangulation.service.js';
 import { getFullSymbolUniverse } from '../discovery/discovery-registry.js';
 import { callAI } from '../shared/ai-router.js';
 import { getNews, getNewsFromDB } from './news.service.js';
 import { triangulateNews } from './triangulation.service.js';
+import { enrichNewsWithBodies } from './body-fetcher.service.js';
+import { filterForDeepAnalysis, logFilterStats, type DeepAnalysisFilterOptions } from './news-filters.service.js';
 
 function getMaxBatchSize(): number {
   // Adaptive batch size based on AI provider
@@ -81,10 +84,13 @@ function fallbackAnalysis(item: NewsItem): NewsAnalysis {
 
   const { sentiment, impact } = keywordSentimentAnalysis(item.title);
 
+  // Accept all relatedTickers — do NOT filter to current universe, otherwise
+  // freshly-discovered tickers (registered in same run) get stripped before
+  // they can populate sentimentMap → unified-analysis filter loses them.
   return {
     sentiment,
     impact,
-    affectedTickers: item.relatedTickers.filter((t) => getFullSymbolUniverse().includes(t)),
+    affectedTickers: item.relatedTickers,
     summary: '',
     marketPlaza: plaza,
   };
@@ -134,7 +140,7 @@ async function analyzeBatch(news: NewsItem[]): Promise<AnalyzedNewsItem[]> {
       analysisMap.set(n.id, {
         sentiment: n.sentiment as SentimentType,
         impact: n.impact as 'high' | 'medium' | 'low',
-        affectedTickers: n.relatedTickers.filter((t) => getActiveSymbolList().includes(t)),
+        affectedTickers: n.relatedTickers,
         summary: '',
         marketPlaza: plaza,
       });
@@ -174,7 +180,10 @@ async function analyzeBatch(news: NewsItem[]): Promise<AnalyzedNewsItem[]> {
     if (batchResults) {
       for (const a of batchResults) {
         analysisMap.set(a.newsId, a);
-        updateNewsAnalysis(a.newsId, a.sentiment, a.impact);
+        const original = batch.find((n) => n.id === a.newsId);
+        updateNewsAnalysis(a.newsId, a.sentiment, a.impact,
+          original?.triangulation?.storyClusterId,
+          original?.triangulation?.confidence);
       }
       console.log(`[intelligence] Batch ${batchNum}/${totalBatches}: ${batchResults.length} analizadas con IA y persistidas`);
     } else {
@@ -182,7 +191,9 @@ async function analyzeBatch(news: NewsItem[]): Promise<AnalyzedNewsItem[]> {
       for (const n of batch) {
         const fa = fallbackAnalysis(n);
         analysisMap.set(n.id, fa);
-        updateNewsAnalysis(n.id, fa.sentiment, fa.impact);
+        updateNewsAnalysis(n.id, fa.sentiment, fa.impact,
+          n.triangulation?.storyClusterId,
+          n.triangulation?.confidence);
       }
       console.log(`[intelligence] Batch ${batchNum}/${totalBatches}: ${batch.length} analizadas con fallback algoritmico`);
     }
@@ -394,6 +405,49 @@ export async function getAnalyzedNews(): Promise<AnalyzedNewsItem[]> {
   return buildAnalyzedNews();
 }
 
+/**
+ * Prepare the curated subset of news for deep LLM analysis (v2 prompt).
+ *
+ * Pipeline: fetch → triangulate → filter (confidence + recency + source tier)
+ *           → enrich with bodies → re-filter by body length + dedup → top-N cap.
+ *
+ * This is the input to the deep-analysis LLM (cause + impacts radar). It runs
+ * INDEPENDENTLY of the existing analyzeBatch flow which still tags every news
+ * with sentiment/impact for downstream sentimentMap consumers.
+ *
+ * Returns 30-60 high-quality items with `body` populated.
+ */
+export async function prepareDeepAnalysisNews(
+  options?: DeepAnalysisFilterOptions,
+): Promise<NewsItem[]> {
+  const rawNews = await getNews();
+
+  // STEP 0: Recency filter BEFORE triangulation. Triangulation is O(n²) on title
+  // similarity, so processing 3-day-old DB news inflates work and adds noise.
+  // Cap at 30h to give some buffer for high-confidence items that get 24h max in
+  // filterForDeepAnalysis. Older news is irrelevant for "ride the wave" anyway.
+  const RECENCY_HOURS = 30;
+  const cutoffMs = Date.now() - RECENCY_HOURS * 60 * 60 * 1000;
+  const recent = rawNews.filter(n => new Date(n.time).getTime() >= cutoffMs);
+  console.log(`[deep-analysis-prep] Recency cap: ${rawNews.length} → ${recent.length} (last ${RECENCY_HOURS}h)`);
+
+  const triangulated = triangulateNews(recent);
+
+  // First-pass filter: drop by confidence/recency/source/blocked-domain BEFORE
+  // body fetching, so we don't waste fetches on items that won't survive anyway.
+  const prePass = filterForDeepAnalysis(triangulated, { ...options, requireBody: false });
+  console.log(`[deep-analysis-prep] Pre-fetch filter: ${triangulated.length} → ${prePass.kept.length}`);
+
+  // Fetch bodies for survivors only
+  const enriched = await enrichNewsWithBodies(prePass.kept);
+
+  // Second-pass filter: now require body + dedup by body content + top-N cap
+  const finalPass = filterForDeepAnalysis(enriched, options);
+  logFilterStats(enriched.length, finalPass);
+
+  return finalPass.kept;
+}
+
 export async function getIntelligence(): Promise<NewsIntelligence> {
   const now = Date.now();
   if (cachedIntelligence && now - intelligenceTimestamp < INTELLIGENCE_TTL) {
@@ -411,6 +465,21 @@ export async function getIntelligence(): Promise<NewsIntelligence> {
     alerts,
   };
   intelligenceTimestamp = now;
+
+  // Persist snapshot of plazas + symbolTrends frozen-in-time. Lets us audit
+  // historical sentiment without re-running aggregateTrends from raw articles.
+  try {
+    const topHeadlines = plazas.flatMap(p => p.symbolTrends.flatMap(t => t.topHeadlines)).slice(0, 30);
+    insertNewsIntelligenceSnapshot({
+      totalNewsCount: analyzed.length,
+      plazas: JSON.stringify(plazas),
+      alerts: JSON.stringify(alerts),
+      topHeadlines: JSON.stringify(topHeadlines),
+      triangulationStats: JSON.stringify(getLastTriangulationStats()),
+    });
+  } catch (err) {
+    console.warn('[news-intelligence] Failed to persist snapshot:', (err as Error).message?.slice(0, 100));
+  }
 
   return cachedIntelligence;
 }

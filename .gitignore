@@ -6,3 +6,19 @@ dist/
 .DS_Store
 data/
 .worktrees/
+
+# Test artifacts
+.playwright-mcp/
+apps/frontend/test-results/
+apps/frontend/playwright-report/
+
+# Local databases
+*.db
+*.db-journal
+
+# Claude / superpowers state (not source)
+.claude/worktrees/
+.superpowers/
+
+# Experimental / scratch
+poc/

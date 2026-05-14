@@ -5,8 +5,9 @@ import { callAIWithModel } from '../shared/ai-router.js';
 import { searchTavily } from '../web-search/tavily.js';
 import { getHistoricalQuotes, getFundamentals } from '../shared/yahoo.js';
 import { getSectorMomentum } from './sector-momentum.service.js';
-import type { FundamentalData } from '@trading/shared';
+import type { FundamentalData, SectorReport } from '@trading/shared';
 import type { EvidenceSignal, EvidenceDeepAnalysis } from '@trading/shared';
+import { getStoredSectorReports } from '../intelligence/sector-report.service.js';
 
 const ANALYSIS_TTL_MS = 6 * 60 * 60 * 1000; // 6h — matches signal cache TTL
 const CONCURRENCY = 3;
@@ -334,7 +335,7 @@ function parsePriceZone(raw: string, currentPrice: number): number | null {
 
 // ─── Per-symbol analysis ──────────────────────────────────────────────────────
 
-async function analyzeSignal(signal: EvidenceSignal): Promise<void> {
+async function analyzeSignal(signal: EvidenceSignal, sectorContext: SectorReport | null = null): Promise<void> {
   if (getCachedAnalysis(signal.symbol)) return;
 
   const [newsResult, ohlcResult, fundamentalsResult, sectorResult] = await Promise.allSettled([
@@ -344,20 +345,42 @@ async function analyzeSignal(signal: EvidenceSignal): Promise<void> {
     getSectorMomentum(signal.symbol),
   ]);
 
-  const newsHeadlines = newsResult.status === 'fulfilled' && newsResult.value.length > 0
+  // Symbol-specific Tavily headlines
+  const tavilyLines = newsResult.status === 'fulfilled' && newsResult.value.length > 0
     ? newsResult.value
-        .slice(0, 5)
+        .slice(0, 4)
         .map((a, i) => `${i + 1}. ${a.title}${a.publishedAt ? ` (${a.publishedAt.slice(0, 10)})` : ''}`)
         .join('\n')
-    : 'Sin noticias disponibles.';
+    : null;
+
+  // Sector-level news context (from stored reports, if available)
+  const sectorNewsLines = sectorContext
+    ? [
+        `Contexto sectorial (${sectorContext.sector}, impacto: ${sectorContext.impact}): ${sectorContext.summary}`,
+        ...sectorContext.keyNews.slice(0, 2).map((h) => `• ${h}`),
+        sectorContext.catalysts.length > 0 ? `Catalizadores: ${sectorContext.catalysts.join('; ')}` : null,
+        sectorContext.tension ? `⚠️ Tensión: ${sectorContext.tension}` : null,
+      ].filter(Boolean).join('\n')
+    : null;
+
+  const newsHeadlines = [tavilyLines, sectorNewsLines].filter(Boolean).join('\n\n') || 'Sin noticias disponibles.';
 
   const ohlc = ohlcResult.status === 'fulfilled' ? ohlcResult.value : [];
   const tech = computeTechSummary(ohlc);
   const fundamentals = fundamentalsResult.status === 'fulfilled' ? fundamentalsResult.value : null;
-  const sector = sectorResult.status === 'fulfilled' ? sectorResult.value : null;
-  const sectorLine = sector
-    ? `${sector.sectorName} (${sector.sectorEtf}) ${sector.trend === 'outperforming' ? '✅ outperforming' : sector.trend === 'underperforming' ? '⚠️ underperforming' : '➡️ neutral'} — ETF $${sector.etfPrice} vs SMA50 $${sector.sma50} (${sector.priceVsSma50Pct > 0 ? '+' : ''}${sector.priceVsSma50Pct}%)`
-    : 'Sector no mapeado — analizar contexto macro manualmente';
+  const sectorMomentum = sectorResult.status === 'fulfilled' ? sectorResult.value : null;
+
+  let sectorLine: string;
+  if (sectorMomentum && sectorContext) {
+    const trend = sectorMomentum.trend === 'outperforming' ? '✅ outperforming' : sectorMomentum.trend === 'underperforming' ? '⚠️ underperforming' : '➡️ neutral';
+    sectorLine = `${sectorContext.sector} | Noticias: ${sectorContext.impact} | ETF ${sectorMomentum.sectorEtf} ${trend} (${sectorMomentum.priceVsSma50Pct > 0 ? '+' : ''}${sectorMomentum.priceVsSma50Pct}% vs SMA50)`;
+  } else if (sectorMomentum) {
+    const trend = sectorMomentum.trend === 'outperforming' ? '✅ outperforming' : sectorMomentum.trend === 'underperforming' ? '⚠️ underperforming' : '➡️ neutral';
+    sectorLine = `${sectorMomentum.sectorName} (${sectorMomentum.sectorEtf}) ${trend} — ETF $${sectorMomentum.etfPrice} vs SMA50 $${sectorMomentum.sma50} (${sectorMomentum.priceVsSma50Pct > 0 ? '+' : ''}${sectorMomentum.priceVsSma50Pct}%)`;
+  } else {
+    sectorLine = 'Sector no mapeado — analizar contexto macro manualmente';
+  }
+
   const prompt = buildPrompt(signal, tech, newsHeadlines, fundamentals, sectorLine);
 
   const { content, model } = await callAIWithModel('reasoning', prompt, SYSTEM_PROMPT, 1024);
@@ -406,6 +429,23 @@ async function runDeepAnalysis(signals: EvidenceSignal[]): Promise<void> {
   analysisTotal = candidates.length;
   analyzedCount = 0;
 
+  // Fetch stored sector reports once — enrich each signal with macro news context
+  let sectorReports: SectorReport[] = [];
+  try {
+    sectorReports = getStoredSectorReports();
+    if (sectorReports.length > 0) {
+      console.log(`[DeepAnalysis] ${sectorReports.length} sector reports disponibles para contexto`);
+    }
+  } catch {
+    // Non-critical — proceed without sector context
+  }
+  const sectorByTicker = new Map<string, SectorReport>();
+  for (const report of sectorReports) {
+    for (const ticker of report.suggestedTickers) {
+      sectorByTicker.set(ticker, report);
+    }
+  }
+
   console.log(`[DeepAnalysis] Iniciando análisis de ${candidates.length} señales HIGH/MEDIUM...`);
 
   try {
@@ -414,7 +454,8 @@ async function runDeepAnalysis(signals: EvidenceSignal[]): Promise<void> {
       await Promise.allSettled(
         batch.map(async (signal) => {
           try {
-            await analyzeSignal(signal);
+            const sectorContext = sectorByTicker.get(signal.symbol) ?? null;
+            await analyzeSignal(signal, sectorContext);
           } catch (err) {
             console.warn(`[DeepAnalysis] Error en ${signal.symbol}:`, (err as Error).message?.slice(0, 100));
           } finally {
@@ -437,4 +478,83 @@ export function triggerDeepAnalysis(signals: EvidenceSignal[]): void {
 
 export function invalidateDeepAnalysisCache(): void {
   db.delete(schema.evidenceDeepAnalysis).run();
+}
+
+// ─── News-context variant (used by news-first pipeline) ───────────────────────
+
+/**
+ * Same as analyzeSignal but uses pre-fetched sector context instead of
+ * calling Tavily. Designed for the news-first pipeline where news is already
+ * available from Stage 3 sector analysis.
+ */
+export async function analyzeSignalWithContext(
+  signal: EvidenceSignal,
+  sectorContext: SectorReport | null,
+): Promise<void> {
+  if (getCachedAnalysis(signal.symbol)) return;
+
+  const [ohlcResult, fundamentalsResult, sectorMomentumResult] = await Promise.allSettled([
+    getHistoricalQuotes(signal.symbol, '3mo', '1d'),
+    getFundamentals(signal.symbol),
+    getSectorMomentum(signal.symbol),
+  ]);
+
+  // Build news headlines from sector context instead of Tavily
+  let newsHeadlines: string;
+  if (sectorContext && (sectorContext.keyNews.length > 0 || sectorContext.summary)) {
+    const lines: string[] = [];
+    if (sectorContext.summary) lines.push(`Contexto sectorial (${sectorContext.sector}): ${sectorContext.summary}`);
+    sectorContext.keyNews.slice(0, 4).forEach((h, i) => lines.push(`${i + 1}. ${h}`));
+    if (sectorContext.catalysts.length > 0) lines.push(`Catalizadores: ${sectorContext.catalysts.join('; ')}`);
+    newsHeadlines = lines.join('\n');
+  } else {
+    newsHeadlines = 'Sin contexto de noticias sectoriales disponible.';
+  }
+
+  const ohlc = ohlcResult.status === 'fulfilled' ? ohlcResult.value : [];
+  const tech = computeTechSummary(ohlc);
+  const fundamentals = fundamentalsResult.status === 'fulfilled' ? fundamentalsResult.value : null;
+  const sectorMomentum = sectorMomentumResult.status === 'fulfilled' ? sectorMomentumResult.value : null;
+
+  // Merge sector line: prefer news-driven context, supplement with ETF momentum
+  let sectorLine: string;
+  if (sectorContext && sectorMomentum) {
+    const trend = sectorMomentum.trend === 'outperforming' ? '✅ outperforming' : sectorMomentum.trend === 'underperforming' ? '⚠️ underperforming' : '➡️ neutral';
+    sectorLine = `${sectorContext.sector} | Impacto noticia: ${sectorContext.impact} | ETF ${sectorMomentum.sectorEtf} ${trend} (${sectorMomentum.priceVsSma50Pct > 0 ? '+' : ''}${sectorMomentum.priceVsSma50Pct}% vs SMA50)`;
+  } else if (sectorContext) {
+    sectorLine = `${sectorContext.sector} | Impacto noticia: ${sectorContext.impact}`;
+  } else if (sectorMomentum) {
+    const trend = sectorMomentum.trend === 'outperforming' ? '✅ outperforming' : sectorMomentum.trend === 'underperforming' ? '⚠️ underperforming' : '➡️ neutral';
+    sectorLine = `${sectorMomentum.sectorName} (${sectorMomentum.sectorEtf}) ${trend} — ETF $${sectorMomentum.etfPrice} vs SMA50 $${sectorMomentum.sma50}`;
+  } else {
+    sectorLine = 'Sector no mapeado — analizar contexto macro manualmente';
+  }
+
+  const prompt = buildPrompt(signal, tech, newsHeadlines, fundamentals, sectorLine);
+  const { content, model } = await callAIWithModel('reasoning', prompt, SYSTEM_PROMPT, 1024);
+  const analysis = parseAIResponse(content, signal.symbol, model);
+
+  if (!analysis) {
+    console.warn(`[DeepAnalysis] JSON inválido de AI para ${signal.symbol} (news-context), saltando`);
+    return;
+  }
+
+  setCachedAnalysis(analysis);
+  console.log(`[DeepAnalysis][news] ✓ ${signal.symbol} — ${analysis.verdict} (confianza: ${analysis.confidence}%, modelo: ${model})`);
+
+  updateSignalTargets(signal.symbol, {
+    aiVerdict: analysis.verdict,
+    aiConfidence: analysis.confidence,
+    enrichedByLlm: true,
+    ...(analysis.verdict === 'BUY_SETUP' && signal.currentPrice && signal.currentPrice > 0
+      ? (() => {
+          const target = parsePriceZone(analysis.target, signal.currentPrice!);
+          const stop = parsePriceZone(analysis.stopLoss, signal.currentPrice!);
+          return {
+            ...(target != null ? { targetPrice: target } : {}),
+            ...(stop != null ? { stopLoss: stop } : {}),
+          };
+        })()
+      : {}),
+  });
 }

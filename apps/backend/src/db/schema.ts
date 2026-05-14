@@ -5,11 +5,24 @@ import { sql } from 'drizzle-orm';
 export const symbols = sqliteTable('symbols', {
   symbol: text('symbol').primaryKey(),
   name: text('name').notNull(),
-  type: text('type', { enum: ['adr', 'us', 'crypto'] }).notNull(),
+  type: text('type', { enum: ['adr', 'us', 'crypto', 'bond', 'etf', 'commodity'] }).notNull(),
   flag: text('flag').notNull().default('🌐'),
   plaza: text('plaza', {
     enum: ['argentina-energy', 'argentina-finance', 'argentina-cedears', 'us-energy', 'us-tech', 'crypto', 'bonds', 'etfs-sectors', 'commodities', 'emerging-markets', 'global'],
   }).notNull().default('global'),
+  active: integer('active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- ETF Watchlist (separate from portfolio symbols) ---
+export const etfWatchlist = sqliteTable('etf_watchlist', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  symbol: text('symbol').notNull().unique(),
+  name: text('name').notNull(),
+  category: text('category', {
+    enum: ['indices', 'sectores', 'bonos', 'commodities', 'latam', 'internacional', 'crypto', 'factor'],
+  }).notNull(),
+  description: text('description'),
   active: integer('active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
@@ -63,6 +76,8 @@ export const newsArticles = sqliteTable('news_articles', {
   sourceType: text('source_type').notNull(),     // "api", "rss", "scraper"
   title: text('title').notNull(),
   summary: text('summary'),
+  body: text('body'),                            // full article body extracted via Readability (cached)
+  bodyFetchedAt: text('body_fetched_at'),        // when body was extracted (for staleness checks)
   url: text('url'),
   publishedAt: text('published_at').notNull(),
   relatedSymbols: text('related_symbols').notNull(), // JSON array
@@ -200,6 +215,13 @@ export const signalTracking = sqliteTable('signal_tracking', {
   consecutiveBeats: integer('consecutive_beats'),
   aiVerdict: text('ai_verdict'),
   aiConfidence: integer('ai_confidence'),
+  // A/B tracking: algo vs LLM divergence (qué acertó cuando difirieron)
+  algoAction: text('algo_action'),                      // acción que diría el composite puro
+  llmAction: text('llm_action'),                        // acción que dio el LLM Stage 5b
+  verdictSource: text('verdict_source'),                // 'algo' | 'smart' | 'llm'
+  whoWasRight: text('who_was_right'),                   // 'algo' | 'llm' | 'both' | 'neither' | 'pending' — resuelto post-outcome
+  evidenceScore: integer('evidence_score'),             // 4to eje del composite
+  macroDelta: integer('macro_delta'),                   // ajuste macro aplicado (-15..+15)
 });
 
 // --- Historical price cache (1 day TTL daily, 1 week TTL weekly) ---
@@ -334,6 +356,7 @@ export const marketReports = sqliteTable('market_reports', {
   status: text('status', { enum: ['ok', 'partial', 'failed'] }).notNull(),
   macroContext: text('macro_context'),
   portfolioImpact: text('portfolio_impact'),
+  topImpactNews: text('top_impact_news'),
   themes: text('themes'),
   topRecommendations: text('top_recommendations'),
   alternatives: text('alternatives'),
@@ -498,6 +521,72 @@ export const unifiedAnalysisBatches = sqliteTable('unified_analysis_batches', {
   parsedOk: integer('parsed_ok', { mode: 'boolean' }).notNull().default(true),
   errorMsg: text('error_msg'),
   rawResponse: text('raw_response'), // Full LLM response (always saved)
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Unified Analysis per Symbol (parsed individual results) ---
+export const unifiedAnalysisResults = sqliteTable('unified_analysis_results', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  pipelineRunId: integer('pipeline_run_id').references(() => pipelineRuns.id),
+  symbol: text('symbol').notNull(),
+  generatedAt: text('generated_at').notNull().default(sql`(datetime('now'))`),
+  action: text('action', { enum: ['BUY', 'SELL', 'HOLD', 'WATCH'] }).notNull(),
+  inPortfolio: integer('in_portfolio', { mode: 'boolean' }).notNull().default(false),
+  thesis: text('thesis').notNull(),
+  catalysts: text('catalysts').notNull(),     // JSON string[]
+  risks: text('risks').notNull(),              // JSON string[]
+  wouldDo: text('would_do').notNull(),         // JSON string[]
+  wouldNotDo: text('would_not_do').notNull(),  // JSON string[]
+  narrative: text('narrative').notNull(),
+  macroTheme: text('macro_theme'),
+  generatedBy: text('generated_by').notNull(),
+  opportunityScore: integer('opportunity_score'),
+  // Synthetic dedupe key: pipelineRunId-symbol if run-scoped, YYYY-MM-DD-symbol if manual.
+  // Enforces "one analysis per symbol per pipeline run, or per symbol per day if manual".
+  dedupeKey: text('dedupe_key').notNull().unique(),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- News Radar Snapshots (v2 deep analysis output) ---
+// One row per radar generation. Stores per-article cause+impacts + aggregated signals.
+export const newsRadarSnapshots = sqliteTable('news_radar_snapshots', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  pipelineRunId: integer('pipeline_run_id').references(() => pipelineRuns.id),
+  generatedAt: text('generated_at').notNull().default(sql`(datetime('now'))`),
+  totalNewsAnalyzed: integer('total_news_analyzed').notNull(),
+  perArticle: text('per_article').notNull(),         // JSON: Array<{newsId, cause, positive[], negative[]}>
+  aggregatedSignals: text('aggregated_signals').notNull(), // JSON: ranked targets with pos/neg counts
+  emergingNarratives: text('emerging_narratives'),   // JSON: optional 1-3 strings
+  llmModel: text('llm_model'),
+  durationMs: integer('duration_ms'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- News Intelligence Snapshots (plazas + symbolTrends frozen-in-time) ---
+// One row per refreshIntelligence run. Lets us audit "what did the sentiment look
+// like at 14:00 yesterday" without re-running aggregateTrends from raw articles.
+export const newsIntelligenceSnapshots = sqliteTable('news_intelligence_snapshots', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  generatedAt: text('generated_at').notNull().default(sql`(datetime('now'))`),
+  totalNewsCount: integer('total_news_count').notNull(),
+  plazas: text('plazas').notNull(),        // JSON: PlazaSummary[]
+  alerts: text('alerts').notNull(),         // JSON: IntelligenceAlert[]
+  topHeadlines: text('top_headlines'),      // JSON: string[]
+  triangulationStats: text('triangulation_stats'),  // JSON
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
+// --- Anti-Hype Rejections (audit trail for filtered opportunities) ---
+// Records every symbol that gets rejected by the anti-hype pre-scoring filter,
+// with the specific reasons. Lets us answer "why didn't VIST appear in
+// opportunities yesterday?" without re-running the scan.
+export const antiHypeRejections = sqliteTable('anti_hype_rejections', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  scanId: integer('scan_id').references(() => opportunityScans.id),
+  symbol: text('symbol').notNull(),
+  reasons: text('reasons').notNull(),       // JSON: string[]
+  mode: text('mode'),                        // 'strict' | 'relaxed'
+  rejectedAt: text('rejected_at').notNull().default(sql`(datetime('now'))`),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 

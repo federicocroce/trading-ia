@@ -17,6 +17,54 @@ interface ArticleInput {
   source: string;
 }
 
+// Lista canónica: siempre se muestra una tarjeta por cada uno, con criticidad.
+// Si no hay noticias relevantes hoy → impact='neutral', conviccion='baja'.
+export const CANONICAL_INTEL_SECTORS = [
+  'Tech/IA',
+  'Semiconductores',
+  'Banca',
+  'Petróleo y Gas',
+  'Energía Renovable',
+  'Defensa',
+  'Salud/Pharma',
+  'Crypto',
+  'Commodities',
+  'Consumo/Retail',
+  'Real Estate',
+  'Automotriz',
+] as const;
+
+function buildNeutralSector(sectorName: string, generatedAt: number): SectorReport {
+  return {
+    sector: sectorName,
+    impact: 'neutral',
+    summary: 'Sin movimientos relevantes en las noticias del último ciclo.',
+    keyNews: [],
+    suggestedTickers: [],
+    riskFactors: [],
+    catalysts: [],
+    conviccion: 'baja',
+    tension: null,
+    generatedAt,
+  };
+}
+
+function normalizeSectorName(name: string): string {
+  return name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
+function mergeWithCanonical(llmReports: SectorReport[], generatedAt: number): SectorReport[] {
+  const byNorm = new Map<string, SectorReport>();
+  for (const r of llmReports) {
+    if (r.sector) byNorm.set(normalizeSectorName(r.sector), r);
+  }
+  return CANONICAL_INTEL_SECTORS.map(canonical => {
+    const found = byNorm.get(normalizeSectorName(canonical));
+    if (found) return { ...found, sector: canonical };
+    return buildNeutralSector(canonical, generatedAt);
+  });
+}
+
 function buildArticleBlock(articles: ArticleInput[]): string {
   return articles.map((a, i) => {
     const conf = a.triangulationConfidence === 'high' ? '[ALTA]' : '[MEDIA]';
@@ -42,30 +90,35 @@ export async function synthesizeSectorIntelligence(articles: ArticleInput[]): Pr
     }, {} as Record<string, string[]>),
   ).map(([sector, tickers]) => `- ${sector}: ${tickers.join(', ')}`).join('\n');
 
+  const canonicalList = CANONICAL_INTEL_SECTORS.map(s => `  - ${s}`).join('\n');
+
   const prompt = `IMPORTANTE: Responde EXCLUSIVAMENTE en español. Todos los textos deben estar en español. Prohibido usar inglés.
 
 Sos un analista de mercado senior. Te doy artículos de noticias financieras filtrados por calidad (marcados [ALTA] = 3+ fuentes, [MEDIA] = 2 fuentes).
 
-Tu trabajo: identificar los sectores financieros más impactados y generar un análisis causal completo de CADA UNO.
+Tu trabajo: evaluar el impacto de las noticias sobre CADA UNO de los sectores canónicos listados abajo. Devolvés un objeto por cada sector — incluso si no hay impacto (impact="neutral").
 
-Para cada sector impactado, genera un objeto con:
-- "sector": nombre en español (ej: "Defensa", "Petróleo y Gas", "Semiconductores", "Banca", "Crypto", "Tech/IA", "Salud/Pharma", "Commodities", "Energía Renovable", "E-commerce", "Automotriz", "Ciberseguridad")
-- "impact": "positive" | "negative" | "mixed"
-- "event": evento principal que causa el impacto (1 oración)
-- "summary": 2-3 oraciones explicando QUÉ pasa y POR QUÉ importa para invertir. Sé específico.
-- "catalysts": lista de 2-3 catalizadores concretos que impulsan el movimiento (ej: "Datos de empleo mejores de lo esperado", "Tensión arancelaria con China")
-- "keyNews": los 2-3 titulares más relevantes del sector (copiar literalmente de las noticias)
-- "suggestedTickers": 3-5 tickers reales (NYSE/NASDAQ) que se benefician o perjudican
-- "riskFactors": 1-2 riesgos específicos de este sector ahora mismo
-- "conviccion": "alta" si múltiples noticias [ALTA] confirman | "media" si mezcla de [ALTA]+[MEDIA] | "baja" si solo [MEDIA]
-- "tension": si hay señales contradictorias en el sector, describir en 1 oración. null si no hay tensión.
+SECTORES A EVALUAR (uno por uno, NO omitir ninguno, usar EXACTAMENTE estos nombres):
+${canonicalList}
+
+Para cada sector, genera un objeto con:
+- "sector": nombre EXACTO de la lista de arriba
+- "impact": "positive" | "negative" | "mixed" | "neutral" ("neutral" = no hay noticias relevantes hoy)
+- "event": evento principal que causa el impacto (1 oración). Si impact="neutral" → "Sin eventos relevantes en el ciclo actual"
+- "summary": 2-3 oraciones explicando QUÉ pasa y POR QUÉ importa para invertir. Si impact="neutral" → "Sin movimientos relevantes en las noticias del último ciclo."
+- "catalysts": lista de 2-3 catalizadores concretos. [] si neutral.
+- "keyNews": 2-3 titulares más relevantes (copiar literalmente). [] si neutral.
+- "suggestedTickers": 3-5 tickers reales (NYSE/NASDAQ). [] si neutral.
+- "riskFactors": 1-2 riesgos específicos. [] si neutral.
+- "conviccion": "alta" | "media" | "baja". Si impact="neutral" → "baja".
+- "tension": si hay señales contradictorias, 1 oración. null si no.
 - "confidence": "high" | "medium"
 
 REGLAS:
-- Solo incluir sectores con impacto REAL y VERIFICABLE en las noticias
-- No inventar impactos que no estén en los artículos
-- Máximo 8 sectores, ordenados por relevancia
-- Los catalizadores deben ser causas concretas, no genéricas
+- DEBES devolver EXACTAMENTE ${CANONICAL_INTEL_SECTORS.length} objetos en "sectors", uno por sector canónico (incluí los neutrales).
+- No inventar impactos que no estén en los artículos. Si dudás → impact="neutral".
+- Para impactados, los catalizadores deben ser causas concretas, no genéricas.
+- Ordená por relevancia: los de impact distinto de "neutral" primero, dentro de esos por conviccion alta→baja.
 
 REFERENCIA DE TICKERS POR SECTOR:
 ${sectorExamples || '(usar conocimiento propio)'}
@@ -79,9 +132,9 @@ Responde SOLO con JSON válido:
     const raw = await callAI('reasoning', userMsg, prompt, 6000);
     const parsed = JSON.parse(raw);
     const now = Date.now();
-    return (parsed.sectors ?? []).map((r: any): SectorReport => ({
+    const llmReports: SectorReport[] = (parsed.sectors ?? []).map((r: any): SectorReport => ({
       sector: r.sector ?? '',
-      impact: (r.impact ?? 'mixed') as SectorReport['impact'],
+      impact: (['positive', 'negative', 'mixed', 'neutral'].includes(r.impact) ? r.impact : 'neutral') as SectorReport['impact'],
       summary: r.summary ?? '',
       keyNews: Array.isArray(r.keyNews) ? r.keyNews : [],
       suggestedTickers: Array.isArray(r.suggestedTickers) ? r.suggestedTickers : [],
@@ -91,6 +144,7 @@ Responde SOLO con JSON válido:
       tension: r.tension ?? null,
       generatedAt: now,
     }));
+    return mergeWithCanonical(llmReports, now);
   } catch (err) {
     throw err;
   }
@@ -106,7 +160,28 @@ export async function runSectorIntelligence(): Promise<{ reports: SectorReport[]
   console.log(`[SectorIntelligence] ${articles.length} high/medium confidence articles`);
 
   if (articles.length === 0) {
-    return { reports: [], articleCount: 0 };
+    const now = Date.now();
+    const neutralReports = mergeWithCanonical([], now);
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      deleteSectorImpactsByDate(today);
+      insertSectorImpacts(today, neutralReports.map(r => ({
+        sector: r.sector,
+        impact: r.impact,
+        event: r.summary.split('.')[0] ?? r.summary,
+        summary: r.summary,
+        keyNews: r.keyNews,
+        suggestedTickers: r.suggestedTickers,
+        riskFactors: r.riskFactors,
+        catalysts: r.catalysts,
+        conviccion: r.conviccion,
+        tension: r.tension,
+        confidence: 'medium',
+      })));
+    } catch (err) {
+      console.warn('[SectorIntelligence] Persist neutral failed:', err);
+    }
+    return { reports: neutralReports, articleCount: 0 };
   }
 
   const reports = await synthesizeSectorIntelligence(articles);
@@ -143,7 +218,7 @@ export async function runSectorIntelligence(): Promise<{ reports: SectorReport[]
 export function getStoredSectorReports(): SectorReport[] {
   const today = new Date().toISOString().split('T')[0];
   const rows = getSectorImpactsByDate(today);
-  return rows.map(r => ({
+  const stored: SectorReport[] = rows.map(r => ({
     sector: r.sector,
     impact: r.impact as SectorReport['impact'],
     summary: r.summary,
@@ -155,6 +230,7 @@ export function getStoredSectorReports(): SectorReport[] {
     tension: r.tension ?? null,
     generatedAt: new Date(r.createdAt).getTime(),
   }));
+  return mergeWithCanonical(stored, Date.now());
 }
 
 /**

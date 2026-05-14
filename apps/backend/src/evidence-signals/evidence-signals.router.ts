@@ -7,9 +7,11 @@ import {
   getEvidenceSignalForSymbol,
   getLastScanRuns,
 } from './evidence-signals.service.js';
-import { getSignalTrackingHistory, getSignalAccuracyStats } from '../db/repository.js';
+import { getSignalTrackingHistory, getSignalAccuracyStats, getEvidenceSnapshotDates, getEvidenceSnapshotByDate } from '../db/repository.js';
 import { getCachedAnalysis, getAllCachedAnalyses } from './deep-analysis.service.js';
 import { runSignalResolver } from './signal-resolver.service.js';
+import { triggerNewsPipeline, getNewsPipelineStatus, getNewsPipelineResults } from './news-pipeline.service.js';
+import { getStoredSectorReports } from '../intelligence/sector-report.service.js';
 
 export const evidenceSignalsRouter = router({
   // Returns cached results immediately (fast). Empty if scan hasn't run yet.
@@ -50,8 +52,113 @@ export const evidenceSignalsRouter = router({
   resolveSignals: publicProcedure
     .mutation(() => runSignalResolver()),
 
+  scanDates: publicProcedure.query(() => getEvidenceSnapshotDates()),
+
+  snapshotByDate: publicProcedure
+    .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(({ input }) => {
+      const row = getEvidenceSnapshotByDate(input.date);
+      if (!row) return null;
+      return {
+        ...row,
+        signals: JSON.parse(row.signals),
+        analyses: JSON.parse(row.analyses),
+        marketRegime: row.marketRegime ? JSON.parse(row.marketRegime) : null,
+      };
+    }),
+
   getScanHistory: publicProcedure
     .query(() => getLastScanRuns(10)),
+
+  // ─── Convergence: symbols in both pipelines ───────────────────────────────
+  getConvergence: publicProcedure.query(() => {
+    const scanResult = getCachedScanResult();
+    const newsResult = getNewsPipelineResults();
+    const analyses = getAllCachedAnalyses();
+    const sectorReports = getStoredSectorReports();
+
+    const analysisMap = new Map(analyses.map((a) => [a.symbol, a]));
+    const scanMap = new Map(scanResult.signals.map((s) => [s.symbol, s]));
+    const newsMap = new Map(newsResult.signals.map((s) => [s.symbol, s]));
+    const sectorByTicker = new Map<string, (typeof sectorReports)[number]>();
+    for (const r of sectorReports) {
+      for (const t of r.suggestedTickers) sectorByTicker.set(t, r);
+    }
+
+    function convictionScore(c: string) {
+      return c === 'high' ? 3 : c === 'medium' ? 2 : c === 'low' ? 1 : 0;
+    }
+
+    // Intersection: in both pipelines
+    const intersection = [...scanMap.keys()]
+      .filter((sym) => newsMap.has(sym))
+      .map((sym) => {
+        const scan = scanMap.get(sym)!;
+        const news = newsMap.get(sym)!;
+        const analysis = analysisMap.get(sym) ?? null;
+        const sector = sectorByTicker.get(sym) ?? null;
+        // Combined conviction: scan (0-3) weighted x2 + news (0-2) + verdict bonus (0-2) + sector bonus (-1/0/1)
+        const verdictBonus = analysis?.verdict === 'BUY_SETUP' ? 2 : analysis?.verdict === 'WAIT' ? 1 : 0;
+        const sectorBonus = sector?.impact === 'positive' ? 1 : sector?.impact === 'negative' ? -1 : 0;
+        const combined = convictionScore(scan.conviction) * 2 + convictionScore(news.conviction) + verdictBonus + sectorBonus;
+        return {
+          symbol: sym,
+          currentPrice: scan.currentPrice,
+          scanConviction: scan.conviction,
+          newsConviction: news.conviction,
+          compositeScore: scan.compositeScore,
+          sector: sector?.sector ?? null,
+          sectorImpact: sector?.impact ?? null,
+          sectorCatalysts: sector?.catalysts ?? [],
+          analysis: analysis ? {
+            verdict: analysis.verdict,
+            confidence: analysis.confidence,
+            reasoning: analysis.reasoning,
+            entryZone: analysis.entryZone,
+            target: analysis.target,
+            stopLoss: analysis.stopLoss,
+            riskReward: analysis.riskReward,
+          } : null,
+          combinedScore: Math.max(0, combined),
+          signals: {
+            pead: scan.pead.active,
+            insider: scan.insider.active,
+            options: scan.optionsFlow.active,
+          },
+        };
+      })
+      .sort((a, b) => b.combinedScore - a.combinedScore);
+
+    // Only in scan (signals without news confirmation)
+    const onlyInScan = [...scanMap.keys()]
+      .filter((sym) => !newsMap.has(sym) && scanMap.get(sym)!.activeSignals > 0)
+      .map((sym) => ({ symbol: sym, conviction: scanMap.get(sym)!.conviction, compositeScore: scanMap.get(sym)!.compositeScore }))
+      .sort((a, b) => b.compositeScore - a.compositeScore)
+      .slice(0, 10);
+
+    // Only in news (thematic plays without technical signals)
+    const onlyInNews = [...newsMap.keys()]
+      .filter((sym) => !scanMap.has(sym))
+      .map((sym) => {
+        const sector = sectorByTicker.get(sym) ?? null;
+        return { symbol: sym, sector: sector?.sector ?? null, sectorImpact: sector?.impact ?? null };
+      });
+
+    return { intersection, onlyInScan, onlyInNews };
+  }),
+
+  // ─── News-First Pipeline ──────────────────────────────────────────────────
+  newsPipelineTrigger: publicProcedure
+    .mutation(() => {
+      triggerNewsPipeline();
+      return { ok: true, message: 'Pipeline news-first iniciado en background' };
+    }),
+
+  newsPipelineStatus: publicProcedure
+    .query(() => getNewsPipelineStatus()),
+
+  newsPipelineResults: publicProcedure
+    .query(() => getNewsPipelineResults()),
 
   getAccuracyStats: publicProcedure
     .query(() => {

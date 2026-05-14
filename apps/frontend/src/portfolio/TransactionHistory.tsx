@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import {
   Table,
   TableBody,
@@ -33,6 +34,12 @@ export function TransactionHistory() {
   );
 
   return (
+    <>
+    <TabInfo>
+      <InfoSection title="Qué muestra">Historial completo de operaciones de compra y venta registradas en el portfolio.</InfoSection>
+      <InfoSection title="Base de cálculo">Las transacciones son la fuente de verdad para el precio promedio de cada posición y el P&L del portfolio. Sin transacciones no hay datos de costo base.</InfoSection>
+      <InfoSection title="Filtros">Filtrable por símbolo. Las operaciones se pueden registrar manualmente o importar desde Buenbit via CLI (script db:add-tx).</InfoSection>
+    </TabInfo>
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Historial de Operaciones</h2>
@@ -133,5 +140,6 @@ export function TransactionHistory() {
         onOpenChange={setTxDialogOpen}
       />
     </div>
+    </>
   );
 }

@@ -6,7 +6,7 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace=apps/backend & npm run dev --workspace=apps/frontend",
+    "dev": "lsof -ti:3001 | xargs kill -9 2>/dev/null; lsof -ti:5050 | xargs kill -9 2>/dev/null; npm run dev --workspace=apps/backend & npm run dev --workspace=apps/frontend",
     "dev:backend": "npm run dev --workspace=apps/backend",
     "dev:frontend": "npm run dev --workspace=apps/frontend",
     "build": "npm run build --workspace=packages/shared && npm run build --workspaces --if-present",

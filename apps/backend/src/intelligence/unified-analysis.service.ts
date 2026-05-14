@@ -21,7 +21,7 @@ import { UNIFIED_ASSET_ANALYSIS_PROMPT } from '@trading/shared';
 import { callAIWithModel } from '../shared/ai-router.js';
 import { getPortfolioPositions } from '../db/repository.js';
 import type { SentimentInput } from '../opportunities/scoring.js';
-import { saveUnifiedAnalysisBatch } from './pipeline-artifacts.repository.js';
+import { saveUnifiedAnalysisBatch, saveUnifiedAnalysisResults } from './pipeline-artifacts.repository.js';
 
 type PortfolioPosition = { symbol: string; quantity: number; avgCost: number };
 
@@ -184,6 +184,10 @@ async function analyzeBatch(
     parsedOk = false;
     errorMsg = (err as Error).message?.slice(0, 200);
     console.warn(`[unified-analysis] Batch failed: ${errorMsg}`);
+    // Re-throw so the caller's circuit breaker can abort remaining batches
+    if (errorMsg?.includes('All providers failed') || errorMsg?.includes('All providers quota-exhausted')) {
+      throw err;
+    }
   }
 
   if (pipelineRunId) {
@@ -223,23 +227,53 @@ export async function runUnifiedAnalysis(
   pipelineRunId?: number,
   macroContext = '',
   causalContextMap?: Map<string, string>,
+  discoveredSet?: Set<string>,
 ): Promise<Map<string, UnifiedAssetAnalysis>> {
   const result = new Map<string, UnifiedAssetAnalysis>();
 
-  // Portfolio assets always included, then top BUY/SELL by score
-  const portfolio = opportunities.filter(o => o.inPortfolio);
-  const topNonPortfolio = opportunities
-    .filter(o => !o.inPortfolio && (o.action === 'BUY' || o.action === 'SELL') && o.passedAntiHype !== false)
-    .slice(0, maxAssets - portfolio.length);
+  // News-context detector with multi-signal fallback (sentimentMap can be empty
+  // for fresh discoveries if news LLM didn't tag affectedTickers).
+  const hasNewsContext = (o: Opportunity): boolean => {
+    // Signal 1: explicit sentimentMap entry with score
+    const sent = sentimentMap.get(o.symbol);
+    if (sent && (sent.headlines?.length ?? 0) > 0 && Math.abs(sent.score ?? 0) >= 0.25) return true;
+    // Signal 2: causal context built from macro events
+    if (causalContextMap?.has(o.symbol)) return true;
+    // Signal 3: symbol came from news-driven discovery registry
+    if (discoveredSet?.has(o.symbol)) return true;
+    // Signal 4: opportunity has explicit news catalyst in catalysts array
+    if (o.catalysts?.some(c => /noticia|news|catalyst|earnings|fed|tariff|aranceles/i.test(c))) return true;
+    return false;
+  };
 
-  const targets = [...portfolio, ...topNonPortfolio];
+  // Selection logic:
+  // 1. Portfolio assets ALWAYS included (any action)
+  // 2. Non-portfolio BUY/SELL: top by score (passed anti-hype)
+  // 3. Non-portfolio HOLD/WATCH: include if has ANY news context (4 fallback signals)
+  const portfolio = opportunities.filter(o => o.inPortfolio);
+  const nonPortfolioBuySell = opportunities
+    .filter(o => !o.inPortfolio && (o.action === 'BUY' || o.action === 'SELL') && o.passedAntiHype !== false)
+    .sort((a, b) => b.opportunityScore - a.opportunityScore);
+  const nonPortfolioHoldWithNews = opportunities
+    .filter(o => !o.inPortfolio && (o.action === 'HOLD' || o.action === 'WATCH') && o.passedAntiHype !== false)
+    .filter(hasNewsContext)
+    .sort((a, b) => b.opportunityScore - a.opportunityScore);
+
+  const slotsForNonPortfolio = Math.max(0, maxAssets - portfolio.length);
+  // Reserve up to 70% for BUY/SELL, rest for newsworthy HOLD/WATCH
+  const buySellSlots = Math.ceil(slotsForNonPortfolio * 0.7);
+  const holdSlots = slotsForNonPortfolio - buySellSlots;
+  const topBuySell = nonPortfolioBuySell.slice(0, buySellSlots);
+  const topHoldNews = nonPortfolioHoldWithNews.slice(0, holdSlots);
+
+  const targets = [...portfolio, ...topBuySell, ...topHoldNews];
 
   if (targets.length === 0) {
     console.log('[unified-analysis] No targets to analyze');
     return result;
   }
 
-  console.log(`[unified-analysis] Analyzing ${targets.length} assets (${portfolio.length} portfolio + ${topNonPortfolio.length} top) in batches of ${BATCH_SIZE}`);
+  console.log(`[unified-analysis] Analyzing ${targets.length} assets (${portfolio.length} portfolio + ${topBuySell.length} BUY/SELL + ${topHoldNews.length} HOLD-with-news) in batches of ${BATCH_SIZE}`);
 
   // Build batches
   const batches: Opportunity[][] = [];
@@ -247,19 +281,39 @@ export async function runUnifiedAnalysis(
     batches.push(targets.slice(i, i + BATCH_SIZE));
   }
 
-  // Run batches in parallel
-  const batchResults = await Promise.allSettled(
-    batches.map((batch, i) => analyzeBatch(batch, techMap, fundMap, sentimentMap, pipelineRunId, i, macroContext, causalContextMap)),
-  );
-
-  for (const r of batchResults) {
-    if (r.status === 'fulfilled') {
-      for (const [symbol, analysis] of r.value) {
+  // Run batches sequentially so we can abort early if all AI providers are exhausted
+  for (let i = 0; i < batches.length; i++) {
+    try {
+      const batchResult = await analyzeBatch(batches[i], techMap, fundMap, sentimentMap, pipelineRunId, i, macroContext, causalContextMap);
+      for (const [symbol, analysis] of batchResult) {
         result.set(symbol, analysis);
+      }
+    } catch (err) {
+      const msg = (err as Error).message ?? '';
+      if (msg.includes('All providers failed') || msg.includes('All providers quota-exhausted')) {
+        console.warn(`[unified-analysis] Circuit breaker: todos los providers AI agotados. Abortando ${batches.length - i - 1} batches restantes.`);
+        break;
       }
     }
   }
 
   console.log(`[unified-analysis] Complete: ${result.size}/${targets.length} assets analyzed`);
+
+  // Persist parsed per-symbol results so each output is queryable from DB
+  if (result.size > 0) {
+    try {
+      const portfolioSymbols = new Set(portfolio.map(o => o.symbol));
+      const scoreBySymbol = new Map(targets.map(o => [o.symbol, o.opportunityScore]));
+      saveUnifiedAnalysisResults({
+        pipelineRunId,
+        results: result,
+        portfolioSymbols,
+        scoreBySymbol,
+      });
+    } catch (err) {
+      console.warn('[unified-analysis] Failed to persist per-symbol results:', (err as Error).message);
+    }
+  }
+
   return result;
 }

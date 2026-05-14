@@ -1,5 +1,19 @@
 import type { NewsItem, TriangulationResult, TriangulationConfidence, NewsSourceType } from '@trading/shared';
 
+export interface TriangulationStats {
+  total: number;
+  clusters: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
+let lastTriangulationStats: TriangulationStats = { total: 0, clusters: 0, high: 0, medium: 0, low: 0 };
+
+export function getLastTriangulationStats(): TriangulationStats {
+  return lastTriangulationStats;
+}
+
 // --- Tokenization & Similarity ---
 
 const STOP_WORDS = new Set([
@@ -207,6 +221,8 @@ export function triangulateNews(news: NewsItem[]): NewsItem[] {
     `[triangulation] ${result.length} noticias en ${clusterCounter} clusters` +
     ` (alta: ${highCount}, media: ${mediumCount}, baja: ${lowCount})`,
   );
+
+  lastTriangulationStats = { total: result.length, clusters: clusterCounter, high: highCount, medium: mediumCount, low: lowCount };
 
   return result;
 }

@@ -1,6 +1,6 @@
 import { eq, desc, gte, lt, asc, and, inArray, gt, sql } from 'drizzle-orm';
 import { db, schema } from './index.js';
-import { missedOpportunities, signalTracking } from './schema.js';
+import { missedOpportunities, signalTracking, etfWatchlist } from './schema.js';
 
 // ==================== SYMBOLS ====================
 
@@ -14,10 +14,12 @@ export function getSymbol(symbol: string) {
 
 type SymbolPlaza = 'argentina-energy' | 'argentina-finance' | 'argentina-cedears' | 'us-energy' | 'us-tech' | 'crypto' | 'bonds' | 'etfs-sectors' | 'commodities' | 'emerging-markets' | 'global';
 
+export type SymbolType = 'adr' | 'us' | 'crypto' | 'bond' | 'etf' | 'commodity';
+
 export function insertSymbol(data: {
   symbol: string;
   name: string;
-  type: 'adr' | 'us' | 'crypto';
+  type: SymbolType;
   flag?: string;
   plaza?: string;
 }) {
@@ -29,7 +31,7 @@ export function insertSymbol(data: {
 
 export function updateSymbol(symbol: string, data: Partial<{
   name: string;
-  type: 'adr' | 'us' | 'crypto';
+  type: SymbolType;
   flag: string;
   plaza: 'argentina-energy' | 'argentina-finance' | 'us-energy' | 'crypto' | 'global';
   active: boolean;
@@ -103,7 +105,9 @@ export function deleteTransaction(id: number) {
 
 /** Get all active symbol strings (replaces ALL_SYMBOLS constant) */
 export function getActiveSymbolList(): string[] {
-  return getAllSymbols().map((s) => s.symbol);
+  const portfolioSymbols = getAllSymbols().map((s) => s.symbol);
+  const etfSymbols = getEtfSymbols();
+  return [...new Set([...portfolioSymbols, ...etfSymbols])];
 }
 
 /** Get position data in the format portfolio.service.ts expects */
@@ -368,6 +372,142 @@ export function updateNewsAnalysis(externalId: string, sentiment: string, impact
     .run();
 }
 
+export function getNewsBodyByExternalId(externalId: string): { body: string | null; bodyFetchedAt: string | null } | null {
+  const row = db.select({ body: schema.newsArticles.body, bodyFetchedAt: schema.newsArticles.bodyFetchedAt })
+    .from(schema.newsArticles)
+    .where(eq(schema.newsArticles.externalId, externalId))
+    .get();
+  return row ?? null;
+}
+
+export function getNewsBodiesByExternalIds(ids: string[]): Map<string, { body: string | null; bodyFetchedAt: string | null }> {
+  const out = new Map<string, { body: string | null; bodyFetchedAt: string | null }>();
+  if (ids.length === 0) return out;
+  for (let i = 0; i < ids.length; i += 500) {
+    const batch = ids.slice(i, i + 500);
+    const rows = db.select({
+      externalId: schema.newsArticles.externalId,
+      body: schema.newsArticles.body,
+      bodyFetchedAt: schema.newsArticles.bodyFetchedAt,
+    })
+      .from(schema.newsArticles)
+      .where(inArray(schema.newsArticles.externalId, batch))
+      .all();
+    for (const r of rows) out.set(r.externalId, { body: r.body, bodyFetchedAt: r.bodyFetchedAt });
+  }
+  return out;
+}
+
+export function updateNewsBody(externalId: string, body: string): void {
+  db.update(schema.newsArticles)
+    .set({ body, bodyFetchedAt: new Date().toISOString() })
+    .where(eq(schema.newsArticles.externalId, externalId))
+    .run();
+}
+
+// ==================== NEWS RADAR SNAPSHOTS ====================
+
+export function insertNewsRadarSnapshot(data: {
+  pipelineRunId?: number | null;
+  totalNewsAnalyzed: number;
+  perArticle: string;            // JSON
+  aggregatedSignals: string;     // JSON
+  emergingNarratives?: string;   // JSON
+  llmModel?: string;
+  durationMs?: number;
+}) {
+  return db.insert(schema.newsRadarSnapshots).values({
+    pipelineRunId: data.pipelineRunId ?? null,
+    totalNewsAnalyzed: data.totalNewsAnalyzed,
+    perArticle: data.perArticle,
+    aggregatedSignals: data.aggregatedSignals,
+    emergingNarratives: data.emergingNarratives ?? null,
+    llmModel: data.llmModel ?? null,
+    durationMs: data.durationMs ?? null,
+  }).run();
+}
+
+export function getLatestNewsRadarSnapshot() {
+  return db.select().from(schema.newsRadarSnapshots)
+    .orderBy(desc(schema.newsRadarSnapshots.generatedAt))
+    .limit(1)
+    .get();
+}
+
+export function getNewsRadarSnapshotsByDateRange(sinceISO: string, limit: number = 20) {
+  return db.select().from(schema.newsRadarSnapshots)
+    .where(gte(schema.newsRadarSnapshots.generatedAt, sinceISO))
+    .orderBy(desc(schema.newsRadarSnapshots.generatedAt))
+    .limit(limit)
+    .all();
+}
+
+// ==================== NEWS INTELLIGENCE SNAPSHOTS ====================
+
+export function insertNewsIntelligenceSnapshot(data: {
+  totalNewsCount: number;
+  plazas: string;              // JSON
+  alerts: string;              // JSON
+  topHeadlines?: string;       // JSON
+  triangulationStats?: string; // JSON
+}) {
+  return db.insert(schema.newsIntelligenceSnapshots).values({
+    totalNewsCount: data.totalNewsCount,
+    plazas: data.plazas,
+    alerts: data.alerts,
+    topHeadlines: data.topHeadlines ?? null,
+    triangulationStats: data.triangulationStats ?? null,
+  }).run();
+}
+
+export function getLatestNewsIntelligenceSnapshot() {
+  return db.select().from(schema.newsIntelligenceSnapshots)
+    .orderBy(desc(schema.newsIntelligenceSnapshots.generatedAt))
+    .limit(1)
+    .get();
+}
+
+export function getNewsIntelligenceSnapshotsByDateRange(sinceISO: string, limit: number = 20) {
+  return db.select().from(schema.newsIntelligenceSnapshots)
+    .where(gte(schema.newsIntelligenceSnapshots.generatedAt, sinceISO))
+    .orderBy(desc(schema.newsIntelligenceSnapshots.generatedAt))
+    .limit(limit)
+    .all();
+}
+
+// ==================== ANTI-HYPE REJECTIONS ====================
+
+export function insertAntiHypeRejections(rejections: Array<{
+  scanId?: number | null;
+  symbol: string;
+  reasons: string[];
+  mode?: 'strict' | 'relaxed';
+}>): void {
+  if (rejections.length === 0) return;
+  const rows = rejections.map(r => ({
+    scanId: r.scanId ?? null,
+    symbol: r.symbol,
+    reasons: JSON.stringify(r.reasons),
+    mode: r.mode ?? null,
+  }));
+  db.insert(schema.antiHypeRejections).values(rows).run();
+}
+
+export function getAntiHypeRejectionsForScan(scanId: number) {
+  return db.select().from(schema.antiHypeRejections)
+    .where(eq(schema.antiHypeRejections.scanId, scanId))
+    .all()
+    .map(r => ({ ...r, reasons: JSON.parse(r.reasons) as string[] }));
+}
+
+export function getRecentAntiHypeRejections(limit: number = 100) {
+  return db.select().from(schema.antiHypeRejections)
+    .orderBy(desc(schema.antiHypeRejections.rejectedAt))
+    .limit(limit)
+    .all()
+    .map(r => ({ ...r, reasons: JSON.parse(r.reasons) as string[] }));
+}
+
 // ==================== SWING ALERTS ====================
 
 export function insertSwingAlert(data: {
@@ -498,15 +638,26 @@ export function getActiveDiscoveredSymbols() {
     .all();
 }
 
+/**
+ * Soft TTL: only hard-deactivate symbols that expired AT LEAST 4 days ago.
+ * Between day 14 (expiresAt) and day 18 (hard deactivate), the row stays
+ * inactive for opportunity scans but is still findable by upsertDiscoveredSymbol,
+ * which refreshes expiresAt back to +14 days on any news re-mention. This
+ * prevents the "cliff" where a symbol vanishes mid-market-day and the user
+ * loses 4-day-old context the moment news re-mentions it.
+ */
+const GRACE_PERIOD_DAYS = 4;
+
 export function deactivateExpiredDiscoveries() {
-  const now = new Date().toISOString();
+  const cutoff = new Date(Date.now() - GRACE_PERIOD_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const all = db.select().from(schema.discoveredSymbols)
     .where(eq(schema.discoveredSymbols.active, true))
     .all();
 
   let deactivated = 0;
   for (const s of all) {
-    if (s.expiresAt <= now) {
+    // Only deactivate if expired MORE than grace period ago
+    if (s.expiresAt <= cutoff) {
       db.update(schema.discoveredSymbols)
         .set({ active: false })
         .where(eq(schema.discoveredSymbols.symbol, s.symbol))
@@ -550,6 +701,12 @@ export function insertSignalTracking(data: {
   consecutiveBeats?: number | null;
   aiVerdict?: string | null;
   aiConfidence?: number | null;
+  // A/B verdict tracking (algo vs LLM divergence resolution)
+  algoAction?: string | null;
+  llmAction?: string | null;
+  verdictSource?: string | null;
+  evidenceScore?: number | null;
+  macroDelta?: number | null;
 }) {
   // Atomic upsert: delete pending + insert new in single transaction
   return db.transaction((trx) => {
@@ -1283,4 +1440,37 @@ export function getCausalTickersByDate(date: string): Array<{ ticker: string; di
     direction: data.direction,
     causalSummary: data.reasons.join('\n'),
   }));
+}
+
+// ─── ETF Watchlist ────────────────────────────────────────────────────────────
+
+export interface EtfWatchlistEntry {
+  id: number;
+  symbol: string;
+  name: string;
+  category: 'indices' | 'sectores' | 'bonos' | 'commodities' | 'latam' | 'internacional' | 'crypto' | 'factor';
+  description: string | null;
+  active: boolean;
+  createdAt: string;
+}
+
+export function getEtfWatchlist(): EtfWatchlistEntry[] {
+  return db.select().from(etfWatchlist).where(eq(etfWatchlist.active, true)).all() as EtfWatchlistEntry[];
+}
+
+export function getEtfSymbols(): string[] {
+  return getEtfWatchlist().map((e) => e.symbol);
+}
+
+export function addEtfToWatchlist(
+  symbol: string,
+  name: string,
+  category: EtfWatchlistEntry['category'],
+  description?: string,
+): void {
+  db.insert(etfWatchlist).values({ symbol: symbol.toUpperCase(), name, category, description: description ?? null }).run();
+}
+
+export function removeEtfFromWatchlist(symbol: string): void {
+  db.update(etfWatchlist).set({ active: false }).where(eq(etfWatchlist.symbol, symbol.toUpperCase())).run();
 }

@@ -7,6 +7,17 @@ let cachedSourceStats: NewsSourceStats = {};
 let lastApiFetch = 0;
 const API_FETCH_INTERVAL = 12 * 60 * 60 * 1000; // 12 horas
 
+interface AggregationStats {
+  totalRaw: number;
+  duplicatesRemoved: number;
+  sourceStats: NewsSourceStats;
+}
+let lastAggregationStats: AggregationStats = { totalRaw: 0, duplicatesRemoved: 0, sourceStats: {} };
+
+export function getLastAggregationStats(): AggregationStats {
+  return lastAggregationStats;
+}
+
 /**
  * Convert a DB row back to a NewsItem.
  */
@@ -20,6 +31,9 @@ function dbRowToNewsItem(row: {
   url: string | null;
   sentiment: string | null;
   impact: string | null;
+  summary: string | null;
+  body: string | null;
+  bodyFetchedAt: string | null;
 }): NewsItem {
   const tickers: string[] = JSON.parse(row.relatedSymbols);
   return {
@@ -33,6 +47,9 @@ function dbRowToNewsItem(row: {
     url: row.url ?? undefined,
     relatedTickers: tickers,
     sourceType: row.sourceType as 'api' | 'rss' | 'scraper',
+    summary: row.summary ?? undefined,
+    body: row.body ?? undefined,
+    bodyFetchedAt: row.bodyFetchedAt ?? undefined,
   };
 }
 
@@ -88,6 +105,7 @@ function loadFromDB(): NewsItem[] {
 async function fetchAndPersist(): Promise<{ news: NewsItem[]; newCount: number }> {
   const result = await aggregateNews();
   cachedSourceStats = result.sourceStats;
+  lastAggregationStats = { totalRaw: result.totalRaw, duplicatesRemoved: result.duplicatesRemoved, sourceStats: result.sourceStats };
   lastApiFetch = Date.now();
 
   const newCount = persistArticles(result.news.map(newsItemToRaw));

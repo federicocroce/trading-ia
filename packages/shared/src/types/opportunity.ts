@@ -109,6 +109,86 @@ export interface Opportunity {
   deepAnalysis?: DeepAnalysis;
   convictionTier?: ConvictionTier;
   unifiedAnalysis?: UnifiedAssetAnalysis;
+  radarInfluence?: {
+    bonus: number;        // sentiment score bonus applied (-25..+25)
+    sources: string[];    // e.g. ["ticker:TLT=+1.5", "sector:bonos_largos=+1.2"]
+    conflict?: string;    // base sentiment vs radar disagreement note
+  };
+  /** Evidencia empírica (PEAD, insider, options flow, sector momentum). 4to eje del composite. */
+  evidenceInfluence?: {
+    score: number;        // -100..+100 (alineado con escala tech/fund)
+    drivers: string[];    // razones humanas: "PEAD activo: beat +14%", "Insider: $4M de 3 buyers"
+    conviction: 'high' | 'medium' | 'low' | 'none';
+    activeSignals: number; // 0..3
+    hasData: boolean;     // true si hay cache vigente, false si símbolo no fue escaneado
+  };
+  /** Cadena de decisión trazable: por qué este símbolo terminó con esta acción final. */
+  verdict?: VerdictChain;
+  /** Si algún eje gatilló un veto que cambió la acción (sent muy negativo, fund muy débil, etc). */
+  axisVeto?: AxisVeto;
+  /** Ajuste macro aplicado al composite (causalChains → -15..+15). */
+  macroAdjustment?: MacroAdjustment;
+  /** Conflictos entre dimensiones (no solo intra-técnico). */
+  crossConflicts?: CrossConflict[];
+}
+
+export interface VerdictChain {
+  /** Acción final mostrada al usuario tras todas las capas. */
+  finalAction: SignalAction;
+  /** Cada capa de decisión con su resultado. */
+  layers: {
+    algoAction: SignalAction;            // basada en composite + score, antes de overrides
+    algoScore: number;                   // composite numérico
+    smartAction: SignalAction;           // post smartAction (divergencias / niveles)
+    smartReason?: string;                // explicación del override smart si difiere de algo
+    llmAction?: SignalAction;            // resultado del LLM Stage 5b si aplica
+    llmReason?: string;                  // thesis breve del LLM
+  };
+  /** Trazabilidad textual: ["algo:BUY(72)", "smart:WATCH (div bajista RSI diario)", "llm:BUY"] */
+  trace: string[];
+  /** Quién mandó al final: 'algo' | 'smart' | 'llm'. */
+  source: 'algo' | 'smart' | 'llm';
+}
+
+export type AxisVetoType =
+  | 'sentiment-extreme-negative'
+  | 'fundamental-weak-with-tech-flat'
+  | 'evidence-bearish-with-bull-bias'
+  | 'technical-extreme-bearish';
+
+export interface AxisVeto {
+  type: AxisVetoType;
+  axis: 'sentiment' | 'fundamental' | 'technical' | 'evidence';
+  value: number;        // score actual del eje vetante
+  threshold: number;    // umbral cruzado
+  forcedAction: SignalAction;  // acción que el veto fuerza (típicamente WATCH o SELL)
+  reason: string;       // explicación humana
+}
+
+export interface MacroAdjustment {
+  delta: number;        // -15..+15 puntos sumados al composite
+  drivers: Array<{
+    eventId: string;
+    event: string;
+    category: string;
+    direction: 'positive' | 'negative';
+    impact: 'direct' | 'indirect';
+  }>;
+}
+
+export type CrossConflictType =
+  | 'tech-bull-vs-fund-weak'    // value trap warning
+  | 'tech-bull-vs-sent-bear'    // hype sin confirmación / divergencia narrativa
+  | 'fund-strong-vs-tech-bear'  // possible bottom fishing
+  | 'evidence-bull-vs-tech-bear' // smart money entering antes que tape
+  | 'sent-bull-vs-tech-bear';    // FOMO sin precio
+
+export interface CrossConflict {
+  type: CrossConflictType;
+  severity: 'high' | 'medium' | 'low';
+  axes: Array<'technical' | 'fundamental' | 'sentiment' | 'evidence'>;
+  explanation: string;
+  suggestion: string;
 }
 
 export type ConvictionTier = 'strong' | 'standard' | 'speculative';
@@ -155,6 +235,8 @@ export interface OpportunityScanResult {
   analysisEngine: AnalysisEngine;
   analysisDetail: string;
   source: ScanSource; // 'live' = recién escaneado, 'db' = recuperado de BD
+  antiHypeRejected?: Array<{ symbol: string; reasons: string[] }>;  // for audit/persistence
+  antiHypeMode?: 'strict' | 'relaxed';
 }
 
 export type WeeklyPickTier = 'HIGH' | 'MEDIUM';

@@ -4,3 +4,4 @@ export * from './markets.js';
 export * from './opportunities.js';
 export * from './correlations.js';
 export * from './scoring-weights.js';
+export * from './ticker-sector-map.js';
