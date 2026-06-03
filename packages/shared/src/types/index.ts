@@ -1,6 +1,7 @@
 export * from './stock.js';
 export * from './price.js';
 export * from './portfolio.js';
+export * from './portfolio-risk.js';
 export * from './technical.js';
 export * from './fundamental.js';
 export * from './signal.js';
