@@ -5,6 +5,7 @@ import type {
   AxisVeto,
   CrossConflict,
   MacroAdjustment,
+  PortfolioAdjustment,
 } from '@trading/shared';
 
 /**
@@ -159,8 +160,9 @@ export function resolveFinalVerdict(opts: {
   llmAction?: SignalAction;
   llmReason?: string;
   veto?: AxisVeto;
+  portfolioAdjustment?: PortfolioAdjustment;
 }): VerdictChain {
-  const { algoAction, algoScore, smartAction, smartReason, llmAction, llmReason, veto } = opts;
+  const { algoAction, algoScore, smartAction, smartReason, llmAction, llmReason, veto, portfolioAdjustment } = opts;
 
   const trace: string[] = [];
   trace.push(`algo:${algoAction}(${algoScore})`);
@@ -172,6 +174,17 @@ export function resolveFinalVerdict(opts: {
     trace.push(`veto:${veto.forcedAction}(${veto.axis}=${veto.value.toFixed(0)})`);
     finalAction = veto.forcedAction;
     source = 'algo'; // veto se considera parte de la capa algorítmica
+  }
+
+  // Capa cartera: informativa en el trace. El delta ya se aplicó al composite en
+  // buildAlgorithmicOpportunity, así que no toca finalAction/source aquí.
+  if (portfolioAdjustment && portfolioAdjustment.verdict !== 'neutral') {
+    const sign = portfolioAdjustment.rawDelta >= 0 ? '+' : '';
+    trace.push(
+      `portfolio:${portfolioAdjustment.verdict} ` +
+      `(${portfolioAdjustment.reason.replace(/\.$/, '')}) ` +
+      `Δ${sign}${portfolioAdjustment.rawDelta}×${portfolioAdjustment.intensity}=${portfolioAdjustment.delta}`,
+    );
   }
 
   if (smartAction !== finalAction) {
