@@ -47,7 +47,8 @@ import {
 import {
   buildAlgorithmicOpportunity,
 } from './scoring.js';
-import { buildPortfolioContext, buildPortfolioDiagnostic } from './portfolio-risk.service.js';
+import { buildPortfolioContext, buildPortfolioDiagnostic, computePortfolioAdjustment } from './portfolio-risk.service.js';
+import { factorsForSymbol } from './risk-factor-map.js';
 import { toReturns } from './correlation.js';
 import { getPortfolio } from '../portfolio/portfolio.service.js';
 import type { OHLC, PortfolioDiagnostic } from '@trading/shared';
@@ -242,9 +243,14 @@ export async function getPortfolioDiagnostic(): Promise<PortfolioDiagnostic> {
   if (scan?.opportunities) {
     try {
       const opps = JSON.parse(scan.opportunities) as Opportunity[];
-      candidateVerdicts = opps
-        .filter((o) => o.portfolioAdjustment)
-        .map((o) => ({ symbol: o.symbol, verdict: o.portfolioAdjustment!.verdict }));
+      // Recompute the verdict on the fly so the panel works even for scans stored
+      // before this feature existed (stored portfolioAdjustment may be absent).
+      // Use intensity 1 for classification only — this does not touch any score.
+      candidateVerdicts = opps.map((o) => ({
+        symbol: o.symbol,
+        verdict: o.portfolioAdjustment?.verdict
+          ?? computePortfolioAdjustment(o.symbol, factorsForSymbol(o.symbol, o.sector), returnsFromHistoricalCache(o.symbol), ctx, 1).verdict,
+      }));
     } catch { /* ignore malformed scan blob */ }
   }
 
