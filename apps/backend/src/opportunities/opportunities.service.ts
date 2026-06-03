@@ -42,10 +42,27 @@ import {
   getFundamentalCacheAge,
   getMarketDigestByDate,
   upsertMarketDigest,
+  getHistoricalFromCache,
 } from '../db/repository.js';
 import {
   buildAlgorithmicOpportunity,
 } from './scoring.js';
+import { buildPortfolioContext, buildPortfolioDiagnostic } from './portfolio-risk.service.js';
+import { toReturns } from './correlation.js';
+import { getPortfolio } from '../portfolio/portfolio.service.js';
+import type { OHLC, PortfolioDiagnostic } from '@trading/shared';
+
+/** Daily returns for a symbol from the BD historical cache (no network). [] if absent. */
+function returnsFromHistoricalCache(symbol: string): number[] {
+  const cached = getHistoricalFromCache(symbol, 'daily');
+  if (!cached) return [];
+  try {
+    const hist = JSON.parse(cached) as OHLC[];
+    return toReturns(hist.map((b) => b.close).filter((c): c is number => typeof c === 'number'));
+  } catch {
+    return [];
+  }
+}
 import { getEvidenceScoreMap } from '../evidence-signals/evidence-score.service.js';
 import {
   filterSymbolsByPositiveSectors,
@@ -123,15 +140,31 @@ export function filterItemsVsBuyTickers(items: string[], buyTickers: Set<string>
   });
 }
 
-function normalizeDigest(d: import('@trading/shared').MarketDigest): import('@trading/shared').MarketDigest {
+function normalizeDigest(d: any): import('@trading/shared').MarketDigest {
   const buyTickers = getCurrentBuyTickers();
-  const wouldNotDoStrings = Array.isArray(d.wouldNotDo) ? d.wouldNotDo.map(coerceTextItem).filter(s => s.length > 0) : [];
+  const arr = (v: unknown): string[] =>
+    Array.isArray(v) ? (v as unknown[]).map(coerceTextItem).filter(s => s.length > 0) : [];
+
+  // Backward-compat: blobs viejos persistidos antes del split tenían wouldDo/wouldNotDo
+  // sin prefijo (eran portfolio-sesgados en la práctica). Migrarlos al portfolio side.
+  const legacyWouldDo = arr(d.wouldDo);
+  const legacyWouldNotDo = arr(d.wouldNotDo);
+
+  const portfolioWouldDo = d.portfolioWouldDo !== undefined ? arr(d.portfolioWouldDo) : legacyWouldDo;
+  const portfolioWouldNotDoRaw = d.portfolioWouldNotDo !== undefined ? arr(d.portfolioWouldNotDo) : legacyWouldNotDo;
+  const marketWouldDo = arr(d.marketWouldDo);
+  const marketWouldNotDoRaw = arr(d.marketWouldNotDo);
+
+  const { wouldDo: _w, wouldNotDo: _wn, ...rest } = d ?? {};
+
   return {
-    ...d,
-    wouldDo: Array.isArray(d.wouldDo) ? d.wouldDo.map(coerceTextItem).filter(s => s.length > 0) : [],
-    wouldNotDo: filterItemsVsBuyTickers(wouldNotDoStrings, buyTickers),
-    warnings: Array.isArray(d.warnings) ? d.warnings.map(coerceTextItem).filter(s => s.length > 0) : [],
-  };
+    ...rest,
+    portfolioWouldDo,
+    portfolioWouldNotDo: filterItemsVsBuyTickers(portfolioWouldNotDoRaw, buyTickers),
+    marketWouldDo,
+    marketWouldNotDo: filterItemsVsBuyTickers(marketWouldNotDoRaw, buyTickers),
+    warnings: arr(d.warnings),
+  } as import('@trading/shared').MarketDigest;
 }
 
 export function getMarketDigest(): import('@trading/shared').MarketDigest | null {
@@ -186,6 +219,36 @@ function tryLoadFromDB(): OpportunityScanResult | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Diagnóstico de cartera al vuelo: concentración por factor, hedge faltante y
+ * candidatos que diversifican vs apilan, computado desde la cartera actual + el
+ * último scan (los verdicts ya vienen en cada Opportunity.portfolioAdjustment).
+ */
+export async function getPortfolioDiagnostic(): Promise<PortfolioDiagnostic> {
+  const portfolio = await getPortfolio();
+  const ctx = buildPortfolioContext(
+    portfolio.positions.map((p) => ({
+      symbol: p.symbol,
+      value: p.value,
+      returns: returnsFromHistoricalCache(p.symbol),
+      sector: getSectorForSymbolDynamic(p.symbol) ?? undefined,
+    })),
+  );
+
+  const scan = getLatestOpportunityScan();
+  let candidateVerdicts: Array<{ symbol: string; verdict: 'stacks' | 'diversifies' | 'neutral' }> = [];
+  if (scan?.opportunities) {
+    try {
+      const opps = JSON.parse(scan.opportunities) as Opportunity[];
+      candidateVerdicts = opps
+        .filter((o) => o.portfolioAdjustment)
+        .map((o) => ({ symbol: o.symbol, verdict: o.portfolioAdjustment!.verdict }));
+    } catch { /* ignore malformed scan blob */ }
+  }
+
+  return buildPortfolioDiagnostic(ctx, candidateVerdicts);
 }
 
 // --- Batching ---
@@ -382,6 +445,20 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
     const price = tech?.indicators.currentPrice ?? 0;
     portfolioValue += pos.quantity * price;
   }
+
+  // === PORTFOLIO CONTEXT: factores + retornos de las posiciones, una vez por scan ===
+  // Reutiliza la caché histórica (BD) que el análisis técnico ya pobló — sin refetch.
+  const portfolioCtx = buildPortfolioContext(
+    positions.map((pos) => {
+      const price = techMap.get(pos.symbol)?.indicators.currentPrice ?? 0;
+      return {
+        symbol: pos.symbol,
+        value: pos.quantity * price,
+        returns: returnsFromHistoricalCache(pos.symbol),
+        sector: getSectorForSymbolDynamic(pos.symbol) ?? undefined,
+      };
+    }),
+  );
 
   // ============================================================
   updateProgress('Filtrando por sector y sentimiento', 5);
@@ -668,6 +745,8 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
         sectorSentimentMap.get(getSectorForSymbolDynamic(symbol) ?? '') ?? null,
         evidenceMap.get(symbol),
         flatChains,
+        portfolioCtx,
+        returnsFromHistoricalCache(symbol),
       ),
     )
     .filter((o): o is Opportunity => o !== null)
