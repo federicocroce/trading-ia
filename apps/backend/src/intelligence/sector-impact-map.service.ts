@@ -1,7 +1,10 @@
 import type {
   SignalAction, SectorImpactMapEntry, SectorImpactTicker, SectorDriver, SectorImpactDirection,
+  Opportunity,
 } from '@trading/shared';
 import type { MacroEventRow } from '../db/repository.js';
+import { getLatestOpportunityScan, getPortfolioPositions, getCausalMapByDate } from '../db/repository.js';
+import { getSectorForSymbolDynamic } from '../discovery/discovery-registry.js';
 
 /** Minimal opportunity fields the map needs (keeps the function testable). */
 export interface SectorMapOpportunity {
@@ -109,4 +112,30 @@ export function buildSectorImpactMap(
     (b.yourHoldings.length > 0 ? 1 : 0) - (a.yourHoldings.length > 0 ? 1 : 0)
     || b.drivers.length - a.drivers.length
     || a.sector.localeCompare(b.sector));
+}
+
+/**
+ * Wires the real data sources and computes the sector impact map on the fly from the
+ * latest scan + causal map (aligned to the scan's date) + portfolio. No persistence.
+ */
+export function getSectorImpactMap(): SectorImpactMapEntry[] {
+  const scan = getLatestOpportunityScan();
+  if (!scan?.opportunities) return [];
+  let opps: Opportunity[];
+  try { opps = JSON.parse(scan.opportunities) as Opportunity[]; } catch { return []; }
+
+  const scanDate = scan.scannedAt.slice(0, 10);
+  let causal = getCausalMapByDate(scanDate);
+  if (causal.length === 0) causal = getCausalMapByDate(new Date().toISOString().slice(0, 10));
+
+  const portfolioSymbols = getPortfolioPositions().map(p => p.symbol);
+  return buildSectorImpactMap(
+    opps.map(o => ({
+      symbol: o.symbol, sector: o.sector, sectorLabel: o.sectorLabel,
+      action: o.action, opportunityScore: o.opportunityScore,
+    })),
+    causal,
+    portfolioSymbols,
+    (s) => getSectorForSymbolDynamic(s),
+  );
 }
