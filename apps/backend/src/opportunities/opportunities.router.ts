@@ -13,6 +13,7 @@ import {
   getSymbolScoreHistory,
   getScanStatus,
   getProcessTimestamps,
+  getPortfolioDiagnostic,
 } from './opportunities.service.js';
 import {
   getTrackingHistory,
@@ -194,5 +195,12 @@ export const opportunitiesRouter = router({
     .input(z.object({ scanId: z.number() }))
     .query(({ input }) => {
       return getAntiHypeRejectionsForScan(input.scanId);
+    }),
+
+  // --- Portfolio correlation diagnostic ---
+
+  portfolioDiagnostic: publicProcedure
+    .query(async () => {
+      return getPortfolioDiagnostic();
     }),
 });

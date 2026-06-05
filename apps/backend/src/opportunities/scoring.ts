@@ -14,12 +14,15 @@ import type {
   TimingView,
   ActionCondition,
   ConvictionTier,
+  PortfolioContext,
 } from '@trading/shared';
 import { OPPORTUNITY_UNIVERSE, getSectorForSymbol } from '@trading/shared';
 import { getActiveWeights } from '../intelligence/weight-adjustment.service.js';
 import { getSectorForSymbolDynamic, getSectorLabelDynamic, getClassificationForSymbol } from '../discovery/discovery-registry.js';
 import { detectSignalConflicts } from './signal-conflicts.js';
 import { applyAxisVetos, detectCrossConflicts, resolveFinalVerdict, computeMacroAdjustment } from './verdicts.service.js';
+import { computePortfolioAdjustment } from './portfolio-risk.service.js';
+import { factorsForSymbol } from './risk-factor-map.js';
 
 // --- Normalización a escala 0-100 ---
 
@@ -1299,6 +1302,8 @@ export function buildAlgorithmicOpportunity(
   sectorSentiment?: number | null,
   evidenceResult?: { score: number; drivers: string[]; conviction: 'high' | 'medium' | 'low' | 'none'; activeSignals: number; hasData: boolean },
   causalChains?: Array<{ eventId: string; event?: string; ticker: string; category: string; direction: 'positive' | 'negative'; impact: 'direct' | 'indirect' }>,
+  portfolioCtx?: PortfolioContext,
+  candidateReturns?: number[],
 ): Opportunity | null {
   const techScore = tech?.score ?? 0;
   const fundScore = fund?.score ?? 0;
@@ -1313,6 +1318,14 @@ export function buildAlgorithmicOpportunity(
   // === MACRO ADJUSTMENT: causalChains agregan/restan al composite ===
   const macroAdjustment = causalChains ? computeMacroAdjustment(symbol, causalChains) : undefined;
   let composite = compositeBase + (macroAdjustment?.delta ?? 0);
+
+  // === PORTFOLIO ADJUSTMENT: correlación/concentración con la cartera (dial-gated) ===
+  const portfolioIntensity = Number(process.env.PORTFOLIO_CORR_INTENSITY ?? '0');
+  const portfolioAdjustment = portfolioCtx
+    ? computePortfolioAdjustment(symbol, factorsForSymbol(symbol, sector), candidateReturns ?? [], portfolioCtx, portfolioIntensity)
+    : undefined;
+  composite += portfolioAdjustment?.delta ?? 0;
+
   if (composite < 0) composite = 0;
   if (composite > 100) composite = 100;
   const confluenceDetail = computeConfluenceDetail(tech, fund, sent);
@@ -1517,6 +1530,7 @@ export function buildAlgorithmicOpportunity(
     axisVeto: axisVeto ?? undefined,
     crossConflicts: crossConflicts.length > 0 ? crossConflicts : undefined,
     macroAdjustment: macroAdjustment ?? undefined,
+    portfolioAdjustment: portfolioAdjustment ?? undefined,
   };
 
   // === SMART ACTION: override based on divergences + trade levels ===
@@ -1577,6 +1591,7 @@ export function buildAlgorithmicOpportunity(
     smartAction: result.action,
     smartReason: result.simpleReasoning?.split('.')[0],
     veto: axisVeto,
+    portfolioAdjustment,
     // llmAction y llmReason se inyectan después en unified-analysis si aplica
   });
 

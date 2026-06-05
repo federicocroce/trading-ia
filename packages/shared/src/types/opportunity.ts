@@ -130,6 +130,8 @@ export interface Opportunity {
   macroAdjustment?: MacroAdjustment;
   /** Conflictos entre dimensiones (no solo intra-técnico). */
   crossConflicts?: CrossConflict[];
+  /** Cómo se relaciona el candidato con la cartera actual (correlación/concentración). */
+  portfolioAdjustment?: import('./portfolio-risk.js').PortfolioAdjustment;
 }
 
 export interface VerdictChain {
