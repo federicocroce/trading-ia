@@ -2,6 +2,7 @@ import type { OHLC, TechnicalIndicators, TechnicalSummary, TASignal, SRLevel, Di
 import { getHistoricalQuotes, getQuote } from '../shared/yahoo.js';
 import { getActiveSymbolList, getHistoricalFromCache, upsertHistoricalCache } from '../db/repository.js';
 import { analyzeTimingSignals } from './timing-analysis.service.js';
+import { sanitizeMovingAverages } from './indicator-sanity.js';
 import { reportOk, reportError } from '../shared/service-health.js';
 
 // --- Cache (BD-backed: daily=1d TTL, weekly=7d TTL) ---
@@ -777,9 +778,16 @@ export function computeIndicators(history: OHLC[]): TechnicalIndicators {
   const ema26 = calculateEMA(closes, 26);
 
   // --- Existing indicators ---
-  const sma20 = calculateSMA(closes, 20);
-  const sma50 = calculateSMA(closes, 50);
-  const sma200 = calculateSMA(closes, 200);
+  const rawSma20 = calculateSMA(closes, 20);
+  const rawSma50 = calculateSMA(closes, 50);
+  const rawSma200 = calculateSMA(closes, 200);
+  // Guard against split-poisoned MAs (unadjusted pre-split closes). Implausible SMAs are nulled.
+  const { sma20, sma50, sma200, flags: smaFlags } = sanitizeMovingAverages(
+    { sma20: rawSma20, sma50: rawSma50, sma200: rawSma200 }, currentPrice,
+  );
+  if (smaFlags.length > 0) {
+    console.warn(`[technical] SMA sanity: nulled ${smaFlags.join(',')} (price ${currentPrice}, raw sma200 ${rawSma200})`);
+  }
   const macd = computeMACDFromEMAs(ema12, ema26);
   const bollingerBands = calculateBollingerBands(closes, 20, 2);
 
