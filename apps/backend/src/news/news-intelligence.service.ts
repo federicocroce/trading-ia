@@ -256,11 +256,11 @@ function aggregateTrends(analyzed: AnalyzedNewsItem[]): PlazaSummary[] {
 
     const allSymbols = [...bySymbol.keys()];
     const symbolTrends: SymbolTrend[] = Array.from(bySymbol.entries()).map(([symbol, rawItems]) => {
-      // Drop headlines that clearly belong to a different named company (feed mismatch).
+      // Drop headlines that clearly name a DIFFERENT company (feed mismatch). The matcher only
+      // removes competitor-named headlines, so unnamed real news survives — no raw fallback, and a
+      // symbol whose news was ALL misattributed ends up neutral instead of showing wrong headlines.
       const otherAliases = allSymbols.filter(s => s !== symbol).flatMap(aliasesFor);
-      const cleaned = rawItems.filter(it => headlineMatchesSymbol(it.title, symbol, aliasesFor(symbol), otherAliases));
-      // Never let alias-map gaps nuke a symbol entirely; fall back to raw if all were dropped.
-      const symbolItems = cleaned.length > 0 ? cleaned : rawItems;
+      const symbolItems = rawItems.filter(it => headlineMatchesSymbol(it.title, symbol, aliasesFor(symbol), otherAliases));
 
       let totalWeight = 0;
       let weightedSum = 0;

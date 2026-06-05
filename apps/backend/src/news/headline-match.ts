@@ -19,8 +19,10 @@ function mentions(text: string, needle: string): boolean {
 /**
  * Does `headline` plausibly belong to `symbol`?
  * - true if it mentions the ticker symbol or any provided alias/company name.
- * - if no aliases are known: true unless the headline mentions one of `otherKnownAliases`
- *   (a competing company) and not this symbol — i.e. only reject when clearly foreign.
+ * - otherwise, DROP (false) only when the headline clearly names a DIFFERENT company
+ *   (one of `otherKnownAliases`). A headline that names neither this symbol nor a competitor
+ *   is kept — so real-but-unnamed news ("Oil giant beats earnings") is never lost, while a
+ *   headline that names another company (PAM/YPF under BP) is removed even if it's the only one.
  */
 export function headlineMatchesSymbol(
   headline: string,
@@ -33,11 +35,7 @@ export function headlineMatchesSymbol(
   for (const a of aliases) {
     if (mentions(headline, a)) return true;
   }
-  // No direct match. Only reject if the headline clearly belongs to another named company.
-  if (aliases.length === 0 && otherKnownAliases.length > 0) {
-    const foreign = otherKnownAliases.some((a) => mentions(headline, a));
-    return !foreign;
-  }
-  // We have aliases for this symbol but none matched → likely foreign → reject.
-  return aliases.length === 0;
+  // Not about this symbol by name → reject ONLY if it clearly names a different company.
+  const foreign = otherKnownAliases.some((a) => mentions(headline, a));
+  return !foreign;
 }

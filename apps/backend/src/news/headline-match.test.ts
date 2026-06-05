@@ -8,18 +8,21 @@ describe('headlineMatchesSymbol', () => {
   it('matches via a company-name alias', () => {
     expect(headlineMatchesSymbol('Pampa Energía soars 8%', 'PAM', ['Pampa Energía', 'Pampa'])).toBe(true);
   });
-  it('rejects a Pampa headline attached to HSBC (the original bug)', () => {
-    expect(headlineMatchesSymbol('Pampa Energía soars 8%', 'HSBC', ['HSBC Holdings', 'HSBC'])).toBe(false);
+  it('rejects a Pampa headline attached to HSBC (names a competitor)', () => {
+    expect(headlineMatchesSymbol('Pampa Energía soars 8%', 'HSBC', ['HSBC Holdings', 'HSBC'], ['Pampa Energía'])).toBe(false);
   });
-  it('is permissive when no aliases are known and no competitor is named', () => {
+  it("drops a YPF headline misattributed to BP even when it is BP's only news", () => {
+    expect(headlineMatchesSymbol('YPF Sociedad Anonima - 15 Year History | YPF', 'BP', ['BP plc', 'BP'], ['YPF'])).toBe(false);
+  });
+  it('keeps real-but-unnamed news (no competitor named) so it is not lost', () => {
+    expect(headlineMatchesSymbol('Oil giant beats earnings, raises dividend', 'BP', ['BP plc', 'BP'], ['YPF', 'Pampa Energía'])).toBe(true);
+  });
+  it('is permissive when nothing is known and no competitor is named', () => {
     expect(headlineMatchesSymbol('Markets rally on rate cut hopes', 'XYZ')).toBe(true);
   });
-  it('rejects when no aliases known but a competitor company is clearly named', () => {
-    expect(headlineMatchesSymbol('Pampa Energía soars 8%', 'HSBC', [], ['Pampa Energía'])).toBe(false);
-  });
-  it('does not partial-match the symbol inside another word (PAM in PAMPLONA)', () => {
-    // With aliases present, a non-boundary substring must NOT count as a match → rejected.
-    expect(headlineMatchesSymbol('PAMPLONA festival opens', 'PAM', ['Pampa SA'])).toBe(false);
+  it('uses word boundaries and drops a clearly-named competitor', () => {
+    // PAM must NOT match as a substring of "Spammers"/"Pampa"; the headline names Pampa Energía → drop.
+    expect(headlineMatchesSymbol('Spammers target Pampa Energía investors', 'PAM', [], ['Pampa Energía'])).toBe(false);
   });
   it('empty headline is permissive', () => {
     expect(headlineMatchesSymbol('', 'PAM')).toBe(true);
