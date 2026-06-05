@@ -23,6 +23,7 @@ import { detectSignalConflicts } from './signal-conflicts.js';
 import { applyAxisVetos, detectCrossConflicts, resolveFinalVerdict, computeMacroAdjustment } from './verdicts.service.js';
 import { computePortfolioAdjustment } from './portfolio-risk.service.js';
 import { factorsForSymbol } from './risk-factor-map.js';
+import { computeConfluencePercent } from './confluence.js';
 
 // --- Normalización a escala 0-100 ---
 
@@ -332,12 +333,9 @@ function computeConfluence(
   const dominant = bullish.length >= bearish.length ? 'bullish' : 'bearish';
   const dominantCount = dominant === 'bullish' ? bullish.length : bearish.length;
 
-  // Confluence = % of directional votes aligned with dominant direction
-  // Scale: if all align = 90-95%, if split 50/50 = ~30%
-  const rawConfluence = (dominantCount / votes.length) * 100;
-  // Bonus for having more total signals (more data = more reliable)
-  const dataBonus = Math.min(10, votes.length);
-  const confluencePercent = Math.round(Math.min(95, Math.max(20, rawConfluence + dataBonus)));
+  // Coverage-aware confidence: thin/single-axis data is capped so it can't report 95%.
+  const axesWithData = (tech ? 1 : 0) + (fund ? 1 : 0) + (sent ? 1 : 0);
+  const confluencePercent = computeConfluencePercent(dominantCount, votes.length, axesWithData);
 
   return {
     bullishSignals: bullish.map((v) => v.name),
@@ -1312,6 +1310,11 @@ export function buildAlgorithmicOpportunity(
 
   const sector = getSectorForSymbolDynamic(symbol);
   if (!sector) return null;
+
+  // Reject sub-penny / junk prices (illiquid, manipulable, unscoreable) unless already held.
+  const MIN_PRICE = Number(process.env.MIN_PRICE_USD ?? '1');
+  const priceForFloor = tech?.indicators.currentPrice ?? fund?.data.currentPrice ?? 0;
+  if (!inPortfolio && (!Number.isFinite(priceForFloor) || priceForFloor < MIN_PRICE)) return null;
 
   const { shortTerm, mediumTerm, composite: compositeBase } = computeCompositeScore(techScore, fundScore, sentScore, undefined, evidenceScore);
 
