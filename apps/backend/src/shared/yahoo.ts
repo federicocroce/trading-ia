@@ -36,6 +36,7 @@ interface YahooChartResult {
       close: (number | null)[];
       volume: (number | null)[];
     }>;
+    adjclose?: Array<{ adjclose: (number | null)[] }>;
   };
 }
 
@@ -133,6 +134,8 @@ export async function getHistoricalQuotes(
   const result = data.chart.result[0];
   const timestamps = result.timestamp ?? [];
   const q = result.indicators.quote[0];
+  // Split/dividend-adjusted closes correct reverse-split poison (e.g. pre-split $200 alongside $9).
+  const adj = result.indicators.adjclose?.[0]?.adjclose;
 
   const ohlc: OHLC[] = [];
   for (let i = 0; i < timestamps.length; i++) {
@@ -145,15 +148,21 @@ export async function getHistoricalQuotes(
     // Skip entries with null values (holidays/gaps)
     if (open == null || high == null || low == null || close == null) continue;
 
+    // When adjusted close is present and sane, scale the whole candle by adjclose/close so
+    // OHLC stays internally consistent and splits are corrected at the source.
+    const adjClose = adj?.[i];
+    const factor = (adjClose != null && Number.isFinite(adjClose) && close > 0)
+      ? adjClose / close : 1;
+
     ohlc.push({
       // For intraday intervals keep full ISO datetime, for daily+ keep date only
       date: interval.includes('m') || interval.includes('h')
         ? new Date(timestamps[i] * 1000).toISOString()
         : new Date(timestamps[i] * 1000).toISOString().split('T')[0],
-      open,
-      high,
-      low,
-      close,
+      open: open * factor,
+      high: high * factor,
+      low: low * factor,
+      close: close * factor,
       volume: volume ?? 0,
     });
   }

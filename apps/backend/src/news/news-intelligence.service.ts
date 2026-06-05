@@ -16,6 +16,8 @@ import { getLastTriangulationStats } from './triangulation.service.js';
 import { getFullSymbolUniverse } from '../discovery/discovery-registry.js';
 import { callAI } from '../shared/ai-router.js';
 import { getNews, getNewsFromDB } from './news.service.js';
+import { headlineMatchesSymbol } from './headline-match.js';
+import { aliasesFor } from './symbol-aliases.js';
 import { triangulateNews } from './triangulation.service.js';
 import { enrichNewsWithBodies } from './body-fetcher.service.js';
 import { filterForDeepAnalysis, logFilterStats, type DeepAnalysisFilterOptions } from './news-filters.service.js';
@@ -252,7 +254,14 @@ function aggregateTrends(analyzed: AnalyzedNewsItem[]): PlazaSummary[] {
       return 0.6; // low confidence weighs less
     };
 
-    const symbolTrends: SymbolTrend[] = Array.from(bySymbol.entries()).map(([symbol, symbolItems]) => {
+    const allSymbols = [...bySymbol.keys()];
+    const symbolTrends: SymbolTrend[] = Array.from(bySymbol.entries()).map(([symbol, rawItems]) => {
+      // Drop headlines that clearly belong to a different named company (feed mismatch).
+      const otherAliases = allSymbols.filter(s => s !== symbol).flatMap(aliasesFor);
+      const cleaned = rawItems.filter(it => headlineMatchesSymbol(it.title, symbol, aliasesFor(symbol), otherAliases));
+      // Never let alias-map gaps nuke a symbol entirely; fall back to raw if all were dropped.
+      const symbolItems = cleaned.length > 0 ? cleaned : rawItems;
+
       let totalWeight = 0;
       let weightedSum = 0;
       let pos = 0;
