@@ -1,5 +1,35 @@
 import type { TriangulationConfidence } from './news-source.js';
 import type { Opportunity, SectorSummary } from './opportunity.js';
+import type { SignalAction } from './signal.js';
+
+// --- Sector impact map (macro → sectores) ---
+
+export type SectorImpactDirection = 'positive' | 'negative' | 'mixed' | 'neutral';
+
+export interface SectorDriver {
+  event: string;                          // "Volatilidad en activos argentinos"
+  category: string;                       // causal category
+  direction: 'positive' | 'negative';
+  magnitude: 'high' | 'medium' | 'low';
+}
+
+export interface SectorImpactTicker {
+  symbol: string;
+  action: SignalAction;
+  score: number;
+  inPortfolio: boolean;
+}
+
+export interface SectorImpactMapEntry {
+  sector: string;                         // OpportunitySector value
+  label: string;                          // human label
+  netImpact: SectorImpactDirection;
+  confidence: 'high' | 'medium' | 'low';
+  drivers: SectorDriver[];                // the macro "knobs" hitting this sector
+  winners: SectorImpactTicker[];          // BUY / positive-causal tickers
+  losers: SectorImpactTicker[];           // SELL / negative-causal tickers
+  yourHoldings: Array<{ symbol: string; side: 'winner' | 'loser' | 'neutral' }>;
+}
 
 // --- Second-order effects ---
 
@@ -55,8 +85,12 @@ export interface MarketDigest {
   }>;
   warnings: string[];
   marketMood: 'risk-on' | 'risk-off' | 'mixed';
-  wouldDo: string[];      // "Cosas que SÍ haría"
-  wouldNotDo: string[];   // "Cosas que NO haría"
+  // PORTFOLIO (activos en cartera) — qué SÍ / NO haría con tu portfolio
+  portfolioWouldDo: string[];
+  portfolioWouldNotDo: string[];
+  // MERCADO (fuera del portfolio) — qué SÍ / NO haría en el mercado
+  marketWouldDo: string[];
+  marketWouldNotDo: string[];
 }
 
 // --- Market Report (full investment report) ---

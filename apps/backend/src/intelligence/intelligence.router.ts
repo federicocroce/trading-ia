@@ -5,6 +5,7 @@ import { getStoredDailyReport, getStoredDailyReportByDate } from './daily-report
 import { getMarketDigest } from '../opportunities/opportunities.service.js';
 import { getCachedMarketReport, getCachedMarketReportByDate } from './market-report.service.js';
 import { getStoredSectorReports } from './sector-report.service.js';
+import { getSectorImpactMap } from './sector-impact-map.service.js';
 import {
   checkOrRunPipeline,
   rerunPipelineStage,
@@ -119,6 +120,11 @@ export const intelligenceRouter = router({
 
   sectorReports: publicProcedure.query(() => {
     return getStoredSectorReports();
+  }),
+
+  // Mapa macro → sectores: síntesis causal + scan + cartera (al vuelo, sin persistencia)
+  sectorImpactMap: publicProcedure.query(() => {
+    return getSectorImpactMap();
   }),
 
   lmStudioStatus: publicProcedure.query(async () => {
