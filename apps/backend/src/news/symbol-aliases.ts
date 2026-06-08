@@ -23,6 +23,28 @@ export const SYMBOL_ALIASES: Record<string, string[]> = {
   IEF: ['7-10 Year Treasury'],
   GLD: ['SPDR Gold'],
   TLT: ['20+ Year Treasury'],
+  // Majors frequently confused in feeds (semis/health/energy/tech)
+  NVDA: ['Nvidia', 'NVIDIA'],
+  AVGO: ['Broadcom'],
+  SMCI: ['Super Micro', 'Supermicro'],
+  AMD: ['Advanced Micro Devices', 'AMD'],
+  INTC: ['Intel'],
+  MU: ['Micron'],
+  UNH: ['UnitedHealth', 'United Health'],
+  CVS: ['CVS Health', 'CVS'],
+  XLE: ['Energy Select', 'XLE'],
+  XLF: ['Financial Select', 'XLF'],
+  EEM: ['Emerging Markets ETF'],
+  SPY: ['S&P 500'],
+  QQQ: ['Nasdaq 100', 'Invesco QQQ'],
+  AAPL: ['Apple'],
+  MSFT: ['Microsoft'],
+  GOOGL: ['Alphabet', 'Google'],
+  AMZN: ['Amazon'],
+  META: ['Meta Platforms', 'Facebook'],
+  COST: ['Costco'],
+  WDAY: ['Workday'],
+  HOOD: ['Robinhood'],
 };
 
 export function aliasesFor(symbol: string): string[] {
