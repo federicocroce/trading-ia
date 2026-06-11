@@ -212,6 +212,17 @@ describe('reconcileAlerts', () => {
     expect(r.newAlerts).toHaveLength(0);
   });
 
+  it('stop_breach activo NO se expira por la regla superseded (solo aplica a kind anticipatory)', () => {
+    // stop:GGAL activo + el scan trae una alerta anticipatoria nueva para GGAL
+    const stored = [makeAlert({ id: 'stop:GGAL', kind: 'stop_breach', lastSeenDate: TODAY })];
+    const current = [makeAlert({ id: 'GGAL:bb_squeeze+divergence', firstSeenDate: TODAY, lastSeenDate: TODAY })];
+    const r = reconcileAlerts(current, stored, TODAY);
+    expect(r.toExpire).toHaveLength(0);
+    // pero el cleanup de 7 dias SI aplica a stop_breach (garbage collection intencional)
+    const stale = [makeAlert({ id: 'stop:GGAL', kind: 'stop_breach', lastSeenDate: '2026-06-03' })];
+    expect(reconcileAlerts([], stale, TODAY).toExpire).toEqual(['stop:GGAL']);
+  });
+
   it('alertas expired/triggered en stored se ignoran (no reviven ni re-expiran)', () => {
     const stored = [makeAlert({ status: 'expired', lastSeenDate: '2026-05-01' })];
     const r = reconcileAlerts([], stored, TODAY);

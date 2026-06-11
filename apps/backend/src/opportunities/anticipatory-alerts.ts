@@ -156,8 +156,10 @@ export function reconcileAlerts(
 
   for (const [id, existing] of activeStored) {
     if (currentIds.has(id)) continue;
-    // superseded: el symbol tiene una alerta nueva con otra confluencia → expirar ya (sin ghost twin)
-    if (supersededSymbols.has(existing.symbol)) {
+    // superseded: el symbol tiene una alerta nueva con otra confluencia → expirar ya (sin ghost twin).
+    // Solo aplica dentro de kind 'anticipatory': un stop_breach activo no es un "ghost twin"
+    // de la confluencia nueva y debe sobrevivir hasta su propio cleanup de 7 dias.
+    if (existing.kind === 'anticipatory' && supersededSymbols.has(existing.symbol)) {
       toExpire.push(id);
       continue;
     }

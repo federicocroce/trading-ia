@@ -65,4 +65,15 @@ export function startCronJobs(): void {
     }
   });
   console.log('[Cron] Scheduled: news radar every hour (6-22 UTC)');
+
+  // Stop-loss watcher: cada 10 min, 13-21 UTC lun-vie (≈ 10:00-18:00 ART / horario NYSE)
+  cron.schedule('*/10 13-21 * * 1-5', async () => {
+    try {
+      const { checkStopBreaches } = await import('../alerts/stop-breach.service.js');
+      await checkStopBreaches();
+    } catch (err) {
+      console.error('[Cron] Stop-breach check failed:', (err as Error).message);
+    }
+  });
+  console.log('[Cron] Scheduled: stop-breach watcher cada 10 min (13-21 UTC, lun-vie)');
 }
