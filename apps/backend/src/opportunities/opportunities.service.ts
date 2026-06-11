@@ -43,7 +43,11 @@ import {
   getMarketDigestByDate,
   upsertMarketDigest,
   getHistoricalFromCache,
+  getRecentAnticipatoryAlerts,
+  upsertAnticipatoryAlerts,
+  expireAnticipatoryAlerts,
 } from '../db/repository.js';
+import { buildAlertsFromScan, reconcileAlerts } from './anticipatory-alerts.js';
 import {
   buildAlgorithmicOpportunity,
 } from './scoring.js';
@@ -1066,6 +1070,21 @@ function persistScanResult(result: OpportunityScanResult): void {
         })),
       );
       console.log(`[opportunities] Persisted ${result.antiHypeRejected.length} anti-hype rejections`);
+    }
+
+    // === ANTICIPATORY ALERTS: confluencia bullish del scan → reconciliar y persistir ===
+    try {
+      const scanDate = scannedAtISO.slice(0, 10); // YYYY-MM-DD
+      const current = buildAlertsFromScan(result.opportunities, scanDate);
+      const stored = getRecentAnticipatoryAlerts(200);
+      const { toInsert, toUpdate, toExpire, newAlerts } = reconcileAlerts(current, stored, scanDate);
+      upsertAnticipatoryAlerts(toInsert, toUpdate);
+      expireAnticipatoryAlerts(toExpire);
+      if (newAlerts.length > 0) {
+        console.log(`[alerts] ${newAlerts.length} alertas anticipatorias NUEVAS: ${newAlerts.map(a => a.id).join(', ')}`);
+      }
+    } catch (err) {
+      console.error('[alerts] Failed to reconcile anticipatory alerts:', (err as Error).message);
     }
   } catch (err) {
     console.error('[opportunities] Failed to persist scan result:', (err as Error).message);
