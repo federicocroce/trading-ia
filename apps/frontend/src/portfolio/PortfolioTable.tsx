@@ -219,7 +219,12 @@ export function PortfolioTable() {
                   </span>
                 </div>
                 <div className="flex justify-between text-xs mt-1">
-                  <span className="text-muted-foreground">${pos.currentPrice.toFixed(2)}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground">${pos.currentPrice.toFixed(2)}</span>
+                    <span className={`font-medium ${pos.changePercent >= 0 ? 'text-trading-green' : 'text-trading-red'}`}>
+                      {pos.changePercent >= 0 ? '+' : ''}{pos.changePercent.toFixed(2)}%
+                    </span>
+                  </span>
                   <span>${pos.value.toLocaleString('en-US', { minimumFractionDigits: 0 })}</span>
                 </div>
               </Card>
@@ -263,7 +268,14 @@ export function PortfolioTable() {
                     ${(pos.quantity * pos.avgCost).toLocaleString('en-US', { minimumFractionDigits: 0 })}
                   </TableCell>
                   <TableCell className="text-right">${pos.avgCost.toFixed(2)}</TableCell>
-                  <TableCell className="text-right">${pos.currentPrice.toFixed(2)}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span>${pos.currentPrice.toFixed(2)}</span>
+                      <span className={`text-[10px] font-medium ${pos.changePercent >= 0 ? 'text-trading-green' : 'text-trading-red'}`}>
+                        {pos.changePercent >= 0 ? '+' : ''}{pos.changePercent.toFixed(2)}%
+                      </span>
+                    </div>
+                  </TableCell>
                   <TableCell className="text-right">
                     ${pos.value.toLocaleString('en-US', { minimumFractionDigits: 0 })}
                   </TableCell>

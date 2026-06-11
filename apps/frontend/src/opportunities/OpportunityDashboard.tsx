@@ -243,6 +243,7 @@ export function OpportunityDashboard() {
               <button
                 onClick={async () => {
                   const mode = await selectMode();
+                  if (!mode) return;
                   refresh.mutate({ aiMode: mode });
                 }}
                 disabled={refresh.isPending || isRunning}

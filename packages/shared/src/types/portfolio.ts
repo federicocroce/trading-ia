@@ -3,6 +3,7 @@ export interface PortfolioPosition {
   quantity: number;
   avgCost: number;
   currentPrice: number;
+  changePercent: number;
   value: number;
   pnl: number;
   pnlPercent: number;

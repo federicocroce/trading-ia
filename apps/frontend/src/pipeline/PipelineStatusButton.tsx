@@ -60,10 +60,12 @@ export function PipelineStatusButton() {
         history={history}
         onRerunStage={async (stage) => {
           const mode = await selectMode();
+          if (!mode) return;
           rerunStage(stage, mode);
         }}
         onRerunAll={async () => {
           const mode = await selectMode();
+          if (!mode) return;
           run(false, undefined, mode);
         }}
         isRunning={isRunning}

@@ -163,6 +163,35 @@ const actionStyle: Record<SignalAction, { label: string; bg: string; text: strin
   WATCH: { label: 'OBSERVAR', bg: 'bg-yellow-500/20', text: 'text-yellow-400' },
 };
 
+type DigestRec = {
+  symbol: string;
+  action: SignalAction;
+  reason: string;
+  currentPrice: number;
+  score: number;
+  tradeLevels?: { entryPrice: number; stopLoss: number; takeProfit: number };
+};
+
+// One digest recommendation row: action badge + ticker + motivo (verbatim del scan).
+// Entry/stop/target only render for a real BUY — a hold/observar never shows a setup.
+function RecommendationRow({ rec }: { rec: DigestRec }) {
+  const cfg = actionStyle[rec.action] ?? actionStyle.WATCH;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-baseline gap-1.5">
+        <Badge className={`text-[8px] font-bold px-1 py-0 h-3.5 shrink-0 ${cfg.bg} ${cfg.text}`}>{cfg.label}</Badge>
+        <span className="font-mono font-semibold text-[10px] text-foreground shrink-0">{rec.symbol}</span>
+        {rec.reason && <span className="text-[10px] text-foreground leading-relaxed">— {rec.reason}</span>}
+      </div>
+      {rec.tradeLevels && (
+        <p className="text-[9px] text-green-300/80 pl-1 font-mono">
+          Entrada ${rec.tradeLevels.entryPrice.toFixed(2)} · Stop ${rec.tradeLevels.stopLoss.toFixed(2)} · Target ${rec.tradeLevels.takeProfit.toFixed(2)}
+        </p>
+      )}
+    </div>
+  );
+}
+
 
 function TrackingHistory() {
   const { data: history } = trpc.opportunities.trackingHistory.useQuery({ limit: 30 }, {
@@ -561,7 +590,7 @@ function MarketDigestPanel() {
           <CardContent>
             <div className="flex items-center justify-between gap-3">
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Aún no se generó el digest del día. Ejecutá la síntesis para obtener overnight summary, top oportunidades, lo que sí/no haría, y warnings.
+                Aún no se generó el digest del día. Ejecutá la síntesis para obtener overnight summary, top oportunidades, recomendaciones por símbolo (acción + motivo del scan), y warnings.
               </p>
               <Button
                 size="sm"
@@ -623,19 +652,19 @@ function MarketDigestPanel() {
           </div>
         )}
 
-        {digest.portfolioWouldDo && digest.portfolioWouldDo.length > 0 ? (
-          <div className="rounded-md bg-green-500/5 border border-green-500/20 p-2">
-            <span className="text-[9px] text-green-400 uppercase tracking-wider font-medium">Lo que SI haria con tu portfolio</span>
-            <div className="space-y-1 mt-1">
-              {digest.portfolioWouldDo.map((item, i) => (
-                <p key={i} className="text-[10px] text-foreground leading-relaxed">- {item}</p>
+        {digest.portfolioRecommendations && digest.portfolioRecommendations.length > 0 ? (
+          <div className="rounded-md bg-muted/20 border border-border/40 p-2">
+            <span className="text-[9px] text-amber-400 uppercase tracking-wider font-medium">Qué haría con cada posición</span>
+            <div className="space-y-1.5 mt-1.5">
+              {digest.portfolioRecommendations.map((rec, i) => (
+                <RecommendationRow key={`${rec.symbol}-${i}`} rec={rec} />
               ))}
             </div>
           </div>
         ) : (
           <div className="rounded-md bg-yellow-500/5 border border-yellow-500/20 p-2 flex items-center justify-between gap-2">
             <div>
-              <span className="text-[9px] text-yellow-400 uppercase tracking-wider font-medium">Lo que SI haria con tu portfolio</span>
+              <span className="text-[9px] text-yellow-400 uppercase tracking-wider font-medium">Recomendaciones de tu portfolio</span>
               <p className="text-[10px] text-muted-foreground mt-0.5">Sin recomendaciones para portfolio en este run. Regenerá el análisis.</p>
             </div>
             <Button
@@ -654,22 +683,6 @@ function MarketDigestPanel() {
           </div>
         )}
 
-        {digest.portfolioWouldNotDo && digest.portfolioWouldNotDo.length > 0 ? (
-          <div className="rounded-md bg-red-500/5 border border-red-500/20 p-2">
-            <span className="text-[9px] text-red-400 uppercase tracking-wider font-medium">Lo que NO haria con tu portfolio</span>
-            <div className="space-y-1 mt-1">
-              {digest.portfolioWouldNotDo.map((item, i) => (
-                <p key={i} className="text-[10px] text-foreground leading-relaxed">- {item}</p>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-md bg-muted/30 p-2">
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Lo que NO haria con tu portfolio</span>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Sin alertas sobre tu portfolio hoy.</p>
-          </div>
-        )}
-
         {/* ============================== */}
         {/* SECCIÓN MERCADO                 */}
         {/* ============================== */}
@@ -681,17 +694,17 @@ function MarketDigestPanel() {
           </div>
         </div>
 
-        {digest.marketWouldDo && digest.marketWouldDo.length > 0 ? (
-          <div className="rounded-md bg-green-500/5 border border-green-500/20 p-2">
-            <span className="text-[9px] text-green-400 uppercase tracking-wider font-medium">Lo que SI haria en el mercado</span>
-            <div className="space-y-1 mt-1">
-              {digest.marketWouldDo.map((item, i) => (
-                <p key={i} className="text-[10px] text-foreground leading-relaxed">- {item}</p>
+        {digest.marketRecommendations && digest.marketRecommendations.length > 0 ? (
+          <div className="rounded-md bg-muted/20 border border-border/40 p-2">
+            <span className="text-[9px] text-cyan-400 uppercase tracking-wider font-medium">Oportunidades de mercado</span>
+            <div className="space-y-1.5 mt-1.5">
+              {digest.marketRecommendations.map((rec, i) => (
+                <RecommendationRow key={`${rec.symbol}-${i}`} rec={rec} />
               ))}
             </div>
             {digest.watching && digest.watching.length > 0 && (
-              <div className="mt-2 pt-2 border-t border-green-500/10">
-                <span className="text-[9px] text-green-300/70 uppercase tracking-wider font-medium">En radar (triggers de entrada)</span>
+              <div className="mt-2 pt-2 border-t border-border/30">
+                <span className="text-[9px] text-cyan-300/70 uppercase tracking-wider font-medium">En radar (triggers de entrada)</span>
                 <div className="space-y-1 mt-0.5">
                   {digest.watching.map((w, i) => (
                     <p key={i} className="text-[10px] text-muted-foreground leading-relaxed">
@@ -704,8 +717,8 @@ function MarketDigestPanel() {
           </div>
         ) : (
           <div className="rounded-md bg-muted/30 p-2">
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Lo que SI haria en el mercado</span>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Sin oportunidades nuevas hoy fuera de tu portfolio.</p>
+            <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Oportunidades de mercado</span>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Sin oportunidades fuera de tu portfolio hoy.</p>
             {digest.watching && digest.watching.length > 0 && (
               <div className="mt-2 pt-2 border-t border-muted-foreground/10">
                 <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">En radar (triggers de entrada)</span>
@@ -718,22 +731,6 @@ function MarketDigestPanel() {
                 </div>
               </div>
             )}
-          </div>
-        )}
-
-        {digest.marketWouldNotDo && digest.marketWouldNotDo.length > 0 ? (
-          <div className="rounded-md bg-red-500/5 border border-red-500/20 p-2">
-            <span className="text-[9px] text-red-400 uppercase tracking-wider font-medium">Lo que NO haria en el mercado</span>
-            <div className="space-y-1 mt-1">
-              {digest.marketWouldNotDo.map((item, i) => (
-                <p key={i} className="text-[10px] text-foreground leading-relaxed">- {item}</p>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-md bg-muted/30 p-2">
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Lo que NO haria en el mercado</span>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Sin activos de mercado a evitar hoy.</p>
           </div>
         )}
 
@@ -776,10 +773,10 @@ export function DailySummary() {
     <div id="daily-summary-print" className="p-4 max-w-4xl mx-auto space-y-4">
       <TabInfo>
         <InfoSection title="Qué muestra">
-          Vista única que centraliza TODO el panorama del mercado: digest del día (qué haría SÍ/NO en portfolio y mercado), top oportunidades, alertas de portfolio, sectores impactados por noticias, rotación sectorial vs SPY, radar de noticias con impactos positivos/negativos por ticker y sector, top noticias del día con triangulación, earnings próximos, eventos macro, y accuracy del sistema. Diseñado como landing principal — todo lo que necesitás para entender el mercado en una sola pantalla.
+          Vista única que centraliza TODO el panorama del mercado: digest del día (recomendaciones por símbolo con acción + motivo del scan, en portfolio y mercado), top oportunidades, alertas de portfolio, sectores impactados por noticias, rotación sectorial vs SPY, radar de noticias con impactos positivos/negativos por ticker y sector, top noticias del día con triangulación, earnings próximos, eventos macro, y accuracy del sistema. Diseñado como landing principal — todo lo que necesitás para entender el mercado en una sola pantalla.
         </InfoSection>
         <InfoSection title="Orden de lectura sugerido">
-          1) <strong>Market Digest</strong>: mood + qué pasó + qué haría SÍ/NO en portfolio y mercado.<br />
+          1) <strong>Market Digest</strong>: mood + qué pasó + recomendaciones por símbolo (acción + motivo del scan) en portfolio y mercado.<br />
           2) <strong>Alertas de portfolio</strong>: posiciones con señales urgentes.<br />
           3) <strong>Sectores impactados</strong>: convicción + tensiones + catalizadores.<br />
           4) <strong>Radar de noticias</strong>: top tickers/sectores positivos/negativos + exposición de tu portfolio a negativos.<br />

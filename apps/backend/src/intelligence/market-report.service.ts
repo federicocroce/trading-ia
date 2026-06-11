@@ -1,5 +1,5 @@
 import type { MarketReport, MarketReportRecommendation, TopImpactNewsItem, UnifiedAssetAnalysis, MarketDigest, SecondOrderEffect, SectorSummary, QuantContext, Opportunity } from '@trading/shared';
-import { groundWouldBuyItems } from './digest-grounding.js';
+import { buildDigestRecommendations } from './digest-recommendations.js';
 import { COMBINED_SYNTHESIS_PROMPT, CANONICAL_MACRO_THEMES } from '@trading/shared';
 import { callAIWithModel } from '../shared/ai-router.js';
 import {
@@ -138,58 +138,17 @@ export interface DigestInputs {
   causalMap?: MacroEventRow[];
 }
 
-function synthesizeBuyLine(o: Opportunity): string {
-  const parts: string[] = [`Compraría ${o.symbol}`];
-  if (o.tradeLevels) {
-    parts.push(`a $${o.tradeLevels.entryPrice.toFixed(2)}`);
-  }
-  const reason = o.simpleReasoning ?? o.catalysts[0] ?? 'señal técnica positiva';
-  parts.push(`— ${reason}`);
-  if (o.tradeLevels) {
-    parts.push(`Stop $${o.tradeLevels.stopLoss.toFixed(2)}, target $${o.tradeLevels.takeProfit.toFixed(2)}.`);
-  }
-  return parts.join(' ');
-}
-
-function synthesizeSellLine(o: Opportunity): string {
-  const reason = o.simpleReasoning ?? o.risks[0] ?? 'señales negativas';
-  return `No mantendría ${o.symbol} — ${reason}`;
-}
-
-interface WouldArrays {
-  portfolioWouldDo: string[];
-  portfolioWouldNotDo: string[];
-  marketWouldDo: string[];
-  marketWouldNotDo: string[];
-}
-
-function synthesizeWouldArrays(
-  opportunities: Opportunity[],
-  portfolioSymbols: Set<string>,
-  limit = 5,
-): WouldArrays {
-  const buys = opportunities.filter(o => o.action === 'BUY');
-  const sells = opportunities.filter(o => o.action === 'SELL');
-  // Portfolio set is normalized to uppercase; compare uppercased ticker.
-  const inPortfolio = (sym: string) => portfolioSymbols.has(sym.toUpperCase());
-  return {
-    portfolioWouldDo: buys.filter(o => inPortfolio(o.symbol)).slice(0, limit).map(synthesizeBuyLine),
-    portfolioWouldNotDo: sells.filter(o => inPortfolio(o.symbol)).slice(0, limit).map(synthesizeSellLine),
-    marketWouldDo: buys.filter(o => !inPortfolio(o.symbol)).slice(0, limit).map(synthesizeBuyLine),
-    marketWouldNotDo: sells.filter(o => !inPortfolio(o.symbol)).slice(0, limit).map(synthesizeSellLine),
-  };
-}
-
 function buildFallbackDigest(
   opportunities: Opportunity[],
   effects: SecondOrderEffect[],
   headlines: string[],
-  portfolioSymbols: Set<string>,
 ): MarketDigest {
   const topBuy = opportunities.filter(o => o.action === 'BUY').slice(0, 3);
   const buyCount = opportunities.filter(o => o.action === 'BUY').length;
   const sellCount = opportunities.filter(o => o.action === 'SELL').length;
-  const would = synthesizeWouldArrays(opportunities, portfolioSymbols, 3);
+  // Recommendations are a deterministic projection of the scan — same source of truth
+  // as the success path, so the fallback can never contradict the scan either.
+  const { portfolioRecommendations, marketRecommendations } = buildDigestRecommendations(opportunities);
   return {
     generatedAt: Date.now(),
     overnightSummary: headlines.length > 0 ? headlines.slice(0, 3).join('. ') + '.' : 'Sin noticias relevantes recientes.',
@@ -197,7 +156,8 @@ function buildFallbackDigest(
     topOpportunities: topBuy.map(o => ({ symbol: o.symbol, action: 'BUY' as const, narrative: o.simpleReasoning ?? o.reasoning })),
     warnings: opportunities.filter(o => o.action === 'SELL').slice(0, 2).map(o => `${o.symbol}: ${o.risks[0] ?? 'señales negativas'}`),
     marketMood: buyCount > sellCount * 2 ? 'risk-on' : sellCount > buyCount ? 'risk-off' : 'mixed',
-    ...would,
+    portfolioRecommendations,
+    marketRecommendations,
   };
 }
 
@@ -408,133 +368,14 @@ export async function generateMarketReport(
         .map(o => o.symbol.toUpperCase())
     );
     avoidList = filterAvoidListVsBuy(Array.isArray(p.avoidList) ? p.avoidList : [], buyTickers);
-    const coerceToString = (item: unknown): string => {
-      if (typeof item === 'string') return item.trim();
-      if (item && typeof item === 'object') {
-        // LLM sometimes returns {ticker, razon} or {symbol, reason} instead of plain strings
-        const obj = item as Record<string, unknown>;
-        const ticker = String(obj.ticker ?? obj.symbol ?? '').trim();
-        const reason = String(obj.razon ?? obj.reason ?? obj.razonamiento ?? '').trim();
-        if (ticker && reason) return `No operaría ${ticker} — ${reason}`;
-        if (reason) return reason;
-        if (ticker) return ticker; // bare ticker — will get dropped by word-count filter below
-      }
-      return '';
-    };
-    const sanitizeWouldNotDo = (raw: unknown): string[] => {
-      if (!Array.isArray(raw)) return [];
-      return raw
-        .map(coerceToString)
-        .filter(Boolean)
-        .filter(item => {
-          // Drop bare-ticker entries (e.g. "VIST", "- YPF"): require >= 4 words
-          const wordCount = item.replace(/[-•*]/g, '').trim().split(/\s+/).filter(Boolean).length;
-          if (wordCount < 4) return false;
-          // Drop only when the PRIMARY ticker (first uppercase token after the verb) is a BUY ticker.
-          // Mentions of BUY tickers in passing (e.g. "evitar TSLA porque NVDA absorbe el flujo") are OK.
-          const stripped = item.replace(/[-•*]/g, '').trim();
-          const firstTokenMatch = stripped.match(/^[^A-Z]*([A-Z][A-Z0-9.-]{0,5})\b/);
-          const primary = firstTokenMatch?.[1];
-          if (primary && buyTickers.has(primary)) return false;
-          return true;
-        })
-        .slice(0, 8);
-    };
 
-    const sanitizeWouldDo = (raw: unknown): string[] => {
-      if (!Array.isArray(raw)) return [];
-      return raw
-        .map(coerceToString)
-        .filter(Boolean)
-        .filter(item => {
-          const wordCount = item.replace(/[-•*]/g, '').trim().split(/\s+/).filter(Boolean).length;
-          return wordCount >= 4;
-        })
-        .slice(0, 8);
-    };
-
-    // Defensive reclassification: the LLM regularly mislabels portfolio vs market
-    // despite the prompt. We extract ticker-like tokens from each item and route
-    // by ACTUAL portfolio membership, ignoring whatever bucket the LLM picked.
-    const classifyByPortfolio = (items: string[]): { portfolio: string[]; market: string[]; unresolved: string[] } => {
-      const portfolio: string[] = [];
-      const market: string[] = [];
-      const unresolved: string[] = [];
-      for (const item of items) {
-        // Tickers we recognize from this run (portfolio + opportunities universe)
-        const knownTickers = new Set<string>([
-          ...portfolioSymbolSet,
-          ...(digestInputs?.opportunities ?? []).map(o => o.symbol.toUpperCase()),
-        ]);
-        const tokens = (item.match(/\b[A-Z][A-Z0-9.-]{0,5}\b/g) ?? []).filter(t => knownTickers.has(t));
-        if (tokens.length === 0) {
-          unresolved.push(item);
-          continue;
-        }
-        const firstPortfolio = tokens.find(t => portfolioSymbolSet.has(t));
-        if (firstPortfolio) portfolio.push(item);
-        else market.push(item);
-      }
-      return { portfolio, market, unresolved };
-    };
-
-    const opps = digestInputs?.opportunities ?? [];
-    const fallback = synthesizeWouldArrays(opps, portfolioSymbolSet, 5);
-
-    const llmPortfolioWouldDo = sanitizeWouldDo(p.portfolioWouldDo);
-    const llmPortfolioWouldNotDo = sanitizeWouldNotDo(p.portfolioWouldNotDo);
-    const llmMarketWouldDo = sanitizeWouldDo(p.marketWouldDo);
-    const llmMarketWouldNotDo = sanitizeWouldNotDo(p.marketWouldNotDo);
-
-    // Merge LLM buckets and reclassify by actual portfolio membership.
-    const allLlmWouldDo = [...llmPortfolioWouldDo, ...llmMarketWouldDo];
-    const allLlmWouldNotDo = [...llmPortfolioWouldNotDo, ...llmMarketWouldNotDo];
-    const doClassified = classifyByPortfolio(allLlmWouldDo);
-    const notDoClassified = classifyByPortfolio(allLlmWouldNotDo);
-
-    const misroutedDo = (llmPortfolioWouldDo.length + llmMarketWouldDo.length) > 0
-      && (doClassified.portfolio.length !== llmPortfolioWouldDo.length || doClassified.market.length !== llmMarketWouldDo.length);
-    const misroutedNotDo = (llmPortfolioWouldNotDo.length + llmMarketWouldNotDo.length) > 0
-      && (notDoClassified.portfolio.length !== llmPortfolioWouldNotDo.length || notDoClassified.market.length !== llmMarketWouldNotDo.length);
-    if (misroutedDo) {
-      console.warn(`[MarketReport] Reclasificación WouldDo: LLM dijo portfolio=${llmPortfolioWouldDo.length}/market=${llmMarketWouldDo.length}, real portfolio=${doClassified.portfolio.length}/market=${doClassified.market.length}/unresolved=${doClassified.unresolved.length}`);
-    }
-    if (misroutedNotDo) {
-      console.warn(`[MarketReport] Reclasificación WouldNotDo: LLM dijo portfolio=${llmPortfolioWouldNotDo.length}/market=${llmMarketWouldNotDo.length}, real portfolio=${notDoClassified.portfolio.length}/market=${notDoClassified.market.length}/unresolved=${notDoClassified.unresolved.length}`);
-    }
-
-    // Unresolved items (no recognizable ticker) — bucket by LLM's original label as best-effort.
-    // If they came from a portfolio-labeled array → stick portfolio; otherwise market.
-    const unresolvedDoFromPortfolio = doClassified.unresolved.filter(it => llmPortfolioWouldDo.includes(it));
-    const unresolvedDoFromMarket = doClassified.unresolved.filter(it => llmMarketWouldDo.includes(it));
-    const unresolvedNotDoFromPortfolio = notDoClassified.unresolved.filter(it => llmPortfolioWouldNotDo.includes(it));
-    const unresolvedNotDoFromMarket = notDoClassified.unresolved.filter(it => llmMarketWouldNotDo.includes(it));
-
-    const reclassifiedPortfolioWouldDo = [...doClassified.portfolio, ...unresolvedDoFromPortfolio].slice(0, 5);
-    const reclassifiedMarketWouldDo = [...doClassified.market, ...unresolvedDoFromMarket].slice(0, 5);
-    const reclassifiedPortfolioWouldNotDo = [...notDoClassified.portfolio, ...unresolvedNotDoFromPortfolio].slice(0, 5);
-    const reclassifiedMarketWouldNotDo = [...notDoClassified.market, ...unresolvedNotDoFromMarket].slice(0, 5);
-
-    const rawPortfolioWouldDo = reclassifiedPortfolioWouldDo.length > 0 ? reclassifiedPortfolioWouldDo : fallback.portfolioWouldDo;
-    const finalPortfolioWouldNotDo = reclassifiedPortfolioWouldNotDo.length > 0 ? reclassifiedPortfolioWouldNotDo : fallback.portfolioWouldNotDo;
-    const rawMarketWouldDo = reclassifiedMarketWouldDo.length > 0 ? reclassifiedMarketWouldDo : fallback.marketWouldDo;
-    const finalMarketWouldNotDo = reclassifiedMarketWouldNotDo.length > 0 ? reclassifiedMarketWouldNotDo : fallback.marketWouldNotDo;
-
-    // Anti-hallucination: ground would-buy bullets against the scan. Market picks must be real
-    // BUYs (drops upgraded WATCH like XLE); all numbers are re-rendered from the scan tradeLevels
-    // so a fabricated price (e.g. "XLE a $88.50") can never reach the UI.
-    const groundingOpps = (digestInputs?.opportunities ?? []).map(o => ({
-      symbol: o.symbol, action: o.action, currentPrice: o.currentPrice, tradeLevels: o.tradeLevels,
-    }));
-    const finalMarketWouldDo = groundWouldBuyItems(rawMarketWouldDo, groundingOpps);
-    const finalPortfolioWouldDo = groundWouldBuyItems(rawPortfolioWouldDo, groundingOpps, { dropNonBuy: false });
-
-    if (reclassifiedPortfolioWouldDo.length === 0 && finalPortfolioWouldDo.length > 0) {
-      console.log(`[MarketReport] portfolioWouldDo empty post-reclass — fallback ${finalPortfolioWouldDo.length} desde portfolio BUY opps`);
-    }
-    if (reclassifiedMarketWouldDo.length === 0 && finalMarketWouldDo.length > 0) {
-      console.log(`[MarketReport] marketWouldDo empty post-reclass — fallback ${finalMarketWouldDo.length} desde non-portfolio BUY opps`);
-    }
+    // Recommendations are NOT taken from the LLM — they are projected deterministically
+    // from the scan (action + numbers + motivo owned by the engine). This is the single
+    // source of truth that makes the digest agree with the scan by construction: a HOLD/
+    // WATCH can never appear as a buy, and only a real BUY carries entry/stop/target.
+    const { portfolioRecommendations, marketRecommendations } = buildDigestRecommendations(
+      digestInputs?.opportunities ?? [],
+    );
 
     digest = {
       generatedAt: Date.now(),
@@ -548,10 +389,8 @@ export async function generateMarketReport(
         : [],
       warnings: Array.isArray(p.warnings) ? p.warnings.slice(0, 3) : [],
       marketMood: ['risk-on', 'risk-off', 'mixed'].includes(p.marketMood) ? p.marketMood : 'mixed',
-      portfolioWouldDo: finalPortfolioWouldDo,
-      portfolioWouldNotDo: finalPortfolioWouldNotDo,
-      marketWouldDo: finalMarketWouldDo,
-      marketWouldNotDo: finalMarketWouldNotDo,
+      portfolioRecommendations,
+      marketRecommendations,
     };
 
     console.log('[MarketReport] Combined synthesis OK — report + digest generados');
@@ -560,7 +399,7 @@ export async function generateMarketReport(
     actualEngine = 'pipeline-thematic (fallback)';
     if (digestInputs) {
       const headlines = digestInputs.intelligence.topHeadlines ?? [];
-      digest = buildFallbackDigest(digestInputs.opportunities, digestInputs.secondOrderEffects, headlines, portfolioSymbolSet);
+      digest = buildFallbackDigest(digestInputs.opportunities, digestInputs.secondOrderEffects, headlines);
     }
   }
 

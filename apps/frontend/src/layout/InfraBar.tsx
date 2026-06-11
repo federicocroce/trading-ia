@@ -286,8 +286,9 @@ export function InfraBar() {
               setStageToRerun(v as typeof stageToRerun);
               const stage = v as 'news' | 'fundamentals' | 'analysis' | 'report';
               const mode = await selectMode();
-              rerunStage(stage, mode);
               setStageToRerun('');
+              if (!mode) return;
+              rerunStage(stage, mode);
             }}
             disabled={isRunning}
           >
@@ -327,8 +328,8 @@ export function InfraBar() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         history={history}
-        onRerunStage={async (stage) => { const mode = await selectMode(); rerunStage(stage, mode); }}
-        onRerunAll={async () => { const mode = await selectMode(); run(false, undefined, mode); }}
+        onRerunStage={async (stage) => { const mode = await selectMode(); if (!mode) return; rerunStage(stage, mode); }}
+        onRerunAll={async () => { const mode = await selectMode(); if (!mode) return; run(false, undefined, mode); }}
         isRunning={isRunning}
       />
       {modal}

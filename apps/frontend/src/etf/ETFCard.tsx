@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { X } from 'lucide-react';
 import { useNavigation } from '@/shared/navigation';
+import { ETF_CATEGORY_LABELS } from './categories';
 
 interface EnrichedEtf {
   id: number;
@@ -25,17 +26,6 @@ interface ETFCardProps {
   etf: EnrichedEtf;
   onRemove?: (symbol: string) => void;
 }
-
-const CATEGORY_LABELS: Record<string, string> = {
-  indices: 'Índices',
-  sectores: 'Sectores',
-  bonos: 'Bonos',
-  commodities: 'Commodities',
-  latam: 'Latam',
-  internacional: 'Internacional',
-  crypto: 'Crypto',
-  factor: 'Factor',
-};
 
 const ACTION_STYLES: Record<NonNullable<EnrichedEtf['action']>, string> = {
   BUY: 'bg-trading-green/20 text-trading-green border-trading-green/40',
@@ -73,7 +63,7 @@ export function ETFCard({ etf, onRemove }: ETFCardProps) {
           <div className="flex items-center gap-2 min-w-0">
             <span className="font-mono font-bold text-sm text-white">{etf.symbol}</span>
             <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-500/30 shrink-0">
-              {CATEGORY_LABELS[etf.category] ?? etf.category}
+              {ETF_CATEGORY_LABELS[etf.category as keyof typeof ETF_CATEGORY_LABELS] ?? etf.category}
             </Badge>
             {etf.action && (
               <Badge variant="outline" className={`text-[10px] shrink-0 ${ACTION_STYLES[etf.action]}`}>

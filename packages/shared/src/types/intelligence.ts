@@ -70,6 +70,21 @@ export interface DailyReport {
 
 // --- Market Digest ---
 
+/**
+ * Una recomendación del digest, proyectada DETERMINÍSTICAMENTE desde el scan.
+ * El motor es dueño de `action`, `tradeLevels`, números y `reason`; el LLM no los toca.
+ * Garantiza que el digest nunca contradiga al scan (misma fuente de verdad).
+ */
+export interface DigestRecommendation {
+  symbol: string;
+  action: SignalAction;            // verbatim del scan (BUY/SELL/HOLD/WATCH)
+  reason: string;                  // Opportunity.simpleReasoning (verbatim)
+  currentPrice: number;
+  score: number;                   // Opportunity.opportunityScore
+  // SOLO presente cuando action === 'BUY' — un hold/observar no lleva precio de entrada.
+  tradeLevels?: { entryPrice: number; stopLoss: number; takeProfit: number };
+}
+
 export interface MarketDigest {
   generatedAt: number;
   overnightSummary: string;
@@ -85,12 +100,9 @@ export interface MarketDigest {
   }>;
   warnings: string[];
   marketMood: 'risk-on' | 'risk-off' | 'mixed';
-  // PORTFOLIO (activos en cartera) — qué SÍ / NO haría con tu portfolio
-  portfolioWouldDo: string[];
-  portfolioWouldNotDo: string[];
-  // MERCADO (fuera del portfolio) — qué SÍ / NO haría en el mercado
-  marketWouldDo: string[];
-  marketWouldNotDo: string[];
+  // Recomendaciones proyectadas desde el scan (acción + motivo reales, sin contradicción).
+  portfolioRecommendations: DigestRecommendation[];  // opportunities con inPortfolio === true
+  marketRecommendations: DigestRecommendation[];     // opportunities con inPortfolio === false
 }
 
 // --- Market Report (full investment report) ---

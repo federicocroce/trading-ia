@@ -141,30 +141,51 @@ export function filterItemsVsBuyTickers(items: string[], buyTickers: Set<string>
   });
 }
 
+const VALID_DIGEST_ACTIONS = new Set(['BUY', 'SELL', 'HOLD', 'WATCH']);
+
+function coerceRecommendations(v: unknown): import('@trading/shared').DigestRecommendation[] {
+  if (!Array.isArray(v)) return [];
+  const out: import('@trading/shared').DigestRecommendation[] = [];
+  for (const raw of v as any[]) {
+    if (!raw || typeof raw !== 'object') continue;
+    if (typeof raw.symbol !== 'string' || !VALID_DIGEST_ACTIONS.has(raw.action)) continue;
+    const rec: import('@trading/shared').DigestRecommendation = {
+      symbol: String(raw.symbol),
+      action: raw.action,
+      reason: typeof raw.reason === 'string' ? raw.reason : '',
+      currentPrice: Number(raw.currentPrice) || 0,
+      score: Number(raw.score) || 0,
+    };
+    // Trade levels only survive on a real BUY — mirror the projection invariant.
+    const tl = raw.tradeLevels;
+    if (raw.action === 'BUY' && tl && typeof tl === 'object'
+      && [tl.entryPrice, tl.stopLoss, tl.takeProfit].every((n: unknown) => typeof n === 'number')) {
+      rec.tradeLevels = { entryPrice: tl.entryPrice, stopLoss: tl.stopLoss, takeProfit: tl.takeProfit };
+    }
+    out.push(rec);
+  }
+  return out;
+}
+
 function normalizeDigest(d: any): import('@trading/shared').MarketDigest {
-  const buyTickers = getCurrentBuyTickers();
   const arr = (v: unknown): string[] =>
     Array.isArray(v) ? (v as unknown[]).map(coerceTextItem).filter(s => s.length > 0) : [];
 
-  // Backward-compat: blobs viejos persistidos antes del split tenían wouldDo/wouldNotDo
-  // sin prefijo (eran portfolio-sesgados en la práctica). Migrarlos al portfolio side.
-  const legacyWouldDo = arr(d.wouldDo);
-  const legacyWouldNotDo = arr(d.wouldNotDo);
-
-  const portfolioWouldDo = d.portfolioWouldDo !== undefined ? arr(d.portfolioWouldDo) : legacyWouldDo;
-  const portfolioWouldNotDoRaw = d.portfolioWouldNotDo !== undefined ? arr(d.portfolioWouldNotDo) : legacyWouldNotDo;
-  const marketWouldDo = arr(d.marketWouldDo);
-  const marketWouldNotDoRaw = arr(d.marketWouldNotDo);
-
-  const { wouldDo: _w, wouldNotDo: _wn, ...rest } = d ?? {};
+  // Drop legacy free-form string arrays (wouldDo/wouldNotDo + the 4 *WouldDo variants).
+  // Old blobs can't be reconstructed into actions, so recommendations default to [] and
+  // the UI shows a "regenerá" CTA; the next scan repopulates them from the projection.
+  const {
+    wouldDo: _w, wouldNotDo: _wn,
+    portfolioWouldDo: _pwd, portfolioWouldNotDo: _pwnd,
+    marketWouldDo: _mwd, marketWouldNotDo: _mwnd,
+    ...rest
+  } = d ?? {};
 
   return {
     ...rest,
-    portfolioWouldDo,
-    portfolioWouldNotDo: filterItemsVsBuyTickers(portfolioWouldNotDoRaw, buyTickers),
-    marketWouldDo,
-    marketWouldNotDo: filterItemsVsBuyTickers(marketWouldNotDoRaw, buyTickers),
-    warnings: arr(d.warnings),
+    portfolioRecommendations: coerceRecommendations(d?.portfolioRecommendations),
+    marketRecommendations: coerceRecommendations(d?.marketRecommendations),
+    warnings: arr(d?.warnings),
   } as import('@trading/shared').MarketDigest;
 }
 

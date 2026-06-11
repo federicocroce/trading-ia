@@ -211,6 +211,7 @@ export function MarketReportView({ date }: { date?: string }) {
                 variant="secondary"
                 onClick={async () => {
                   const mode = await selectMode();
+                  if (!mode) return;
                   run(false, undefined, mode);
                 }}
                 disabled={isRunning}

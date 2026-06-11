@@ -199,22 +199,14 @@ IMPORTANTE:
 
 "portfolioImpact": 2-3 oraciones sobre impacto en el portfolio actual. Efectos de segundo orden (ej: suba petróleo → VIST sube pero GGAL paga más costos energéticos).
 
-"wouldDo": 3-5 trades que SÍ haría hoy. Cada uno: ticker, precio entrada, stop, razón específica. Ej: "Compraría LMT a $480 — divergencia alcista diaria + sector defensa con catalizador. Stop $455, target $520."
-
-"wouldNotDo": 3-5 cosas que NO haría y por qué. CADA item debe ser una frase completa con razón concreta + número (precio/indicador/dato). Ej: "No compraría VIST ahora — 2 divergencias bajistas (RSI+MACD), RSI semanal en 69. Esperar soporte $60."
+NOTA: las recomendaciones por símbolo (comprar/vender/mantener/observar con precio y motivo) NO las generás vos — las arma el motor desde el scan para que nunca contradigan al análisis. No incluyas arrays de "qué haría / qué no haría".
 
 REGLAS:
-- wouldDo/wouldNotDo son las secciones MÁS IMPORTANTES. Precio y stop concretos siempre.
-- Si divergencia bajista → nunca en wouldDo.
-- Si activo tiene action=SELL en análisis → en wouldNotDo, no en wouldDo.
-- PROHIBIDO listar solo el ticker en wouldNotDo (ej: "VIST" o "- VIST"). CADA item debe ser una oración con verbo y razón. Si no podés justificar con dato concreto, NO incluyas.
-- COHERENCIA OBLIGATORIA con TOP OPORTUNIDADES ALGORÍTMICAS: si un ticker aparece ahí con action=BUY, NO lo metas en wouldNotDo. Si tu análisis difiere, mejor omitilo de wouldNotDo (no contradigas la señal cuantitativa sin razón muy fuerte y explícita).
-- wouldDo y wouldNotDo son ARRAYS DE STRINGS (oraciones completas), NUNCA arrays de objetos. PROHIBIDO formato {"ticker":"X","razon":"..."} o similar — debe ser string plano: "No compraría X — razón concreta con número".
 - topImpactNews y topOpportunities NO deben depender del portfolio — analizar el mercado objetivamente.
 - Máximo 1000 palabras total.
 
 Responde SOLO con JSON:
-{"macroContext":"...","topImpactNews":[{"headline":"Fed sube tasas 25bps...","sectors":[{"name":"Banca US","direction":"positive"},{"name":"Real Estate","direction":"negative"}],"confidence":"high","tickers":["JPM","BAC","XLF"]}],"overnightSummary":"...","topOpportunities":[{"symbol":"NVDA","action":"BUY","narrative":"..."}],"watching":[{"symbol":"TLT","narrative":"En watch tras Fed dovish. Trigger BUY: cierre sobre $98."}],"marketMood":"mixed","scenarios":[...],"avoidList":["..."],"warnings":["..."],"portfolioImpact":"...","wouldDo":["Compraría LMT a $480..."],"wouldNotDo":["No compraría VIST..."]}`;
+{"macroContext":"...","topImpactNews":[{"headline":"Fed sube tasas 25bps...","sectors":[{"name":"Banca US","direction":"positive"},{"name":"Real Estate","direction":"negative"}],"confidence":"high","tickers":["JPM","BAC","XLF"]}],"overnightSummary":"...","topOpportunities":[{"symbol":"NVDA","action":"BUY","narrative":"..."}],"watching":[{"symbol":"TLT","narrative":"En watch tras Fed dovish. Trigger BUY: cierre sobre $98."}],"marketMood":"mixed","scenarios":[...],"avoidList":["..."],"warnings":["..."],"portfolioImpact":"..."}`;
 
 // ============================================================
 // NEWS RADAR v2 — cause + impacts (ultra-compact extraction)

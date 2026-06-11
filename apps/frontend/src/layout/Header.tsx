@@ -69,6 +69,7 @@ export function Header() {
                 variant="default"
                 onClick={async () => {
                   const mode = await selectMode();
+                  if (!mode) return;
                   run(true, selectedPreset.sectors, mode);
                 }}
                 disabled={isRunning}

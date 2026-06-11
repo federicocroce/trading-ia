@@ -9,16 +9,13 @@ interface ModalProps {
   lmAvailable: boolean;
   lmChecking: boolean;
   onSelect: (mode: AiMode) => void;
+  onDismiss: () => void;
 }
 
-function AiModeModalUI({ open, lmAvailable, lmChecking, onSelect }: ModalProps) {
+function AiModeModalUI({ open, lmAvailable, lmChecking, onSelect, onDismiss }: ModalProps) {
   return (
-    <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent
-        className="sm:max-w-sm"
-        onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
-      >
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onDismiss(); }}>
+      <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle className="text-sm font-semibold">¿Dónde ejecutar el análisis?</DialogTitle>
         </DialogHeader>
@@ -55,7 +52,7 @@ function AiModeModalUI({ open, lmAvailable, lmChecking, onSelect }: ModalProps) 
 
 export function useAiModeModal() {
   const [open, setOpen] = useState(false);
-  const resolveRef = useRef<((mode: AiMode) => void) | null>(null);
+  const resolveRef = useRef<((mode: AiMode | null) => void) | null>(null);
 
   const lmStatus = trpc.intelligence.lmStudioStatus.useQuery(undefined, {
     enabled: open,
@@ -63,7 +60,7 @@ export function useAiModeModal() {
     retry: false,
   });
 
-  const selectMode = useCallback((): Promise<AiMode> => {
+  const selectMode = useCallback((): Promise<AiMode | null> => {
     return new Promise((resolve) => {
       resolveRef.current = resolve;
       setOpen(true);
@@ -76,12 +73,19 @@ export function useAiModeModal() {
     resolveRef.current = null;
   }, []);
 
+  const handleDismiss = useCallback(() => {
+    setOpen(false);
+    resolveRef.current?.(null);
+    resolveRef.current = null;
+  }, []);
+
   const modal = (
     <AiModeModalUI
       open={open}
       lmAvailable={lmStatus.data?.available ?? false}
       lmChecking={lmStatus.isLoading && open}
       onSelect={handleSelect}
+      onDismiss={handleDismiss}
     />
   );
 

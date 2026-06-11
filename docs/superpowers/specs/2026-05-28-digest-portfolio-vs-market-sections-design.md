@@ -88,23 +88,32 @@ Cambios al prompt:
   - Si alguno viene vacío → fallback al synthesizer correspondiente.
   - Defensa adicional: reasignar items mal ubicados (ticker de portfolio en `marketWouldDo` → mover a `portfolioWouldDo`, y viceversa).
 
-### 4. Base de datos (`apps/backend/src/db/schema.ts` + migración)
+### 4. Persistencia (sin migración DB)
 
-Tabla `marketDigest`:
-- **Repurpose:** columnas `would_do` / `would_not_do` pasan a ser portfolio-específicas (mismo nombre, semántica acotada). No se renombran para no romper filas existentes.
-- **Nuevas columnas:** `market_would_do TEXT NOT NULL DEFAULT '[]'` y `market_would_not_do TEXT NOT NULL DEFAULT '[]'` (JSON `string[]`).
-- Migración Drizzle generada con `pnpm drizzle-kit generate` (siguiendo patrón del repo, separando ALTERs con `--> statement-breakpoint` como en migration 0034 según el commit reciente `8263658`).
+El digest se guarda como **JSON blob** en `market_digests.digest` ([schema.ts:294-300](apps/backend/src/db/schema.ts#L294-L300)). No hay columnas por campo → no se requiere migración.
 
-### 5. Repositorio (`apps/backend/src/intelligence/pipeline-artifacts.repository.ts`)
+Punto de normalización: `normalizeDigest` en [opportunities.service.ts:126-135](apps/backend/src/opportunities/opportunities.service.ts#L126-L135). Se actualiza para procesar los 4 arrays con defaults defensivos:
 
-- Serializar/deserializar los 4 campos. Mapeo:
-  - `portfolioWouldDo` ↔ `would_do`
-  - `portfolioWouldNotDo` ↔ `would_not_do`
-  - `marketWouldDo` ↔ `market_would_do`
-  - `marketWouldNotDo` ↔ `market_would_not_do`
-- Lectura defensiva: si la columna market es `null` o JSON inválido → `[]`.
+```ts
+return {
+  ...d,
+  portfolioWouldDo: Array.isArray(d.portfolioWouldDo) ? d.portfolioWouldDo.map(coerceTextItem).filter(...) : [],
+  portfolioWouldNotDo: filterItemsVsBuyTickers(...),
+  marketWouldDo: Array.isArray(d.marketWouldDo) ? d.marketWouldDo.map(coerceTextItem).filter(...) : [],
+  marketWouldNotDo: filterItemsVsBuyTickers(...),
+  ...
+};
+```
 
-### 6. Frontend (`apps/frontend/src/daily/DailySummary.tsx`)
+**Backward-compat con filas viejas:** los blobs persistidos antes del cambio tienen `wouldDo`/`wouldNotDo` (sin prefijo). `normalizeDigest` los migra al vuelo:
+- Si `portfolioWouldDo` falta y existe `wouldDo` → usar el viejo como portfolio (era el sesgo real).
+- `marketWouldDo` / `marketWouldNotDo` quedan en `[]` hasta regenerar el digest.
+
+No se necesita backfill ni script de migración.
+
+(Nota: la tabla `pipeline_artifacts` con columnas `would_do`/`would_not_do` es per-symbol — pipeline-artifacts.repository — y **no se toca**, queda fuera del scope.)
+
+### 5. Frontend (`apps/frontend/src/daily/DailySummary.tsx`)
 
 Reemplazar la sección actual (líneas ~615-677) por **dos bloques con headers**, cada uno con SÍ verde + NO rojo:
 
@@ -126,7 +135,7 @@ Reemplazar la sección actual (líneas ~615-677) por **dos bloques con headers**
   - Si `marketWouldDo` vacío → texto discreto "Sin oportunidades nuevas hoy" (sin botón regenerar, evita duplicar el CTA).
 - El render `portfolioImpact` queda dentro del header `TU PORTFOLIO`.
 
-### 7. Otros consumidores del tipo
+### 6. Otros consumidores del tipo
 
 Búsqueda confirma que `MarketDigest.wouldDo` / `wouldNotDo` solo se leen en:
 - `DailySummary.tsx` (cambia según punto 6).

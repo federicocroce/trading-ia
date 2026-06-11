@@ -143,8 +143,11 @@ export function PriceChart({ symbol, onPeriodChange, currentPrice }: PriceChartP
 
     if (dedupedOhlc.length === 0) return;
 
-    // ART = UTC-3. Shift timestamps so the chart labels show local time.
-    const ART_OFFSET_S = -3 * 3600;
+    // ART = UTC-3. Shift ONLY intraday bars so labels show local time.
+    // Daily+ candles carry a date-only string parsed as UTC midnight; shifting
+    // them -3h would push every candle to the previous calendar day.
+    const isIntraday = tf.interval.includes('m') || tf.interval.includes('h');
+    const ART_OFFSET_S = isIntraday ? -3 * 3600 : 0;
     const toChartTime = (dateStr: string) =>
       (Math.floor(new Date(dateStr).getTime() / 1000) + ART_OFFSET_S) as any;
 
