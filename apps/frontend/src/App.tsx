@@ -13,12 +13,13 @@ import { SymbolDetailPage } from '@/symbol/SymbolDetailPage';
 import { OpportunityDashboard } from '@/opportunities/OpportunityDashboard';
 import { DailySummary } from '@/daily/DailySummary';
 import { HistoricoPage } from '@/historico/HistoricoPage';
+import { AlertsPanel } from '@/alerts/AlertsPanel';
 import { NavigationContext } from '@/shared/navigation';
 import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
 import { WebSearchBlockedModal } from '@/pipeline/WebSearchBlockedModal';
 
-const VALID_TABS = ['daily', 'opportunities', 'portfolio', 'historico'] as const;
+const VALID_TABS = ['daily', 'opportunities', 'portfolio', 'historico', 'alertas'] as const;
 type TabValue = typeof VALID_TABS[number];
 const DEFAULT_TAB: TabValue = 'daily';
 
@@ -40,6 +41,17 @@ function buildURL(tab: TabValue, symbol: string | null): string {
   if (symbol) params.set('symbol', symbol);
   const qs = params.toString();
   return qs ? `?${qs}` : '/';
+}
+
+function AlertsBadge() {
+  const { data } = trpc.alerts.unseenCount.useQuery(undefined, { refetchInterval: 60_000 });
+  const count = data?.count ?? 0;
+  if (count === 0) return null;
+  return (
+    <span className="absolute -top-0.5 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-purple-500 text-[8px] font-bold text-white">
+      {count > 9 ? '9+' : count}
+    </span>
+  );
 }
 
 function BuyBadge() {
@@ -126,6 +138,10 @@ export function App() {
                 </TabsTrigger>
                 <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
                 <TabsTrigger value="historico">Histórico</TabsTrigger>
+                <TabsTrigger value="alertas" className="relative">
+                  Alertas
+                  <AlertsBadge />
+                </TabsTrigger>
               </TabsList>
 
               {selectedSymbol ? (
@@ -145,6 +161,9 @@ export function App() {
                   </TabsContent>
                   <TabsContent value="historico" className="flex-1 overflow-y-auto">
                     <HistoricoPage />
+                  </TabsContent>
+                  <TabsContent value="alertas" className="flex-1 overflow-y-auto">
+                    <AlertsPanel />
                   </TabsContent>
                 </>
               )}
