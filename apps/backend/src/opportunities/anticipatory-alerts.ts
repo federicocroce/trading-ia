@@ -3,6 +3,7 @@ import type {
   BullishSignal,
   BullishSignalCategory,
   DivergenceSignal,
+  SignalAction,
   TimingView,
 } from '@trading/shared';
 
@@ -164,4 +165,47 @@ export function reconcileAlerts(
   }
 
   return { toInsert, toUpdate, toExpire, newAlerts: [...toInsert] };
+}
+
+/**
+ * Contraparte alcista del override bajista de smartAction: la MISMA confluencia
+ * que dispara la alerta sube el veredicto. Un solo discurso en toda la app.
+ * Nunca pisa vetos ni overrides bajistas; SELL/BUY no se tocan.
+ */
+export function anticipatoryUpgrade(
+  action: SignalAction,
+  composite: number,
+  opp: AlertSource,
+  riskRewardRatio: number | undefined,
+  hasAxisVeto: boolean,
+): { action: SignalAction; reason?: string } {
+  if (action === 'SELL' || action === 'BUY') return { action };
+  if (hasAxisVeto || hasBearishConflict(opp)) return { action };
+
+  const signals = extractBullishSignals(opp);
+  const categories = [...new Set(signals.map(s => s.category))];
+  if (categories.length < 2) return { action };
+
+  const detail = signals.map(s => s.description).slice(0, 3).join(' + ');
+  const rr = riskRewardRatio ?? 0;
+
+  if (action === 'HOLD' && rr >= 1.5) {
+    return {
+      action: 'BUY',
+      reason: `Confluencia anticipatoria (${categories.length} señales: ${detail}). Setups asi historicamente preceden el movimiento — R/R 1:${rr.toFixed(1)} acompaña. Es probabilidad, no certeza.`,
+    };
+  }
+  if (action === 'HOLD') {
+    return {
+      action: 'WATCH',
+      reason: `Confluencia anticipatoria (${detail}) pero R/R 1:${rr.toFixed(1)} insuficiente para agregar — vigilar de cerca.`,
+    };
+  }
+  if (action === 'WATCH' && composite >= 50) {
+    return {
+      action: 'BUY',
+      reason: `Confluencia anticipatoria (${categories.length} señales: ${detail}) con score ${composite}/100. El setup precede al movimiento — entrar antes de que se confirme. Es probabilidad, no certeza.`,
+    };
+  }
+  return { action };
 }

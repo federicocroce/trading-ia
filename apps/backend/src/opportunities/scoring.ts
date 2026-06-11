@@ -23,6 +23,7 @@ import { detectSignalConflicts } from './signal-conflicts.js';
 import { applyAxisVetos, detectCrossConflicts, resolveFinalVerdict, computeMacroAdjustment } from './verdicts.service.js';
 import { computePortfolioAdjustment } from './portfolio-risk.service.js';
 import { factorsForSymbol } from './risk-factor-map.js';
+import { anticipatoryUpgrade } from './anticipatory-alerts.js';
 import { computeConfluencePercent } from './confluence.js';
 
 // --- Normalización a escala 0-100 ---
@@ -1562,6 +1563,25 @@ export function buildAlgorithmicOpportunity(
       result.signalConflicts = postConflicts;
       result.action = 'WATCH';
       result.tradeLevels = computeTradeLevels(tech, 'WATCH', portfolioValue, portfolioQuantity);
+    }
+  }
+
+  // === ANTICIPATORY UPGRADE: confluencia bullish (>=2 categorias) sube el veredicto ===
+  // Contraparte alcista del override bajista. Misma fuente que las alertas anticipatorias
+  // — el digest proyecta el action verbatim, asi que no puede haber doble discurso.
+  const upgraded = anticipatoryUpgrade(
+    result.action,
+    composite,
+    result,
+    result.tradeLevels?.riskRewardRatio,
+    Boolean(axisVeto),
+  );
+  if (upgraded.action !== result.action) {
+    result.action = upgraded.action;
+    result.tradeLevels = computeTradeLevels(tech, upgraded.action, portfolioValue, portfolioQuantity);
+    if (upgraded.reason) {
+      result.simpleReasoning = upgraded.reason;
+      result.catalysts = [upgraded.reason.split('.')[0], ...result.catalysts].slice(0, 3);
     }
   }
 

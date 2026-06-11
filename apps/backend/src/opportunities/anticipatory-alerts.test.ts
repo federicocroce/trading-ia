@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractBullishSignals, buildAlertsFromScan, reconcileAlerts, type AlertSource } from './anticipatory-alerts.js';
+import { extractBullishSignals, buildAlertsFromScan, reconcileAlerts, anticipatoryUpgrade, type AlertSource } from './anticipatory-alerts.js';
 import type { AnticipatoryAlert } from '@trading/shared';
 
 function makeOpp(overrides: Partial<AlertSource> = {}): AlertSource {
@@ -219,5 +219,57 @@ describe('reconcileAlerts', () => {
     // y si la confluencia reaparece, es un NEW (re-alerta legitima tras expirar)
     const r2 = reconcileAlerts([makeAlert({ firstSeenDate: TODAY, lastSeenDate: TODAY })], stored, TODAY);
     expect(r2.newAlerts).toHaveLength(1);
+  });
+});
+
+describe('anticipatoryUpgrade', () => {
+  const twoSignals = () => makeOpp({
+    divergences: [{ type: 'bullish', indicator: 'macd', timeframe: 'weekly', description: 'Div alcista MACD semanal' }],
+    timingView: { action: 'BUY', timing: 'soon', confidence: 80, triggers: [trigger('macd_cross', 'bullish', 3)] },
+    tradeLevels: { entryPrice: 49, stopLoss: 46, takeProfit: 58 },
+  });
+
+  it('HOLD + confluencia >=2 + R/R>=1.5 → BUY (caso GGAL)', () => {
+    const r = anticipatoryUpgrade('HOLD', 54, twoSignals(), 1.8, false);
+    expect(r.action).toBe('BUY');
+    expect(r.reason).toMatch(/confluencia/i); // la reason arranca con "Confluencia" (mayuscula inicial de oracion)
+  });
+
+  it('WATCH + confluencia + composite>=50 → BUY', () => {
+    const r = anticipatoryUpgrade('WATCH', 52, twoSignals(), 1.2, false);
+    expect(r.action).toBe('BUY');
+  });
+
+  it('WATCH + composite<50 → sin cambio', () => {
+    expect(anticipatoryUpgrade('WATCH', 45, twoSignals(), 2, false).action).toBe('WATCH');
+  });
+
+  it('HOLD + R/R<1.5 → WATCH (señal visible pero sin gatillar compra)', () => {
+    expect(anticipatoryUpgrade('HOLD', 54, twoSignals(), 1.1, false).action).toBe('WATCH');
+  });
+
+  it('veto activo → nunca upgradea', () => {
+    expect(anticipatoryUpgrade('WATCH', 60, twoSignals(), 2, true).action).toBe('WATCH');
+  });
+
+  it('conflicto bajista → nunca upgradea', () => {
+    const conBearish = makeOpp({
+      divergences: [
+        { type: 'bullish', indicator: 'macd', timeframe: 'weekly', description: 'd' },
+        { type: 'bearish', indicator: 'rsi', timeframe: 'daily', description: 'd' },
+      ],
+      timingView: { action: 'BUY', timing: 'soon', confidence: 80, triggers: [trigger('macd_cross', 'bullish', 3)] },
+    });
+    expect(anticipatoryUpgrade('HOLD', 60, conBearish, 2, false).action).toBe('HOLD');
+  });
+
+  it('<2 categorias → sin cambio', () => {
+    const una = makeOpp({ divergences: [{ type: 'bullish', indicator: 'macd', timeframe: 'weekly', description: 'd' }] });
+    expect(anticipatoryUpgrade('HOLD', 60, una, 2, false).action).toBe('HOLD');
+  });
+
+  it('SELL y BUY no se tocan', () => {
+    expect(anticipatoryUpgrade('SELL', 60, twoSignals(), 2, false).action).toBe('SELL');
+    expect(anticipatoryUpgrade('BUY', 60, twoSignals(), 2, false).action).toBe('BUY');
   });
 });
