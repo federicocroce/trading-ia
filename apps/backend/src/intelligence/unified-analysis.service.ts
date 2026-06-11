@@ -27,6 +27,12 @@ type PortfolioPosition = { symbol: string; quantity: number; avgCost: number };
 
 const BATCH_SIZE = 4; // DeepSeek R1 vía OpenRouter: 4 en paralelo es seguro
 
+let _lastRunStats: { analyzed: number; targets: number; abortedByQuota: boolean } | null = null;
+
+export function getLastUnifiedAnalysisStats() {
+  return _lastRunStats;
+}
+
 function modelNameToProvider(name: string): UnifiedAssetAnalysis['generatedBy'] {
   if (name.includes('Gemini') || name.includes('gemini')) return 'gemini';
   if (name.includes('DeepSeek')) return 'deepseek';
@@ -229,6 +235,8 @@ export async function runUnifiedAnalysis(
   causalContextMap?: Map<string, string>,
   discoveredSet?: Set<string>,
 ): Promise<Map<string, UnifiedAssetAnalysis>> {
+  // Reset so a previous run's stats can't leak if this run exits early.
+  _lastRunStats = null;
   const result = new Map<string, UnifiedAssetAnalysis>();
 
   // News-context detector with multi-signal fallback (sentimentMap can be empty
@@ -282,6 +290,7 @@ export async function runUnifiedAnalysis(
   }
 
   // Run batches sequentially so we can abort early if all AI providers are exhausted
+  let abortedByQuota = false;
   for (let i = 0; i < batches.length; i++) {
     try {
       const batchResult = await analyzeBatch(batches[i], techMap, fundMap, sentimentMap, pipelineRunId, i, macroContext, causalContextMap);
@@ -292,10 +301,12 @@ export async function runUnifiedAnalysis(
       const msg = (err as Error).message ?? '';
       if (msg.includes('All providers failed') || msg.includes('All providers quota-exhausted')) {
         console.warn(`[unified-analysis] Circuit breaker: todos los providers AI agotados. Abortando ${batches.length - i - 1} batches restantes.`);
+        abortedByQuota = true;
         break;
       }
     }
   }
+  _lastRunStats = { analyzed: result.size, targets: targets.length, abortedByQuota };
 
   console.log(`[unified-analysis] Complete: ${result.size}/${targets.length} assets analyzed`);
 

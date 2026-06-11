@@ -21,6 +21,7 @@ import { trackPipelineRecommendations } from './pipeline-tracking.service.js';
 import { getStoredDailyReport } from './daily-report.service.js';
 import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAge, insertWebSearchArticles, getWebSearchArticlesForDate, saveCausalMap, getCausalMapByDate, clearCausalMapForDate } from '../db/repository.js';
 import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, getLastUnifiedAnalyses, setMarketDigest } from '../opportunities/opportunities.service.js';
+import { getLastUnifiedAnalysisStats } from './unified-analysis.service.js';
 import { getLastAggregationStats } from '../news/news.service.js';
 import { getLastTriangulationStats } from '../news/triangulation.service.js';
 import { getIntelligenceFromDB, prepareDeepAnalysisNews } from '../news/news-intelligence.service.js';
@@ -356,12 +357,16 @@ async function runAnalysisStage(runId: number): Promise<StageResult> {
     const result = await runAnalysisBlocking(runId, sectorsSnapshot);
     const symbolCount = result.totalSymbolsScanned ?? 0;
     _stageUnifiedAnalyses = getLastUnifiedAnalyses();
+    const stats = getLastUnifiedAnalysisStats();
+    const partial = Boolean(stats && (stats.abortedByQuota || stats.analyzed < stats.targets));
     const sr: StageResult = {
-      status: 'ok',
+      status: partial ? 'partial' : 'ok',
       startedAt,
       finishedAt: new Date().toISOString(),
-      detail: `${symbolCount} símbolos analizados, ${_stageUnifiedAnalyses?.size ?? 0} con análisis IA.`,
-      errors: [],
+      detail: partial && stats
+        ? `PARCIAL: ${stats.analyzed}/${stats.targets} símbolos con análisis IA${stats.abortedByQuota ? ' (quota agotada a mitad de run)' : ''}. ${symbolCount} escaneados.`
+        : `${symbolCount} símbolos analizados, ${_stageUnifiedAnalyses?.size ?? 0} con análisis IA.`,
+      errors: partial && stats ? [`Análisis IA cubrió ${stats.analyzed}/${stats.targets} targets`] : [],
     };
     updatePipelineStage(runId, 'analysis', sr);
     return sr;
