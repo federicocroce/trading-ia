@@ -43,7 +43,7 @@ import {
   getMarketDigestByDate,
   upsertMarketDigest,
   getHistoricalFromCache,
-  getRecentAnticipatoryAlerts,
+  getActiveAnticipatoryAlerts,
   upsertAnticipatoryAlerts,
   expireAnticipatoryAlerts,
 } from '../db/repository.js';
@@ -1076,7 +1076,9 @@ function persistScanResult(result: OpportunityScanResult): void {
     try {
       const scanDate = scannedAtISO.slice(0, 10); // YYYY-MM-DD
       const current = buildAlertsFromScan(result.opportunities, scanDate);
-      const stored = getRecentAnticipatoryAlerts(200);
+      // reconcileAlerts solo consume alertas active — pasarle exactamente ese set evita
+      // zombies si una activa cayera fuera de un limite "recientes".
+      const stored = getActiveAnticipatoryAlerts();
       const { toInsert, toUpdate, toExpire, newAlerts } = reconcileAlerts(current, stored, scanDate);
       upsertAnticipatoryAlerts(toInsert, toUpdate);
       expireAnticipatoryAlerts(toExpire);
