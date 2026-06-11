@@ -37,8 +37,9 @@ export function useAlertNotifications() {
     const viewingPanel = document.visibilityState === 'visible'
       && new URLSearchParams(window.location.search).get('tab') === 'alertas';
     if (prev.current != null && count > prev.current && !viewingPanel && notificationsEnabled()) {
-      const n = new Notification('⚡ Alerta anticipatoria nueva', {
-        body: `${count - prev.current} setup(s) con confluencia bullish detectados. Abrí el panel de Alertas.`,
+      // Copy generico: unseenCount no distingue kind (puede ser setup bullish o stop perforado).
+      const n = new Notification('⚡ Alertas nuevas', {
+        body: `${count - prev.current} alerta(s) nueva(s) — setup anticipatorio o stop perforado. Abrí el panel de Alertas.`,
         tag: 'anticipatory-alerts', // colapsa repetidas
       });
       n.onclick = () => {

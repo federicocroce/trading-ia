@@ -15,6 +15,8 @@ export interface AlertSource {
   symbol: string;
   currentPrice: number;
   opportunityScore: number;
+  /** Veredicto final del motor — una alerta bullish jamas convive con un SELL. */
+  action?: SignalAction;
   divergences?: DivergenceSignal[];
   timingView?: TimingView;
   tradeLevels?: { entryPrice: number; stopLoss: number; takeProfit: number };
@@ -71,6 +73,9 @@ export function extractBullishSignals(opp: AlertSource): BullishSignal[] {
 export function hasBearishConflict(opp: AlertSource): boolean {
   if ((opp.divergences ?? []).some(d => d.type === 'bearish')) return true;
   if (opp.timingView?.action === 'SELL') return true;
+  // Veredicto final SELL (composite muy bajo o deterioro tecnico) — una alerta de
+  // entrada al lado de una card que dice VENDER seria el doble discurso exacto a evitar.
+  if (opp.action === 'SELL') return true;
   return false;
 }
 

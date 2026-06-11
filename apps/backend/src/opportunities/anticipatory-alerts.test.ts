@@ -143,6 +143,16 @@ describe('buildAlertsFromScan', () => {
     })], SCAN_DATE);
     expect(alerts).toHaveLength(0);
   });
+
+  it('regla de conflicto: veredicto final SELL → sin alerta (no convivir con card VENDER)', () => {
+    const conConfluencia = {
+      divergences: [{ type: 'bullish' as const, indicator: 'macd' as const, timeframe: 'weekly' as const, description: 'd' }],
+      timingView: { action: 'BUY' as const, timing: 'soon' as const, confidence: 80, triggers: [trigger('macd_cross', 'bullish', 3)] },
+    };
+    expect(buildAlertsFromScan([makeOpp({ ...conConfluencia, action: 'SELL' })], SCAN_DATE)).toHaveLength(0);
+    // mismo setup con veredicto HOLD si alerta (regresion: action undefined tambien)
+    expect(buildAlertsFromScan([makeOpp({ ...conConfluencia, action: 'HOLD' })], SCAN_DATE)).toHaveLength(1);
+  });
 });
 
 function makeAlert(overrides: Partial<AnticipatoryAlert> = {}): AnticipatoryAlert {
