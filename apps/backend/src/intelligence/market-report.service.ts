@@ -1,10 +1,11 @@
 import type { MarketReport, MarketReportRecommendation, TopImpactNewsItem, UnifiedAssetAnalysis, MarketDigest, SecondOrderEffect, SectorSummary, QuantContext, Opportunity } from '@trading/shared';
-import { buildDigestRecommendations } from './digest-recommendations.js';
+import { buildDigestRecommendations, flagAlertedRecommendations, filterAvoidVsAlerts } from './digest-recommendations.js';
 import { COMBINED_SYNTHESIS_PROMPT, CANONICAL_MACRO_THEMES } from '@trading/shared';
 import { callAIWithModel } from '../shared/ai-router.js';
 import {
   getNewsArticlesForToday,
   getAllSymbols,
+  getActiveAnticipatoryAlerts,
   type MacroEventRow,
 } from '../db/repository.js';
 import { getPortfolioPositions, getActiveSymbolList } from '../db/repository.js';
@@ -142,13 +143,16 @@ function buildFallbackDigest(
   opportunities: Opportunity[],
   effects: SecondOrderEffect[],
   headlines: string[],
+  alertedSymbols: Set<string> = new Set(),
 ): MarketDigest {
   const topBuy = opportunities.filter(o => o.action === 'BUY').slice(0, 3);
   const buyCount = opportunities.filter(o => o.action === 'BUY').length;
   const sellCount = opportunities.filter(o => o.action === 'SELL').length;
   // Recommendations are a deterministic projection of the scan — same source of truth
   // as the success path, so the fallback can never contradict the scan either.
-  const { portfolioRecommendations, marketRecommendations } = buildDigestRecommendations(opportunities);
+  const { portfolioRecommendations: rawPortfolioRecs, marketRecommendations: rawMarketRecs } = buildDigestRecommendations(opportunities);
+  const portfolioRecommendations = flagAlertedRecommendations(rawPortfolioRecs, alertedSymbols);
+  const marketRecommendations = flagAlertedRecommendations(rawMarketRecs, alertedSymbols);
   return {
     generatedAt: Date.now(),
     overnightSummary: headlines.length > 0 ? headlines.slice(0, 3).join('. ') + '.' : 'Sin noticias relevantes recientes.',
@@ -269,6 +273,11 @@ export async function generateMarketReport(
     `${r.symbol}: ${(r.thesis ?? '').slice(0, 80)} catalysts=${(r.catalysts ?? []).slice(0, 2).join(';')}`
   ).join('\n');
 
+  // Active anticipatory alerts: injected into the prompt so the narrative can't
+  // contradict the engine, and used to flag/filter the digest downstream.
+  const activeAlerts = getActiveAnticipatoryAlerts();
+  const alertedSymbols = new Set(activeAlerts.map(a => a.symbol.toUpperCase()));
+
   const userMsgParts: string[] = [
     `TEMATICAS (${themes.length}):`,
     themeSummaries,
@@ -281,6 +290,9 @@ export async function generateMarketReport(
     `HEADLINES MACRO (priorizá estas para topImpactNews):\n${macroHeadlines.slice(0, 10).join('\n') || '(ninguna detectada)'}`,
     '',
     `HEADLINES TICKER-ESPECÍFICAS:\n${tickerHeadlines.slice(0, 10).join('\n') || '(ninguna)'}`,
+    activeAlerts.length > 0
+      ? `\nALERTAS ANTICIPATORIAS ACTIVAS (el motor detectó confluencia bullish — tu narrativa NO puede contradecirlas; si mencionás estos símbolos, reconocé el setup):\n${activeAlerts.map(a => `- ${a.symbol}: ${a.signals.map(s => s.description).join(' + ')}`).join('\n')}`
+      : '',
   ];
 
   // Enrich with digest-specific context when available
@@ -367,7 +379,10 @@ export async function generateMarketReport(
         .filter(o => o.action === 'BUY')
         .map(o => o.symbol.toUpperCase())
     );
-    avoidList = filterAvoidListVsBuy(Array.isArray(p.avoidList) ? p.avoidList : [], buyTickers);
+    avoidList = filterAvoidVsAlerts(
+      filterAvoidListVsBuy(Array.isArray(p.avoidList) ? p.avoidList : [], buyTickers),
+      alertedSymbols,
+    );
 
     // Recommendations are NOT taken from the LLM — they are projected deterministically
     // from the scan (action + numbers + motivo owned by the engine). This is the single
@@ -376,6 +391,8 @@ export async function generateMarketReport(
     const { portfolioRecommendations, marketRecommendations } = buildDigestRecommendations(
       digestInputs?.opportunities ?? [],
     );
+    const flaggedPortfolioRecs = flagAlertedRecommendations(portfolioRecommendations, alertedSymbols);
+    const flaggedMarketRecs = flagAlertedRecommendations(marketRecommendations, alertedSymbols);
 
     digest = {
       generatedAt: Date.now(),
@@ -389,8 +406,8 @@ export async function generateMarketReport(
         : [],
       warnings: Array.isArray(p.warnings) ? p.warnings.slice(0, 3) : [],
       marketMood: ['risk-on', 'risk-off', 'mixed'].includes(p.marketMood) ? p.marketMood : 'mixed',
-      portfolioRecommendations,
-      marketRecommendations,
+      portfolioRecommendations: flaggedPortfolioRecs,
+      marketRecommendations: flaggedMarketRecs,
     };
 
     console.log('[MarketReport] Combined synthesis OK — report + digest generados');
@@ -399,7 +416,7 @@ export async function generateMarketReport(
     actualEngine = 'pipeline-thematic (fallback)';
     if (digestInputs) {
       const headlines = digestInputs.intelligence.topHeadlines ?? [];
-      digest = buildFallbackDigest(digestInputs.opportunities, digestInputs.secondOrderEffects, headlines);
+      digest = buildFallbackDigest(digestInputs.opportunities, digestInputs.secondOrderEffects, headlines, alertedSymbols);
     }
   }
 

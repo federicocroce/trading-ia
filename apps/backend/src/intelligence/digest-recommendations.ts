@@ -69,3 +69,27 @@ export function buildDigestRecommendations(
 
   return { portfolioRecommendations, marketRecommendations };
 }
+
+/** Marca las filas cuyo símbolo tiene alerta anticipatoria activa — un solo discurso, chip ⚡. */
+export function flagAlertedRecommendations(
+  recs: DigestRecommendation[],
+  alertedSymbols: Set<string>,
+): DigestRecommendation[] {
+  return recs.map(r => alertedSymbols.has(r.symbol.toUpperCase()) ? { ...r, anticipatoryAlert: true } : r);
+}
+
+/** Un símbolo con alerta activa jamás puede aparecer en avoidList (doble discurso). */
+export function filterAvoidVsAlerts(items: string[], alertedSymbols: Set<string>): string[] {
+  if (alertedSymbols.size === 0) return items;
+  return items.filter(item => {
+    const upper = item.toUpperCase();
+    for (const sym of alertedSymbols) {
+      const escaped = sym.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escaped}\\b`).test(upper)) {
+        console.warn(`[digest] avoidList descartó "${item.slice(0, 50)}" — ${sym} tiene alerta anticipatoria activa`);
+        return false;
+      }
+    }
+    return true;
+  });
+}

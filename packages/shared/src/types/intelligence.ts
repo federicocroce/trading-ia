@@ -83,6 +83,8 @@ export interface DigestRecommendation {
   score: number;                   // Opportunity.opportunityScore
   // SOLO presente cuando action === 'BUY' — un hold/observar no lleva precio de entrada.
   tradeLevels?: { entryPrice: number; stopLoss: number; takeProfit: number };
+  /** true si el simbolo tiene una alerta anticipatoria activa (chip ⚡ en UI). */
+  anticipatoryAlert?: boolean;
 }
 
 export interface MarketDigest {

@@ -171,6 +171,7 @@ type DigestRec = {
   currentPrice: number;
   score: number;
   tradeLevels?: { entryPrice: number; stopLoss: number; takeProfit: number };
+  anticipatoryAlert?: boolean;
 };
 
 // One digest recommendation row: action badge + ticker + motivo (verbatim del scan).
@@ -182,6 +183,9 @@ function RecommendationRow({ rec }: { rec: DigestRec }) {
       <div className="flex items-baseline gap-1.5">
         <Badge className={`text-[8px] font-bold px-1 py-0 h-3.5 shrink-0 ${cfg.bg} ${cfg.text}`}>{cfg.label}</Badge>
         <span className="font-mono font-semibold text-[10px] text-foreground shrink-0">{rec.symbol}</span>
+        {rec.anticipatoryAlert && (
+          <span title="Alerta anticipatoria activa" className="text-[10px] text-purple-400">⚡</span>
+        )}
         {rec.reason && <span className="text-[10px] text-foreground leading-relaxed">— {rec.reason}</span>}
       </div>
       {rec.tradeLevels && (

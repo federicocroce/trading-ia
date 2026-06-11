@@ -181,7 +181,7 @@ IMPORTANTE:
   - PRIORIZAR las HEADLINES MACRO sobre las ticker-específicas. Si recibís headlines macro (Fed, aranceles, geopolítica, inflación), al menos 3 de las top 5 deben venir de ahí.
   - Mezclar tipos de instrumentos: si una noticia macro afecta bonos, ETFs sectoriales, o commodities, incluí esos tickers (TLT, GLD, XLE, etc.), no solo acciones individuales.
 
-"overnightSummary": 3-4 oraciones sobre qué pasó en las últimas horas. Eventos macro, movimientos, datos concretos.
+"overnightSummary": 3-4 oraciones sobre qué pasó en las últimas horas. SOLO podés usar eventos que aparezcan en las HEADLINES recibidas (macro o ticker-específicas) — PROHIBIDO mencionar eventos, datos o números que no estén en esas headlines. Si las headlines son pocas, escribí menos oraciones; nunca rellenes inventando.
 
 "topOpportunities": max 5 activos BUY/SELL basados en el análisis de mercado general. Cada uno: symbol, action, narrative (3-4 oraciones: técnico + news + por qué ahora). NO sesgar hacia portfolio — incluir cualquier activo con señal fuerte. Mezclá tipos: si bonos/commodities/ETFs tienen catalyst macro, incluilos.
 
@@ -203,6 +203,7 @@ NOTA: las recomendaciones por símbolo (comprar/vender/mantener/observar con pre
 
 REGLAS:
 - topImpactNews y topOpportunities NO deben depender del portfolio — analizar el mercado objetivamente.
+- Si recibís ALERTAS ANTICIPATORIAS ACTIVAS: no incluyas esos símbolos en avoidList ni los describas como "sin catalizadores" — el motor ya detectó un setup en ellos.
 - Máximo 1000 palabras total.
 
 Responde SOLO con JSON:

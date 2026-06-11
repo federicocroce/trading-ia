@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildDigestRecommendations, type RecommendationSource } from './digest-recommendations.js';
+import {
+  buildDigestRecommendations,
+  flagAlertedRecommendations,
+  filterAvoidVsAlerts,
+  type RecommendationSource,
+} from './digest-recommendations.js';
 
 function src(over: Partial<RecommendationSource> & { symbol: string }): RecommendationSource {
   return {
@@ -81,5 +86,27 @@ describe('buildDigestRecommendations', () => {
     expect(by('A')).toBe('usa reasoning');
     expect(by('B')).toBe('usa catalyst');
     expect(by('C')).toBe('usa risk');
+  });
+});
+
+describe('coherencia con alertas anticipatorias', () => {
+  it('flagAlertedRecommendations marca anticipatoryAlert en filas cuyo simbolo tiene alerta activa', () => {
+    const recs = [
+      { symbol: 'GGAL', action: 'BUY' as const, reason: 'r', currentPrice: 50, score: 60 },
+      { symbol: 'NVDA', action: 'WATCH' as const, reason: 'r', currentPrice: 900, score: 55 },
+    ];
+    const flagged = flagAlertedRecommendations(recs, new Set(['GGAL']));
+    expect(flagged[0].anticipatoryAlert).toBe(true);
+    expect(flagged[1].anticipatoryAlert).toBeUndefined();
+  });
+
+  it('filterAvoidVsAlerts elimina items que mencionan simbolos con alerta activa', () => {
+    const avoid = ['Evitar GGAL hasta que confirme', 'No tocar bonos largos'];
+    expect(filterAvoidVsAlerts(avoid, new Set(['GGAL']))).toEqual(['No tocar bonos largos']);
+  });
+
+  it('filterAvoidVsAlerts escapa caracteres especiales de regex en el simbolo (BTC-USD)', () => {
+    const avoid = ['Evitar BTC-USD por volatilidad', 'No tocar bonos largos'];
+    expect(filterAvoidVsAlerts(avoid, new Set(['BTC-USD']))).toEqual(['No tocar bonos largos']);
   });
 });
