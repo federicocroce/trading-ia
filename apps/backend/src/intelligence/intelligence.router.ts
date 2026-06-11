@@ -80,11 +80,18 @@ export const intelligenceRouter = router({
       aiMode: z.enum(['cloud', 'local']).default('cloud'),
     }).optional())
     .mutation(async ({ input }) => {
-      return checkOrRunPipeline(
+      // Fire-and-forget: bloquear aca colgaba el HTTP todo el run (~40min) y la UI
+      // nunca veia el estado. El prefijo SINCRONO de checkOrRunPipeline ya crea/marca
+      // el run (status=running) antes de su primer await, asi que devolvemos esa fila
+      // de inmediato y el frontend pollea pipelineStatus. Mismo patron que
+      // runFullPipeline en opportunities.service.ts.
+      checkOrRunPipeline(
         input?.force ?? false,
         input?.sectors as OpportunitySector[] | undefined,
         input?.aiMode ?? 'cloud',
-      );
+      ).catch(err => console.error('[pipeline] async run error:', (err as Error).message));
+      const today = new Date().toISOString().split('T')[0];
+      return getActivePipelineRun() ?? getPipelineRunByDate(today)!;
     }),
 
   // Pipeline status for polling (every 2s while running)
@@ -109,7 +116,12 @@ export const intelligenceRouter = router({
       aiMode: z.enum(['cloud', 'local']).default('cloud'),
     }))
     .mutation(async ({ input }) => {
-      return rerunPipelineStage(input.stage, input.aiMode);
+      // Fire-and-forget (mismo razonamiento que generateMarketReport): el prefijo
+      // sincrono de rerunPipelineStage ya hizo markRunAsRunning antes del primer await.
+      rerunPipelineStage(input.stage, input.aiMode)
+        .catch(err => console.error('[pipeline] async rerun error:', (err as Error).message));
+      const today = new Date().toISOString().split('T')[0];
+      return getActivePipelineRun() ?? getPipelineRunByDate(today)!;
     }),
 
   resolveWebSearch: publicProcedure
