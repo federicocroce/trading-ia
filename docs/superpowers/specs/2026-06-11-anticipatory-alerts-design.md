@@ -232,6 +232,24 @@ Every surface that emits opinions about assets must see the active alerts:
 - `reconcileAlerts`: new vs still-present vs gone → correct buckets; `seen` preserved on
   still-present; same id never produces a second "new".
 
+## Implementation deviations (as built — 2026-06-11)
+
+- **Expiry:** 7 días calendario sin verse (no "5 scans") — `ALERT_EXPIRY_DAYS` en
+  `anticipatory-alerts.ts`. Equivalente con scans diarios hábiles.
+- **Superseded rule:** si la confluencia de un símbolo muta de categorías (id nuevo), la
+  alerta vieja expira inmediatamente (sin ghost twin). Aplica solo a `kind='anticipatory'`.
+- **Reactivación:** un id que reaparece tras expirar se reactiva vía upsert
+  (`onConflictDoUpdate`: status=active, seen=false, firstSeenDate del episodio nuevo). El
+  episodio anterior no conserva fila propia.
+- **`kind` en la tabla:** `'anticipatory' | 'stop_breach'`. El stop-loss watcher (cron cada
+  10 min, 13-21 UTC lun-vie) inserta `stop:SYMBOL` reutilizando badge/panel/notificación.
+- **Verdict upgrade:** además de veto y conflicto bajista, gateado por
+  `signalConflicts.length === 0` (no revierte la demotion del safety block).
+- **Coherencia digest/prompt/avoidList/chips:** consume SOLO `kind='anticipatory'` — un
+  stop_breach es bajista y no debe sacar al símbolo del avoidList ni chipearlo como setup.
+- **Web Push:** v1 notifica con la tab abierta; suprime la notificación si el usuario ya
+  está mirando el panel de Alertas con la tab visible.
+
 ## Out of scope (noted follow-ups)
 
 - True Web Push when the tab is closed (VAPID + service worker + backend sender).
