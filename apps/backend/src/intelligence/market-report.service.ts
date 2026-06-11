@@ -275,7 +275,9 @@ export async function generateMarketReport(
 
   // Active anticipatory alerts: injected into the prompt so the narrative can't
   // contradict the engine, and used to flag/filter the digest downstream.
-  const activeAlerts = getActiveAnticipatoryAlerts();
+  // Solo kind 'anticipatory' (bullish): un stop_breach es bajista — incluirlo aca
+  // invertiria la semantica (sacaria al simbolo del avoidList y lo chipearia como setup).
+  const activeAlerts = getActiveAnticipatoryAlerts().filter(a => a.kind === 'anticipatory');
   const alertedSymbols = new Set(activeAlerts.map(a => a.symbol.toUpperCase()));
 
   const userMsgParts: string[] = [
