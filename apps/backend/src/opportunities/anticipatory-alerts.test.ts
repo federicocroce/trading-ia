@@ -252,6 +252,11 @@ describe('anticipatoryUpgrade', () => {
     expect(anticipatoryUpgrade('WATCH', 60, twoSignals(), 2, true).action).toBe('WATCH');
   });
 
+  // Regresion (regla "tape contradictorio = sin upgrade"): este test cubre la mitad pura
+  // (divergencia bearish / timingView SELL). La otra mitad — signalConflicts — se gatea en
+  // el hook de scoring.ts (buildAlgorithmicOpportunity) porque AlertSource no ve conflictos;
+  // no tiene unit test directo a proposito: el hook arrastra DB real + fixture tecnico
+  // completo (mock-theater). Si se toca el gate del hook, revisar ese bloque en scoring.ts.
   it('conflicto bajista → nunca upgradea', () => {
     const conBearish = makeOpp({
       divergences: [

@@ -1569,19 +1569,29 @@ export function buildAlgorithmicOpportunity(
   // === ANTICIPATORY UPGRADE: confluencia bullish (>=2 categorias) sube el veredicto ===
   // Contraparte alcista del override bajista. Misma fuente que las alertas anticipatorias
   // — el digest proyecta el action verbatim, asi que no puede haber doble discurso.
-  const upgraded = anticipatoryUpgrade(
-    result.action,
-    composite,
-    result,
-    result.tradeLevels?.riskRewardRatio,
-    Boolean(axisVeto),
-  );
-  if (upgraded.action !== result.action) {
-    result.action = upgraded.action;
-    result.tradeLevels = computeTradeLevels(tech, upgraded.action, portfolioValue, portfolioQuantity);
-    if (upgraded.reason) {
-      result.simpleReasoning = upgraded.reason;
-      result.catalysts = [upgraded.reason.split('.')[0], ...result.catalysts].slice(0, 3);
+  // Gate: con signalConflicts activos NO se upgradea (mismo criterio que scoreToAction,
+  // y evita revertir la demotion del safety block post-smartAction). El gate vive aca y
+  // no en anticipatoryUpgrade porque AlertSource (deliberadamente minimo) no ve los
+  // conflictos; queda sin unit test directo porque buildAlgorithmicOpportunity arrastra
+  // la DB real (getActiveWeights/discovery-registry) y un fixture tecnico completo —
+  // la regla pura equivalente (tape contradictorio = sin upgrade) esta cubierta en
+  // anticipatory-alerts.test.ts ('conflicto bajista → nunca upgradea').
+  if ((result.signalConflicts?.length ?? 0) === 0) {
+    const upgraded = anticipatoryUpgrade(
+      result.action,
+      composite,
+      result,
+      result.tradeLevels?.riskRewardRatio,
+      Boolean(axisVeto),
+    );
+    if (upgraded.action !== result.action) {
+      result.action = upgraded.action;
+      result.tradeLevels = computeTradeLevels(tech, upgraded.action, portfolioValue, portfolioQuantity);
+      if (upgraded.reason) {
+        result.simpleReasoning = upgraded.reason;
+        // split('. ') y no split('.'): las descriptions traen decimales ("1.3/dia")
+        result.catalysts = [upgraded.reason.split('. ')[0], ...result.catalysts].slice(0, 3);
+      }
     }
   }
 
