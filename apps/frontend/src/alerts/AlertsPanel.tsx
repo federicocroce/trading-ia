@@ -1,8 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { trpc } from '@/shared/trpc';
 import { useNavigation } from '@/shared/navigation';
+import { enableNotifications, disableNotifications, notificationsEnabled } from './useAlertNotifications';
 
 const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
   active: { label: 'VIGENTE', cls: 'bg-purple-500/20 text-purple-400' },
@@ -17,6 +19,7 @@ export function AlertsPanel() {
     onSuccess: () => utils.alerts.unseenCount.invalidate(),
   });
   const { goToSymbol } = useNavigation();
+  const [notifOn, setNotifOn] = useState(notificationsEnabled());
 
   // Abrir el panel = marcar todo visto (limpia el badge)
   useEffect(() => {
@@ -32,6 +35,15 @@ export function AlertsPanel() {
       <p className="text-[11px] text-muted-foreground">
         Setups con confluencia de ≥2 señales anticipatorias. Probabilidades, no garantías: usá siempre el stop sugerido.
       </p>
+      <Button
+        size="sm" variant="outline" className="h-7 text-[10px]"
+        onClick={async () => {
+          if (notifOn) { disableNotifications(); setNotifOn(false); }
+          else setNotifOn(await enableNotifications());
+        }}
+      >
+        {notifOn ? '🔔 Notificaciones activadas — desactivar' : '🔕 Activar notificaciones de escritorio'}
+      </Button>
       {recent.length === 0 && (
         <Card size="sm"><CardContent><p className="text-xs text-muted-foreground py-4">Sin alertas todavía. Se generan en cada scan diario cuando ≥2 señales anticipatorias coinciden en un activo.</p></CardContent></Card>
       )}

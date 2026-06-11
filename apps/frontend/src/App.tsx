@@ -14,6 +14,7 @@ import { OpportunityDashboard } from '@/opportunities/OpportunityDashboard';
 import { DailySummary } from '@/daily/DailySummary';
 import { HistoricoPage } from '@/historico/HistoricoPage';
 import { AlertsPanel } from '@/alerts/AlertsPanel';
+import { useAlertNotifications } from '@/alerts/useAlertNotifications';
 import { NavigationContext } from '@/shared/navigation';
 import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
@@ -70,6 +71,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabValue>(getTabFromURL);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { isWaitingUser, resolveWebSearch } = usePipeline();
+  useAlertNotifications();
 
   const goToSymbol = useCallback((symbol: string) => {
     setSelectedSymbol(symbol);
