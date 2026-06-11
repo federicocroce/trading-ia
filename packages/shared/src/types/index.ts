@@ -8,6 +8,7 @@ export * from './signal.js';
 export * from './news-source.js';
 export * from './news.js';
 export * from './alert.js';
+export * from './anticipatory-alert.js';
 export * from './chat.js';
 export * from './opportunity.js';
 export * from './intelligence.js';
