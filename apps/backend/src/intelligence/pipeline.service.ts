@@ -19,7 +19,7 @@ import { runSectorIntelligence } from './sector-report.service.js';
 import { getEarningsContext } from './earnings-calendar.service.js';
 import { trackPipelineRecommendations } from './pipeline-tracking.service.js';
 import { getStoredDailyReport } from './daily-report.service.js';
-import { getNewsArticlesForToday, getTodayOpportunityScan, getFundamentalCacheAge, insertWebSearchArticles, getWebSearchArticlesForDate, saveCausalMap, getCausalMapByDate, clearCausalMapForDate } from '../db/repository.js';
+import { getNewsArticlesForToday, getNewsArticlesSince, getTodayOpportunityScan, getFundamentalCacheAge, insertWebSearchArticles, getWebSearchArticlesForDate, saveCausalMap, getCausalMapByDate, clearCausalMapForDate } from '../db/repository.js';
 import { refreshNewsProcess, runAnalysisBlocking, refreshFundamentalsProcess, getLastUnifiedAnalyses, setMarketDigest } from '../opportunities/opportunities.service.js';
 import { getLastUnifiedAnalysisStats } from './unified-analysis.service.js';
 import { getLastAggregationStats } from '../news/news.service.js';
@@ -159,13 +159,18 @@ async function runNewsStage(runId: number): Promise<StageResult> {
     const result = await refreshNewsProcess();
     const articleCount = result.newsCount ?? 0;
     if (articleCount === 0) {
+      // 0 articulos HOY es normal en feriados. Si la DB tiene articulos recientes
+      // (ventana de 3 dias), seguimos con sentiment degradado en vez de matar el run.
+      const recentInDb = getNewsArticlesSince(new Date(Date.now() - 3 * 86_400_000).toISOString()).length;
       const sr: StageResult = {
-        status: 'failed',
+        status: recentInDb > 0 ? 'partial' : 'failed',
         startedAt,
         finishedAt: new Date().toISOString(),
-        detail: 'Sin artículos obtenidos.',
-        errors: [],
-        criticalError: '0 artículos — fuentes no disponibles',
+        detail: recentInDb > 0
+          ? `PARCIAL: 0 artículos nuevos hoy — continuando con ${recentInDb} artículos recientes de la DB (sentiment degradado).`
+          : 'Sin artículos obtenidos ni recientes en DB.',
+        errors: recentInDb > 0 ? ['0 artículos nuevos — usando ventana de 3 días'] : [],
+        ...(recentInDb === 0 ? { criticalError: '0 artículos — fuentes no disponibles' } : {}),
       };
       updatePipelineStage(runId, 'news', sr);
       return sr;
@@ -495,6 +500,9 @@ async function runRemainingStages(runId: number): Promise<void> {
       }
       finishPipelineRun(runId, 'failed');
       return;
+    }
+    if (newsResult.status === 'partial') {
+      console.warn('[pipeline] News parcial — continuando con datos degradados');
     }
     // Fire-and-forget: news radar v2 (cause+impacts) runs after news succeeds.
     // Non-blocking: failure logs but doesn't affect downstream stages. Persists
