@@ -33,7 +33,10 @@ export function useAlertNotifications() {
   useEffect(() => {
     const count = data?.count;
     if (count == null) return;
-    if (prev.current != null && count > prev.current && notificationsEnabled()) {
+    // No notificar si el usuario ya esta mirando el panel de Alertas con la tab visible.
+    const viewingPanel = document.visibilityState === 'visible'
+      && new URLSearchParams(window.location.search).get('tab') === 'alertas';
+    if (prev.current != null && count > prev.current && !viewingPanel && notificationsEnabled()) {
       const n = new Notification('⚡ Alerta anticipatoria nueva', {
         body: `${count - prev.current} setup(s) con confluencia bullish detectados. Abrí el panel de Alertas.`,
         tag: 'anticipatory-alerts', // colapsa repetidas

@@ -50,10 +50,11 @@ export function AlertsPanel() {
       {recent.map((a) => {
         const st = STATUS_STYLE[a.status] ?? STATUS_STYLE.active;
         return (
-          <Card key={a.id} size="sm" className={
+          <Card key={a.id} size="sm" className={[
             a.kind === 'stop_breach' ? 'border-l-4 border-l-red-500'
-            : a.status === 'active' ? 'border-l-4 border-l-purple-500' : 'opacity-70'
-          }>
+              : a.status === 'active' ? 'border-l-4 border-l-purple-500' : '',
+            a.status !== 'active' ? 'opacity-70' : '',
+          ].filter(Boolean).join(' ')}>
             <CardHeader>
               <div className="flex items-center gap-2">
                 <button className="text-sm font-bold hover:text-purple-400" onClick={() => goToSymbol(a.symbol)}>{a.symbol}</button>
