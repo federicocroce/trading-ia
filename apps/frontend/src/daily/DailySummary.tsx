@@ -17,6 +17,7 @@ import {
   type InstrumentKind,
 } from '@/shared/instrumentType';
 import { MarketReportView } from './MarketReportView';
+import { AnticipatoryAlertsPinned } from '@/alerts/AnticipatoryAlertsPinned';
 import { AccuracyPanel } from './AccuracyPanel';
 import { RadarSummaryWidget } from './widgets/RadarSummaryWidget';
 import { SectorRotationWidget } from './widgets/SectorRotationWidget';
@@ -847,6 +848,9 @@ export function DailySummary() {
           </Button>
         </div>
       </div>
+
+      {/* 0. Alertas anticipatorias — fijadas arriba de todo (solo si hay activas) */}
+      {isToday && <AnticipatoryAlertsPinned />}
 
       {/* 1. Digest del día — mood + portfolio/mercado SÍ/NO (lo más importante primero) */}
       {isToday && <MarketDigestPanel />}
