@@ -967,6 +967,7 @@ export async function getTechnicalSummary(symbol: string): Promise<TechnicalSumm
       timing?.triggers.push({
         type: triggerType,
         description: div.description,
+        direction: div.type === 'bullish' ? 'bullish' : 'bearish',
         estimatedDays: div.timeframe === 'weekly' ? 5 : 3,
         impact: div.timeframe === 'weekly' ? 'high' : 'medium',
       });

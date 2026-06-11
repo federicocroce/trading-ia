@@ -67,6 +67,8 @@ export interface TimingView {
   triggers: {
     type: string;
     description: string;
+    /** Dirección explícita de la señal — NO derivar del texto de description. */
+    direction: 'bullish' | 'bearish' | 'neutral';
     estimatedDays: number | null;
     impact: 'high' | 'medium';
   }[];

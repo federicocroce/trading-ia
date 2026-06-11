@@ -22,6 +22,8 @@ export interface TimingTrigger {
     | 'rsi_divergence'
     | 'macd_divergence';
   description: string;
+  /** Dirección explícita de la señal — NO derivar del texto de description. */
+  direction: 'bullish' | 'bearish' | 'neutral';
   estimatedDays: number | null;
   impact: 'high' | 'medium';
 }

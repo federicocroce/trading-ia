@@ -22,6 +22,7 @@ function estimateSMACrossoverDays(
     return {
       type: 'sma_cross',
       description: 'Golden Cross (SMA50 cruzó SMA200 hacia arriba) — señal alcista confirmada',
+      direction: 'bullish',
       estimatedDays: 0,
       impact: 'high',
     };
@@ -31,6 +32,7 @@ function estimateSMACrossoverDays(
     return {
       type: 'sma_cross',
       description: 'Death Cross (SMA50 cruzó SMA200 hacia abajo) — señal bajista confirmada',
+      direction: 'bearish',
       estimatedDays: 0,
       impact: 'high',
     };
@@ -43,6 +45,7 @@ function estimateSMACrossoverDays(
     return {
       type: 'sma_cross',
       description: `${crossDirection === 'golden' ? 'Golden Cross' : 'Death Cross'} estimado en ~${estimatedDaysToCross} dias — señal ${dir} inminente`,
+      direction: crossDirection === 'golden' ? 'bullish' : 'bearish',
       estimatedDays: estimatedDaysToCross,
       impact: estimatedDaysToCross <= 5 ? 'high' : 'medium',
     };
@@ -64,6 +67,7 @@ function estimateRSIZoneEntry(
     return {
       type: 'rsi_zone',
       description: `RSI en ${currentRSI.toFixed(0)} — zona de sobreventa, rebote probable`,
+      direction: 'bullish',
       estimatedDays: 0,
       impact: 'high',
     };
@@ -72,6 +76,7 @@ function estimateRSIZoneEntry(
     return {
       type: 'rsi_zone',
       description: `RSI en ${currentRSI.toFixed(0)} — zona de sobrecompra, correccion probable`,
+      direction: 'bearish',
       estimatedDays: 0,
       impact: 'high',
     };
@@ -90,6 +95,7 @@ function estimateRSIZoneEntry(
       return {
         type: 'rsi_zone',
         description: `RSI ${currentRSI.toFixed(0)} cayendo ${Math.abs(rsiVelocity).toFixed(1)}/dia — sobreventa estimada en ~${Math.round(daysToOversold)} dias`,
+        direction: 'bullish',
         estimatedDays: Math.round(daysToOversold),
         impact: daysToOversold <= 3 ? 'high' : 'medium',
       };
@@ -103,6 +109,7 @@ function estimateRSIZoneEntry(
       return {
         type: 'rsi_zone',
         description: `RSI ${currentRSI.toFixed(0)} subiendo ${rsiVelocity.toFixed(1)}/dia — sobrecompra estimada en ~${Math.round(daysToOverbought)} dias`,
+        direction: 'bearish',
         estimatedDays: Math.round(daysToOverbought),
         impact: daysToOverbought <= 3 ? 'high' : 'medium',
       };
@@ -148,6 +155,7 @@ function estimateSupportResistanceArrival(
         return {
           type: 'support_bounce',
           description: `Precio cayendo hacia soporte fuerte en $${support.price.toFixed(2)} (${support.touches} toques) — llegada estimada en ~${Math.round(daysToSupport)} dias`,
+          direction: 'bullish',
           estimatedDays: Math.round(daysToSupport),
           impact: support.strength >= 2.5 ? 'high' : 'medium',
         };
@@ -165,6 +173,7 @@ function estimateSupportResistanceArrival(
         return {
           type: 'resistance_break',
           description: `Precio subiendo hacia resistencia en $${resistance.price.toFixed(2)} (${resistance.touches} toques) — llegada estimada en ~${Math.round(daysToResistance)} dias`,
+          direction: 'bearish',
           estimatedDays: Math.round(daysToResistance),
           impact: resistance.strength >= 2.5 ? 'high' : 'medium',
         };
@@ -186,6 +195,7 @@ function estimateBBSqueezeTiming(indicators: TechnicalIndicators): TimingTrigger
     return {
       type: 'bb_squeeze',
       description: `Bollinger Squeeze activo (intensidad ${indicators.bbSqueezeIntensity}%) — breakout ${direction} inminente`,
+      direction: indicators.priceVsSma20 > 0 ? 'bullish' : 'bearish',
       estimatedDays: indicators.bbSqueezeIntensity > 85 ? 1 : 3,
       impact: indicators.bbSqueezeIntensity > 85 ? 'high' : 'medium',
     };
@@ -230,6 +240,7 @@ function estimateMACDCross(
   return {
     type: 'macd_cross',
     description: `MACD a punto de cruzar signal line (${direction}) en ~${Math.round(daysToTouch)} dias`,
+    direction: crossingUp ? 'bullish' : 'bearish',
     estimatedDays: Math.round(daysToTouch),
     impact: daysToTouch <= 3 ? 'high' : 'medium',
   };
@@ -247,6 +258,7 @@ function estimateStochasticCross(indicators: TechnicalIndicators): TimingTrigger
     return {
       type: 'stoch_cross',
       description: `Stochastic %K(${k.toFixed(0)}) cruzó %D(${d.toFixed(0)}) en zona de sobreventa — señal de compra`,
+      direction: 'bullish',
       estimatedDays: 0,
       impact: k < 15 ? 'high' : 'medium',
     };
@@ -257,6 +269,7 @@ function estimateStochasticCross(indicators: TechnicalIndicators): TimingTrigger
     return {
       type: 'stoch_cross',
       description: `Stochastic %K(${k.toFixed(0)}) cruzó %D(${d.toFixed(0)}) en zona de sobrecompra — señal de venta`,
+      direction: 'bearish',
       estimatedDays: 0,
       impact: k > 85 ? 'high' : 'medium',
     };
@@ -274,6 +287,7 @@ function estimateOBVDivergence(indicators: TechnicalIndicators): TimingTrigger |
     return {
       type: 'obv_divergence',
       description: 'Divergencia alcista OBV: precio baja pero volumen acumula — reversal probable',
+      direction: 'bullish',
       estimatedDays: 2,
       impact: 'high',
     };
@@ -283,6 +297,7 @@ function estimateOBVDivergence(indicators: TechnicalIndicators): TimingTrigger |
     return {
       type: 'obv_divergence',
       description: 'Divergencia bajista OBV: precio sube pero volumen distribuye — correccion probable',
+      direction: 'bearish',
       estimatedDays: 2,
       impact: 'high',
     };
@@ -296,31 +311,11 @@ function estimateOBVDivergence(indicators: TechnicalIndicators): TimingTrigger |
 // =====================================================
 
 function isBuyTrigger(t: TimingTrigger): boolean {
-  return (
-    (t.type === 'sma_cross' && t.description.includes('alcista')) ||
-    (t.type === 'rsi_zone' && t.description.includes('sobreventa')) ||
-    t.type === 'support_bounce' ||
-    (t.type === 'bb_squeeze' && t.description.includes('alcista')) ||
-    (t.type === 'macd_cross' && t.description.includes('alcista')) ||
-    (t.type === 'stoch_cross' && t.description.includes('compra')) ||
-    (t.type === 'obv_divergence' && t.description.includes('alcista')) ||
-    (t.type === 'rsi_divergence' && t.description.includes('alcista')) ||
-    (t.type === 'macd_divergence' && t.description.includes('alcista'))
-  );
+  return t.direction === 'bullish';
 }
 
 function isSellTrigger(t: TimingTrigger): boolean {
-  return (
-    (t.type === 'sma_cross' && t.description.includes('bajista')) ||
-    (t.type === 'rsi_zone' && t.description.includes('sobrecompra')) ||
-    t.type === 'resistance_break' ||
-    (t.type === 'bb_squeeze' && t.description.includes('bajista')) ||
-    (t.type === 'macd_cross' && t.description.includes('bajista')) ||
-    (t.type === 'stoch_cross' && t.description.includes('venta')) ||
-    (t.type === 'obv_divergence' && t.description.includes('bajista')) ||
-    (t.type === 'rsi_divergence' && t.description.includes('bajista')) ||
-    (t.type === 'macd_divergence' && t.description.includes('bajista'))
-  );
+  return t.direction === 'bearish';
 }
 
 function computeTimingConfidence(triggers: TimingTrigger[]): number {

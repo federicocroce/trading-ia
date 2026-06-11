@@ -1109,6 +1109,7 @@ function buildTimingView(tech: TechnicalSummary | undefined): TimingView | undef
     triggers: timing.triggers.map(t => ({
       type: t.type,
       description: t.description,
+      direction: t.direction,
       estimatedDays: t.estimatedDays,
       impact: t.impact,
     })),
