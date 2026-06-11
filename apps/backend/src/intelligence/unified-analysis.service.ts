@@ -22,6 +22,7 @@ import { callAIWithModel } from '../shared/ai-router.js';
 import { getPortfolioPositions } from '../db/repository.js';
 import type { SentimentInput } from '../opportunities/scoring.js';
 import { saveUnifiedAnalysisBatch, saveUnifiedAnalysisResults } from './pipeline-artifacts.repository.js';
+import { filterActionableTriggers } from './trigger-validation.js';
 
 type PortfolioPosition = { symbol: string; quantity: number; avgCost: number };
 
@@ -177,8 +178,8 @@ async function analyzeBatch(
         thesis: a.thesis ?? '',
         catalysts: Array.isArray(a.catalysts) ? a.catalysts.slice(0, 3) : [],
         risks: Array.isArray(a.risks) ? a.risks.slice(0, 2) : [],
-        wouldDo: Array.isArray(a.wouldDo) ? a.wouldDo.slice(0, 2) : [],
-        wouldNotDo: Array.isArray(a.wouldNotDo) ? a.wouldNotDo.slice(0, 1) : [],
+        wouldDo: Array.isArray(a.wouldDo) ? filterActionableTriggers(a.wouldDo.slice(0, 2)) : [],
+        wouldNotDo: Array.isArray(a.wouldNotDo) ? filterActionableTriggers(a.wouldNotDo.slice(0, 1)) : [],
         narrative: a.narrative ?? '',
         macroTheme: a.macroTheme ?? null,
         generatedBy,
