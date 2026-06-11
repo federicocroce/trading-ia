@@ -142,6 +142,25 @@ export const swingAlerts = sqliteTable('swing_alerts', {
   resolvedAt: text('resolved_at'),
 });
 
+// --- Anticipatory alerts (confluencia bullish >=2 señales + stop breaches) ---
+export const anticipatoryAlerts = sqliteTable('anticipatory_alerts', {
+  id: text('id').primaryKey(),                        // `${symbol}:${cats}` | `stop:${symbol}`
+  kind: text('kind').notNull().default('anticipatory'), // 'anticipatory' | 'stop_breach'
+  symbol: text('symbol').notNull(),
+  signals: text('signals').notNull(),                  // JSON BullishSignal[]
+  currentPrice: real('current_price').notNull(),
+  entryPrice: real('entry_price'),
+  stopLoss: real('stop_loss'),
+  takeProfit: real('take_profit'),
+  score: real('score').notNull().default(0),
+  status: text('status').notNull().default('active'),  // active | triggered | expired
+  firstSeenDate: text('first_seen_date').notNull(),    // YYYY-MM-DD
+  lastSeenDate: text('last_seen_date').notNull(),
+  seen: integer('seen', { mode: 'boolean' }).notNull().default(false),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+});
+
 // --- Discovered symbols (dynamic universe) ---
 export const discoveredSymbols = sqliteTable('discovered_symbols', {
   symbol: text('symbol').primaryKey(),

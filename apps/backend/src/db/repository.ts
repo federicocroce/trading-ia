@@ -1,4 +1,5 @@
 import { eq, desc, gte, lt, asc, and, inArray, gt, sql } from 'drizzle-orm';
+import type { AnticipatoryAlert } from '@trading/shared';
 import { db, schema } from './index.js';
 import { missedOpportunities, signalTracking, etfWatchlist } from './schema.js';
 
@@ -587,6 +588,98 @@ export function getResolvedAlerts(limit: number = 50) {
     .limit(limit)
     .all()
     .filter((a) => a.status !== 'active');
+}
+
+// ==================== ANTICIPATORY ALERTS ====================
+
+function rowToAnticipatoryAlert(row: typeof schema.anticipatoryAlerts.$inferSelect): AnticipatoryAlert {
+  return {
+    id: row.id,
+    kind: row.kind as AnticipatoryAlert['kind'],
+    symbol: row.symbol,
+    signals: JSON.parse(row.signals),
+    currentPrice: row.currentPrice,
+    entryPrice: row.entryPrice ?? undefined,
+    stopLoss: row.stopLoss ?? undefined,
+    takeProfit: row.takeProfit ?? undefined,
+    score: row.score,
+    status: row.status as AnticipatoryAlert['status'],
+    firstSeenDate: row.firstSeenDate,
+    lastSeenDate: row.lastSeenDate,
+    seen: row.seen,
+  };
+}
+
+export function getActiveAnticipatoryAlerts(): AnticipatoryAlert[] {
+  return db.select().from(schema.anticipatoryAlerts)
+    .where(eq(schema.anticipatoryAlerts.status, 'active'))
+    .orderBy(desc(schema.anticipatoryAlerts.lastSeenDate), desc(schema.anticipatoryAlerts.score))
+    .all().map(rowToAnticipatoryAlert);
+}
+
+export function getRecentAnticipatoryAlerts(limit: number = 50): AnticipatoryAlert[] {
+  return db.select().from(schema.anticipatoryAlerts)
+    .orderBy(desc(schema.anticipatoryAlerts.lastSeenDate), desc(schema.anticipatoryAlerts.createdAt))
+    .limit(limit)
+    .all().map(rowToAnticipatoryAlert);
+}
+
+export function upsertAnticipatoryAlerts(toInsert: AnticipatoryAlert[], toUpdate: AnticipatoryAlert[]): void {
+  const now = new Date().toISOString();
+  for (const a of toInsert) {
+    // Contrato de ReconcileResult.toInsert: un id puede existir como expired/triggered
+    // (re-alerta legitima tras expirar) → REACTIVAR con el episodio nuevo.
+    db.insert(schema.anticipatoryAlerts).values({
+      id: a.id, kind: a.kind, symbol: a.symbol, signals: JSON.stringify(a.signals),
+      currentPrice: a.currentPrice, entryPrice: a.entryPrice ?? null,
+      stopLoss: a.stopLoss ?? null, takeProfit: a.takeProfit ?? null,
+      score: a.score, status: a.status,
+      firstSeenDate: a.firstSeenDate, lastSeenDate: a.lastSeenDate,
+      seen: a.seen, updatedAt: now,
+    }).onConflictDoUpdate({
+      target: schema.anticipatoryAlerts.id,
+      set: {
+        kind: a.kind, symbol: a.symbol, signals: JSON.stringify(a.signals),
+        currentPrice: a.currentPrice, entryPrice: a.entryPrice ?? null,
+        stopLoss: a.stopLoss ?? null, takeProfit: a.takeProfit ?? null,
+        score: a.score, status: 'active',
+        firstSeenDate: a.firstSeenDate, lastSeenDate: a.lastSeenDate,
+        seen: false, updatedAt: now,
+      },
+    }).run();
+  }
+  for (const a of toUpdate) {
+    db.update(schema.anticipatoryAlerts).set({
+      signals: JSON.stringify(a.signals), currentPrice: a.currentPrice,
+      entryPrice: a.entryPrice ?? null, stopLoss: a.stopLoss ?? null,
+      takeProfit: a.takeProfit ?? null, score: a.score,
+      lastSeenDate: a.lastSeenDate, updatedAt: now,
+    }).where(eq(schema.anticipatoryAlerts.id, a.id)).run();
+  }
+}
+
+export function expireAnticipatoryAlerts(ids: string[]): void {
+  if (ids.length === 0) return;
+  db.update(schema.anticipatoryAlerts)
+    .set({ status: 'expired', updatedAt: new Date().toISOString() })
+    .where(inArray(schema.anticipatoryAlerts.id, ids)).run();
+}
+
+export function markAnticipatoryAlertsSeen(ids?: string[]): void {
+  const now = new Date().toISOString();
+  if (ids && ids.length > 0) {
+    db.update(schema.anticipatoryAlerts).set({ seen: true, updatedAt: now })
+      .where(inArray(schema.anticipatoryAlerts.id, ids)).run();
+  } else {
+    db.update(schema.anticipatoryAlerts).set({ seen: true, updatedAt: now })
+      .where(eq(schema.anticipatoryAlerts.seen, false)).run();
+  }
+}
+
+export function countUnseenAnticipatoryAlerts(): number {
+  return db.select().from(schema.anticipatoryAlerts)
+    .where(and(eq(schema.anticipatoryAlerts.seen, false), eq(schema.anticipatoryAlerts.status, 'active')))
+    .all().length;
 }
 
 // ==================== DISCOVERED SYMBOLS ====================
