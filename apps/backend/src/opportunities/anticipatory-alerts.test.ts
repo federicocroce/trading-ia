@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { extractBullishSignals, buildAlertsFromScan, type AlertSource } from './anticipatory-alerts.js';
+import { extractBullishSignals, buildAlertsFromScan, reconcileAlerts, type AlertSource } from './anticipatory-alerts.js';
+import type { AnticipatoryAlert } from '@trading/shared';
 
 function makeOpp(overrides: Partial<AlertSource> = {}): AlertSource {
   return {
@@ -133,5 +134,69 @@ describe('buildAlertsFromScan', () => {
       timingView: { action: 'SELL', timing: 'soon', confidence: 80, triggers: [trigger('macd_cross', 'bullish', 3)] },
     })], SCAN_DATE);
     expect(alerts).toHaveLength(0);
+  });
+});
+
+function makeAlert(overrides: Partial<AnticipatoryAlert> = {}): AnticipatoryAlert {
+  return {
+    id: 'GGAL:divergence+macd_cross', kind: 'anticipatory', symbol: 'GGAL',
+    signals: [{ category: 'divergence', description: 'd', estimatedDays: null }],
+    currentPrice: 50, entryPrice: 50, score: 55, status: 'active',
+    firstSeenDate: '2026-06-10', lastSeenDate: '2026-06-10', seen: false,
+    ...overrides,
+  };
+}
+
+describe('reconcileAlerts', () => {
+  const TODAY = '2026-06-11';
+
+  it('id nuevo → toInsert + newAlerts (esto dispara el push)', () => {
+    const current = [makeAlert({ firstSeenDate: TODAY, lastSeenDate: TODAY })];
+    const r = reconcileAlerts(current, [], TODAY);
+    expect(r.toInsert).toHaveLength(1);
+    expect(r.newAlerts).toHaveLength(1);
+    expect(r.toUpdate).toHaveLength(0);
+    expect(r.toExpire).toHaveLength(0);
+  });
+
+  it('id presente → toUpdate con lastSeen/precios nuevos, seen y firstSeenDate preservados, NO newAlert', () => {
+    const stored = [makeAlert({ seen: true, currentPrice: 48 })];
+    const current = [makeAlert({ firstSeenDate: TODAY, lastSeenDate: TODAY, currentPrice: 52, seen: false })];
+    const r = reconcileAlerts(current, stored, TODAY);
+    expect(r.newAlerts).toHaveLength(0);
+    expect(r.toInsert).toHaveLength(0);
+    expect(r.toUpdate).toHaveLength(1);
+    expect(r.toUpdate[0].seen).toBe(true);            // preservado
+    expect(r.toUpdate[0].firstSeenDate).toBe('2026-06-10'); // preservado
+    expect(r.toUpdate[0].lastSeenDate).toBe(TODAY);
+    expect(r.toUpdate[0].currentPrice).toBe(52);      // refrescado
+  });
+
+  it('id desaparecido hace <7 dias → se mantiene (sin expirar todavia)', () => {
+    const stored = [makeAlert({ lastSeenDate: '2026-06-08' })];
+    const r = reconcileAlerts([], stored, TODAY);
+    expect(r.toExpire).toHaveLength(0);
+  });
+
+  it('id desaparecido hace >=7 dias → toExpire', () => {
+    const stored = [makeAlert({ lastSeenDate: '2026-06-03' })];
+    const r = reconcileAlerts([], stored, TODAY);
+    expect(r.toExpire).toEqual(['GGAL:divergence+macd_cross']);
+  });
+
+  it('mismo id nunca produce un segundo new', () => {
+    const stored = [makeAlert()];
+    const current = [makeAlert({ firstSeenDate: TODAY, lastSeenDate: TODAY })];
+    const r = reconcileAlerts(current, stored, TODAY);
+    expect(r.newAlerts).toHaveLength(0);
+  });
+
+  it('alertas expired/triggered en stored se ignoran (no reviven ni re-expiran)', () => {
+    const stored = [makeAlert({ status: 'expired', lastSeenDate: '2026-05-01' })];
+    const r = reconcileAlerts([], stored, TODAY);
+    expect(r.toExpire).toHaveLength(0);
+    // y si la confluencia reaparece, es un NEW (re-alerta legitima tras expirar)
+    const r2 = reconcileAlerts([makeAlert({ firstSeenDate: TODAY, lastSeenDate: TODAY })], stored, TODAY);
+    expect(r2.newAlerts).toHaveLength(1);
   });
 });

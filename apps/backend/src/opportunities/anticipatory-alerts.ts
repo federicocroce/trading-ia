@@ -101,3 +101,59 @@ export function buildAlertsFromScan(opps: AlertSource[], scanDate: string): Anti
 
   return alerts;
 }
+
+/** Dias calendario sin verse antes de expirar una alerta activa (≈1 semana de trading). */
+export const ALERT_EXPIRY_DAYS = 7;
+
+export interface ReconcileResult {
+  toInsert: AnticipatoryAlert[];
+  toUpdate: AnticipatoryAlert[];
+  toExpire: string[];               // ids a marcar expired
+  newAlerts: AnticipatoryAlert[];   // == toInsert; lo que dispara push/notificacion
+}
+
+function daysBetween(fromYmd: string, toYmd: string): number {
+  return Math.floor((new Date(toYmd).getTime() - new Date(fromYmd).getTime()) / 86_400_000);
+}
+
+/**
+ * Reconcilia la confluencia de HOY contra lo persistido, keyed por id (symbol+categorias).
+ * Puro: la capa de persistencia aplica el resultado.
+ */
+export function reconcileAlerts(
+  current: AnticipatoryAlert[],
+  stored: AnticipatoryAlert[],
+  scanDate: string,
+): ReconcileResult {
+  const activeStored = new Map(stored.filter(a => a.status === 'active').map(a => [a.id, a]));
+  const currentIds = new Set(current.map(a => a.id));
+
+  const toInsert: AnticipatoryAlert[] = [];
+  const toUpdate: AnticipatoryAlert[] = [];
+  const toExpire: string[] = [];
+
+  for (const alert of current) {
+    const existing = activeStored.get(alert.id);
+    if (!existing) {
+      toInsert.push(alert);
+    } else {
+      toUpdate.push({
+        ...existing,
+        lastSeenDate: scanDate,
+        currentPrice: alert.currentPrice,
+        entryPrice: alert.entryPrice,
+        stopLoss: alert.stopLoss,
+        takeProfit: alert.takeProfit,
+        score: alert.score,
+        signals: alert.signals,
+      });
+    }
+  }
+
+  for (const [id, existing] of activeStored) {
+    if (currentIds.has(id)) continue;
+    if (daysBetween(existing.lastSeenDate, scanDate) >= ALERT_EXPIRY_DAYS) toExpire.push(id);
+  }
+
+  return { toInsert, toUpdate, toExpire, newAlerts: toInsert };
+}
