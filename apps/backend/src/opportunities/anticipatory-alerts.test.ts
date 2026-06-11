@@ -67,6 +67,14 @@ describe('extractBullishSignals', () => {
     expect(signals).toHaveLength(0);
   });
 
+  it('dos triggers *_divergence sin opp.divergences → una sola señal divergence', () => {
+    const signals = extractBullishSignals(makeOpp({
+      timingView: { action: 'BUY', timing: 'soon', confidence: 70, triggers: [trigger('rsi_divergence', 'bullish', 3), trigger('obv_divergence', 'bullish', 2)] },
+    }));
+    expect(signals).toHaveLength(1);
+    expect(signals[0].category).toBe('divergence');
+  });
+
   it('stoch_cross y triggers fuera de taxonomia se ignoran', () => {
     const signals = extractBullishSignals(makeOpp({
       timingView: { action: 'BUY', timing: 'now', confidence: 70, triggers: [trigger('stoch_cross', 'bullish', 0), trigger('resistance_break', 'bearish', 3)] },
@@ -181,6 +189,19 @@ describe('reconcileAlerts', () => {
   it('id desaparecido hace >=7 dias → toExpire', () => {
     const stored = [makeAlert({ lastSeenDate: '2026-06-03' })];
     const r = reconcileAlerts([], stored, TODAY);
+    expect(r.toExpire).toEqual(['GGAL:divergence+macd_cross']);
+  });
+
+  it('expiry exacto en el dia 7 → expira', () => {
+    const stored = [makeAlert({ lastSeenDate: '2026-06-04' })];
+    expect(reconcileAlerts([], stored, TODAY).toExpire).toEqual(['GGAL:divergence+macd_cross']);
+  });
+
+  it('confluencia que muta de categorias → alerta vieja expira inmediatamente (sin ghost twin)', () => {
+    const stored = [makeAlert()]; // GGAL:divergence+macd_cross, active, lastSeen 2026-06-10
+    const current = [makeAlert({ id: 'GGAL:bb_squeeze+divergence', firstSeenDate: TODAY, lastSeenDate: TODAY })];
+    const r = reconcileAlerts(current, stored, TODAY);
+    expect(r.toInsert).toHaveLength(1);
     expect(r.toExpire).toEqual(['GGAL:divergence+macd_cross']);
   });
 

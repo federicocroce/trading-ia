@@ -58,7 +58,7 @@ export function extractBullishSignals(opp: AlertSource): BullishSignal[] {
     const category = TRIGGER_CATEGORY[t.type];
     if (!category) continue; // stoch_cross, support_bounce, resistance_break: fuera de taxonomia v1
     if (!passesAnticipationGate(t.type, t.estimatedDays)) continue;
-    // dedup: si ya hay señal de divergencia (desde opp.divergences), no duplicar la categoria
+    // dedup: la categoria 'divergence' entra una sola vez — sea desde opp.divergences o desde triggers *_divergence (la primera descripcion gana)
     if (category === 'divergence' && signals.some(s => s.category === 'divergence')) continue;
     signals.push({ category, description: t.description, estimatedDays: t.estimatedDays });
   }
@@ -106,10 +106,11 @@ export function buildAlertsFromScan(opps: AlertSource[], scanDate: string): Anti
 export const ALERT_EXPIRY_DAYS = 7;
 
 export interface ReconcileResult {
+  /** Puede contener ids que existan como filas expired/triggered (re-alerta legitima). La capa de persistencia debe REACTIVAR via upsert: status=active, seen=false, firstSeenDate del nuevo episodio. */
   toInsert: AnticipatoryAlert[];
   toUpdate: AnticipatoryAlert[];
   toExpire: string[];               // ids a marcar expired
-  newAlerts: AnticipatoryAlert[];   // == toInsert; lo que dispara push/notificacion
+  newAlerts: AnticipatoryAlert[];   // mismo contenido que toInsert; lo que dispara push/notificacion
 }
 
 function daysBetween(fromYmd: string, toYmd: string): number {
@@ -150,10 +151,17 @@ export function reconcileAlerts(
     }
   }
 
+  const supersededSymbols = new Set(toInsert.map(a => a.symbol));
+
   for (const [id, existing] of activeStored) {
     if (currentIds.has(id)) continue;
+    // superseded: el symbol tiene una alerta nueva con otra confluencia → expirar ya (sin ghost twin)
+    if (supersededSymbols.has(existing.symbol)) {
+      toExpire.push(id);
+      continue;
+    }
     if (daysBetween(existing.lastSeenDate, scanDate) >= ALERT_EXPIRY_DAYS) toExpire.push(id);
   }
 
-  return { toInsert, toUpdate, toExpire, newAlerts: toInsert };
+  return { toInsert, toUpdate, toExpire, newAlerts: [...toInsert] };
 }
