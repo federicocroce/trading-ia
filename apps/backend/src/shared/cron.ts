@@ -76,4 +76,23 @@ export function startCronJobs(): void {
     }
   });
   console.log('[Cron] Scheduled: stop-breach watcher cada 10 min (13-21 UTC, lun-vie)');
+
+  // Outcome resolver: una vez al día, 23:00 UTC lun-vie (tras el cierre US, datos asentados).
+  // Cierra el loop "predicción vs realidad": señales (win/loss), alertas anticipatorias
+  // (triggered/missed) y cadenas causales de noticias (acertó/falló la dirección).
+  cron.schedule('0 23 * * 1-5', async () => {
+    console.log('[Cron] Outcome resolution starting...');
+    try {
+      const { resolveDailyOutcomes } = await import('../intelligence/outcome-resolver.service.js');
+      const r = await resolveDailyOutcomes();
+      console.log(
+        `[Cron] Outcomes resueltos — señales: ${r.signals} | ` +
+        `alertas: ${r.alerts.resolved} (▲${r.alerts.triggered} ✗${r.alerts.missed} ⌛${r.alerts.expired}) | ` +
+        `cadenas causales: ${r.causal.resolved} (✓${r.causal.correct} ✗${r.causal.incorrect} ~${r.causal.neutral})`,
+      );
+    } catch (err) {
+      console.error('[Cron] Outcome resolution failed:', (err as Error).message);
+    }
+  });
+  console.log('[Cron] Scheduled: outcome resolver diario 23:00 UTC (lun-vie)');
 }

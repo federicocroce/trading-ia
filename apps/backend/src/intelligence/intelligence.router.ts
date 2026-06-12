@@ -16,7 +16,7 @@ import {
 } from './pipeline.service.js';
 import { isLMStudioAvailable } from '../shared/lmstudio.js';
 import { getReportDates } from './pipeline.repository.js';
-import { getCausalMapByDate } from '../db/repository.js';
+import { getCausalMapByDate, getCausalAccuracyStats } from '../db/repository.js';
 import {
   getAllDiscoveryQueries,
   updateDiscoveryQuery,
@@ -266,4 +266,7 @@ export const intelligenceRouter = router({
       const date = input?.date ?? new Date().toISOString().slice(0, 10);
       return getCausalMapByDate(date);
     }),
+
+  /** Accuracy de las cadenas causales de noticias: ¿la dirección predicha acertó? */
+  causalAccuracy: publicProcedure.query(() => getCausalAccuracyStats()),
 });

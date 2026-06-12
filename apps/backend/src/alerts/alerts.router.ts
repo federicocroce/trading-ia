@@ -5,6 +5,7 @@ import {
   getRecentAnticipatoryAlerts,
   markAnticipatoryAlertsSeen,
   countUnseenAnticipatoryAlerts,
+  getAnticipatoryAccuracyStats,
 } from '../db/repository.js';
 
 export const alertsRouter = router({
@@ -26,4 +27,16 @@ export const alertsRouter = router({
       markAnticipatoryAlertsSeen(input?.ids);
       return { ok: true };
     }),
+
+  /** ¿La anticipación funciona? hitRate = triggered / (triggered+missed). */
+  accuracy: publicProcedure.query(() => getAnticipatoryAccuracyStats()),
+
+  /**
+   * Dispara la resolución de outcomes a demanda (señales + alertas + cadenas causales).
+   * El cron lo corre a diario; este endpoint permite forzarlo para probar.
+   */
+  resolveOutcomes: publicProcedure.mutation(async () => {
+    const { resolveDailyOutcomes } = await import('../intelligence/outcome-resolver.service.js');
+    return resolveDailyOutcomes();
+  }),
 });

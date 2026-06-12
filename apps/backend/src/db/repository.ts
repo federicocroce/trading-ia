@@ -1,4 +1,4 @@
-import { eq, desc, gte, lt, asc, and, inArray, gt, sql } from 'drizzle-orm';
+import { eq, desc, gte, lt, asc, and, inArray, gt, sql, isNull } from 'drizzle-orm';
 import type { AnticipatoryAlert } from '@trading/shared';
 import { db, schema } from './index.js';
 import { missedOpportunities, signalTracking, etfWatchlist } from './schema.js';
@@ -645,6 +645,9 @@ export function upsertAnticipatoryAlerts(toInsert: AnticipatoryAlert[], toUpdate
         score: a.score, status: 'active',
         firstSeenDate: a.firstSeenDate, lastSeenDate: a.lastSeenDate,
         seen: false, updatedAt: now,
+        // Re-alerta tras expirar/resolver: el episodio nuevo arranca sin outcome,
+        // para que el resolver lo mida de cero (si no, quedaría con el veredicto viejo).
+        outcome: null, resolutionPrice: null, resolutionReturn: null, resolvedAt: null,
       },
     }).run();
   }
@@ -663,6 +666,54 @@ export function expireAnticipatoryAlerts(ids: string[]): void {
   db.update(schema.anticipatoryAlerts)
     .set({ status: 'expired', updatedAt: new Date().toISOString() })
     .where(inArray(schema.anticipatoryAlerts.id, ids)).run();
+}
+
+/** Alertas anticipatorias sin outcome todavía — candidatas a resolución. */
+export function getUnresolvedAnticipatoryAlerts(): AnticipatoryAlert[] {
+  return db.select().from(schema.anticipatoryAlerts)
+    .where(and(eq(schema.anticipatoryAlerts.kind, 'anticipatory'), isNull(schema.anticipatoryAlerts.outcome)))
+    .all().map(rowToAnticipatoryAlert);
+}
+
+/**
+ * Persiste el veredicto de una alerta. status sigue el outcome para que la lista activa
+ * (status='active') deje de mostrarla: triggered→'triggered', missed/expired→'expired'.
+ */
+export function resolveAnticipatoryAlert(
+  id: string,
+  data: { outcome: 'triggered' | 'missed' | 'expired'; resolutionPrice: number | null; resolutionReturn: number | null },
+): void {
+  const status = data.outcome === 'triggered' ? 'triggered' : 'expired';
+  db.update(schema.anticipatoryAlerts).set({
+    outcome: data.outcome,
+    resolutionPrice: data.resolutionPrice,
+    resolutionReturn: data.resolutionReturn,
+    resolvedAt: new Date().toISOString(),
+    status,
+    updatedAt: new Date().toISOString(),
+  }).where(eq(schema.anticipatoryAlerts.id, id)).run();
+}
+
+/** Accuracy de anticipación: ¿la movida alcista anticipada efectivamente ocurrió? */
+export function getAnticipatoryAccuracyStats(): {
+  resolved: number; triggered: number; missed: number; expired: number; hitRate: number; avgReturn: number;
+} {
+  const rows = db.select().from(schema.anticipatoryAlerts)
+    .where(and(eq(schema.anticipatoryAlerts.kind, 'anticipatory'), inArray(schema.anticipatoryAlerts.outcome, ['triggered', 'missed', 'expired'])))
+    .all();
+  const triggered = rows.filter(r => r.outcome === 'triggered').length;
+  const missed = rows.filter(r => r.outcome === 'missed').length;
+  const expired = rows.filter(r => r.outcome === 'expired').length;
+  const resolved = rows.length;
+  // hitRate: de las que se resolvieron concluyentes (triggered+missed), cuántas dispararon.
+  const conclusive = triggered + missed;
+  const avgReturn = resolved > 0
+    ? rows.reduce((s, r) => s + (r.resolutionReturn ?? 0), 0) / resolved : 0;
+  return {
+    resolved, triggered, missed, expired,
+    hitRate: conclusive > 0 ? Math.round((triggered / conclusive) * 100) : 0,
+    avgReturn: Math.round(avgReturn * 100) / 100,
+  };
 }
 
 export function markAnticipatoryAlertsSeen(ids?: string[]): void {
@@ -1533,6 +1584,67 @@ export function getCausalTickersByDate(date: string): Array<{ ticker: string; di
     direction: data.direction,
     causalSummary: data.reasons.join('\n'),
   }));
+}
+
+export interface UnresolvedCausalChain {
+  id: number;
+  date: string;
+  ticker: string;
+  direction: 'positive' | 'negative';
+}
+
+/** Cadenas causales sin outcome cuyo evento ya tiene al menos `minAgeDays` de antigüedad. */
+export function getUnresolvedCausalChains(asOfDate: string, minAgeDays: number): UnresolvedCausalChain[] {
+  const cutoff = new Date(Date.parse(asOfDate) - minAgeDays * 86_400_000).toISOString().slice(0, 10);
+  return db.select({
+    id: schema.causalChains.id,
+    date: schema.causalChains.date,
+    ticker: schema.causalChains.ticker,
+    direction: schema.causalChains.direction,
+  }).from(schema.causalChains)
+    .where(and(isNull(schema.causalChains.outcome), lt(schema.causalChains.date, cutoff)))
+    .all() as UnresolvedCausalChain[];
+}
+
+export function resolveCausalChain(
+  id: number,
+  data: { entryPrice: number; resolutionPrice: number | null; resolutionReturn: number | null; outcome: 'correct' | 'incorrect' | 'neutral' },
+): void {
+  db.update(schema.causalChains).set({
+    entryPrice: data.entryPrice,
+    resolutionPrice: data.resolutionPrice,
+    resolutionReturn: data.resolutionReturn,
+    outcome: data.outcome,
+    resolvedAt: new Date().toISOString(),
+  }).where(eq(schema.causalChains.id, id)).run();
+}
+
+/** Accuracy de las cadenas causales: ¿la dirección predicha por la noticia acertó? */
+export function getCausalAccuracyStats(): {
+  resolved: number; correct: number; incorrect: number; neutral: number; accuracy: number;
+  byDirection: { positive: { resolved: number; correct: number }; negative: { resolved: number; correct: number } };
+} {
+  const rows = db.select({
+    direction: schema.causalChains.direction,
+    outcome: schema.causalChains.outcome,
+  }).from(schema.causalChains)
+    .where(inArray(schema.causalChains.outcome, ['correct', 'incorrect', 'neutral']))
+    .all();
+
+  const correct = rows.filter(r => r.outcome === 'correct').length;
+  const incorrect = rows.filter(r => r.outcome === 'incorrect').length;
+  const neutral = rows.filter(r => r.outcome === 'neutral').length;
+  // accuracy: sobre las concluyentes (correct+incorrect), excluye neutral (sin movida).
+  const conclusive = correct + incorrect;
+  const dir = (d: 'positive' | 'negative') => {
+    const sub = rows.filter(r => r.direction === d && r.outcome !== 'neutral');
+    return { resolved: sub.length, correct: sub.filter(r => r.outcome === 'correct').length };
+  };
+  return {
+    resolved: rows.length, correct, incorrect, neutral,
+    accuracy: conclusive > 0 ? Math.round((correct / conclusive) * 100) : 0,
+    byDirection: { positive: dir('positive'), negative: dir('negative') },
+  };
 }
 
 // ─── ETF Watchlist ────────────────────────────────────────────────────────────

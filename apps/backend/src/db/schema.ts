@@ -159,6 +159,11 @@ export const anticipatoryAlerts = sqliteTable('anticipatory_alerts', {
   seen: integer('seen', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+  // Outcome resolution (¿la movida anticipada ocurrió?) — NULL = sin resolver aún
+  outcome: text('outcome'),                            // 'triggered' | 'missed' | 'expired'
+  resolutionPrice: real('resolution_price'),
+  resolutionReturn: real('resolution_return'),         // % vs entryPrice
+  resolvedAt: text('resolved_at'),
 });
 
 // --- Discovered symbols (dynamic universe) ---
@@ -751,6 +756,12 @@ export const causalChains = sqliteTable('causal_chains', {
   impact: text('impact', { enum: ['direct', 'indirect'] }).notNull(),
   reason: text('reason').notNull(),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  // Outcome resolution (¿la dirección predicha acertó?) — NULL = sin resolver aún
+  entryPrice: real('entry_price'),                     // precio en la fecha del evento
+  resolutionPrice: real('resolution_price'),
+  resolutionReturn: real('resolution_return'),         // % vs entryPrice
+  outcome: text('outcome'),                            // 'correct' | 'incorrect' | 'neutral'
+  resolvedAt: text('resolved_at'),
 });
 
 export const eventRelations = sqliteTable('event_relations', {
