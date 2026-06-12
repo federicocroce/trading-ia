@@ -3,6 +3,7 @@ import { trpc } from '@/shared/trpc';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ExternalLink } from 'lucide-react';
+import { SymbolLink } from '@/shared/SymbolLink';
 
 const MAX_NEWS = 6;
 
@@ -59,12 +60,12 @@ export function TopNewsWidget() {
           const confidence = a.triangulation?.confidence ?? 'low';
           const symbols = a.relatedTickers.slice(0, 3);
           return (
-            <a
+            <div
               key={a.id}
-              href={a.url ?? '#'}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block hover:bg-muted/30 rounded px-2 py-1.5 border border-transparent hover:border-border/50"
+              onClick={() => {
+                if (a.url) window.open(a.url, '_blank', 'noopener,noreferrer');
+              }}
+              className="block cursor-pointer hover:bg-muted/30 rounded px-2 py-1.5 border border-transparent hover:border-border/50"
             >
               <div className="flex items-start gap-2">
                 <div className="flex-1 min-w-0 space-y-0.5">
@@ -79,14 +80,19 @@ export function TopNewsWidget() {
                     <span className="text-[9px] text-muted-foreground">{a.source}</span>
                     {symbols.length > 0 && (
                       <span className="text-[9px] text-muted-foreground font-mono">
-                        {symbols.join(' · ')}
+                        {symbols.map((s, i) => (
+                          <span key={s}>
+                            {i > 0 && <span> · </span>}
+                            <SymbolLink symbol={s} stopPropagation />
+                          </span>
+                        ))}
                       </span>
                     )}
                   </div>
                 </div>
                 {a.url && <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />}
               </div>
-            </a>
+            </div>
           );
         })}
       </CardContent>

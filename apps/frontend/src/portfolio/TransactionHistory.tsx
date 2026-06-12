@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { trpc } from '@/shared/trpc';
 import { TransactionDialog } from './TransactionDialog';
+import { SymbolLink } from '@/shared/SymbolLink';
 
 export function TransactionHistory() {
   const [txDialogOpen, setTxDialogOpen] = useState(false);
@@ -101,7 +102,9 @@ export function TransactionHistory() {
                       {tx.type === 'BUY' ? 'Compra' : tx.type === 'DIVIDEND' ? 'Dividendo' : 'Venta'}
                     </Badge>
                   </TableCell>
-                  <TableCell className="font-medium font-mono">{tx.symbol}</TableCell>
+                  <TableCell className="font-medium font-mono">
+                    <SymbolLink symbol={tx.symbol} />
+                  </TableCell>
                   <TableCell className="text-right">{tx.quantity}</TableCell>
                   <TableCell className="text-right">{tx.price.toFixed(2)}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">{cur}</TableCell>

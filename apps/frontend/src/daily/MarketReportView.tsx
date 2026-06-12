@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { TopImpactNewsItem } from '@trading/shared';
 import { trpc } from '@/shared/trpc';
 import { WatchlistButton } from '@/shared/WatchlistButton';
+import { SymbolLink } from '@/shared/SymbolLink';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -106,7 +107,9 @@ function TopImpactNewsList({ items }: { items: TopImpactNewsItem[] }) {
             {item.tickers.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {item.tickers.slice(0, 6).map((t, j) => (
-                  <Badge key={j} variant="outline" className="text-[7px] h-3 font-mono">{t}</Badge>
+                  <SymbolLink key={j} symbol={t}>
+                    <Badge variant="outline" className="text-[7px] h-3 font-mono hover:text-blue-400 transition-colors">{t}</Badge>
+                  </SymbolLink>
                 ))}
               </div>
             )}
@@ -342,7 +345,7 @@ export function MarketReportView({ date }: { date?: string }) {
                   <div key={i} className="rounded-md bg-muted/30 p-3 space-y-1.5">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-mono font-bold">{rec.symbol}</span>
+                        <SymbolLink symbol={rec.symbol} className="text-sm font-mono font-bold" />
                         <Badge className="text-[8px] h-4 bg-blue-500/20 text-blue-400">{rec.instrumentType}</Badge>
                         <Badge className="text-[8px] h-4 bg-muted text-muted-foreground">{rec.sector}</Badge>
                         <span className="text-[9px] text-muted-foreground">{rec.name}</span>
@@ -386,7 +389,7 @@ export function MarketReportView({ date }: { date?: string }) {
                   <div key={i} className="rounded-md bg-muted/30 p-3 space-y-1.5">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-mono font-bold">{rec.symbol}</span>
+                        <SymbolLink symbol={rec.symbol} className="text-sm font-mono font-bold" />
                         <Badge className="text-[8px] h-4 bg-blue-500/20 text-blue-400">{rec.instrumentType}</Badge>
                         <Badge className="text-[8px] h-4 bg-muted text-muted-foreground">{rec.sector}</Badge>
                         <span className="text-[9px] text-muted-foreground">{rec.name}</span>
@@ -433,7 +436,7 @@ export function MarketReportView({ date }: { date?: string }) {
                       {tierAlts.map((alt, i) => (
                         <div key={i} className="flex items-start gap-2 py-1">
                           <div className="flex items-center gap-1.5 min-w-30">
-                            <span className="text-[10px] font-mono font-semibold">{alt.symbol}</span>
+                            <SymbolLink symbol={alt.symbol} className="text-[10px] font-mono font-semibold" />
                             <Badge className="text-[7px] h-3.5 bg-muted text-muted-foreground">{alt.sector}</Badge>
                           </div>
                           <p className="text-[9px] text-muted-foreground flex-1">{alt.thesis}</p>
@@ -465,7 +468,7 @@ export function MarketReportView({ date }: { date?: string }) {
                     <div className="space-y-0.5">
                       {scenario.distribution.map((d, j) => (
                         <div key={j} className="flex items-start gap-1 text-[9px]">
-                          <span className="font-mono font-semibold shrink-0">{d.symbol}</span>
+                          <SymbolLink symbol={d.symbol} className="font-mono font-semibold shrink-0" />
                           <span className="text-green-400 shrink-0">{d.weight}%</span>
                           <span className="text-muted-foreground">— {d.reason}</span>
                         </div>

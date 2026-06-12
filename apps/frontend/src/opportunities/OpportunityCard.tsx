@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { WatchlistButton } from '@/shared/WatchlistButton';
+import { SymbolLink } from '@/shared/SymbolLink';
 import { ReturnEstimateBar } from './ReturnEstimateBar';
 
 type TASignal = 'bullish' | 'bearish' | 'neutral';
@@ -357,7 +358,7 @@ export function OpportunityCard({ opportunity, forceExpanded = false }: { opport
                 <TooltipContent>En tu portfolio ({opportunity.portfolioQuantity} unidades)</TooltipContent>
               </Tooltip>
             )}
-            <span className="font-bold text-sm">{opportunity.symbol}</span>
+            <SymbolLink symbol={opportunity.symbol} className="font-bold text-sm" />
             <span className="text-xs text-muted-foreground font-mono">
               ${opportunity.currentPrice.toFixed(2)}
             </span>

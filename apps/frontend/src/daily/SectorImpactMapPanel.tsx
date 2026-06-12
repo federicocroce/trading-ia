@@ -2,6 +2,7 @@ import { trpc } from '@/shared/trpc';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import type { SectorImpactMapEntry } from '@trading/shared';
+import { SymbolLink } from '@/shared/SymbolLink';
 
 const impactColor: Record<string, string> = {
   positive: 'border-l-trading-green/60',
@@ -24,9 +25,12 @@ function TickerChip({ symbol, inPortfolio, tone }: { symbol: string; inPortfolio
     ? 'bg-trading-green/10 text-trading-green'
     : 'bg-trading-red/10 text-trading-red';
   return (
-    <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded ${base} ${inPortfolio ? 'ring-1 ring-amber-400/70' : ''}`}>
+    <SymbolLink
+      symbol={symbol}
+      className={`font-mono text-[10px] px-1.5 py-0.5 rounded ${base} ${inPortfolio ? 'ring-1 ring-amber-400/70' : ''}`}
+    >
       {inPortfolio && '★'}{symbol}
-    </span>
+    </SymbolLink>
   );
 }
 

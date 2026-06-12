@@ -1,6 +1,7 @@
 import { trpc } from '@/shared/trpc';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { SymbolLink } from '@/shared/SymbolLink';
 
 const magnitudeStyle = {
   high: 'bg-red-500/20 text-red-400 border-red-500/30',
@@ -50,7 +51,7 @@ export function CausalMapView({ date }: { date?: string }) {
                           : 'bg-red-500/10 text-red-400 border-red-500/20'
                       }`}
                     >
-                      <span className="font-mono font-bold">{chain.ticker}</span>
+                      <SymbolLink symbol={chain.ticker} className="font-mono font-bold" />
                       <span className="text-[8px] opacity-60">
                         {chain.direction === 'positive' ? '↑' : '↓'}
                         {chain.impact === 'direct' ? '' : ' ~'}

@@ -10,6 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { trpc } from '@/shared/trpc';
+import { WatchlistButton } from '@/shared/WatchlistButton';
 import { PriceChart, type PeriodChange } from './PriceChart';
 
 interface SymbolDetailPageProps {
@@ -67,6 +68,7 @@ export function SymbolDetailPage({ symbol, onBack }: SymbolDetailPageProps) {
           {stock && <span className="text-lg">{stock.flag}</span>}
           <h1 className="text-xl font-bold font-mono">{symbol}</h1>
           {stock && <span className="text-muted-foreground">— {stock.name}</span>}
+          <WatchlistButton symbol={symbol} />
         </div>
       </div>
 

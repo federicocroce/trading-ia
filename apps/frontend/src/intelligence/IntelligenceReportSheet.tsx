@@ -13,6 +13,7 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/shared/trpc';
+import { SymbolLink } from '@/shared/SymbolLink';
 import { WatchlistButton } from '@/shared/WatchlistButton';
 
 // --- Types ---
@@ -129,7 +130,9 @@ function SecondOrderCard({ effect }: { effect: SecondOrderEffect }) {
 
           <div className="flex gap-1 flex-wrap">
             {effect.affectedTickers.map((t) => (
-              <Badge key={t} variant="outline" className="text-[9px] font-mono h-4">{t}</Badge>
+              <SymbolLink key={t} symbol={t} stopPropagation>
+                <Badge variant="outline" className="text-[9px] font-mono h-4 hover:text-blue-400 transition-colors">{t}</Badge>
+              </SymbolLink>
             ))}
           </div>
 
@@ -150,7 +153,7 @@ function RecommendationRow({ opp, rank }: { opp: TopRecommendation; rank: number
     >
       <div className="flex items-center gap-2">
         <span className="text-sm font-bold text-muted-foreground w-5 text-right">{rank}</span>
-        <span className="font-mono font-semibold text-sm">{opp.symbol}</span>
+        <SymbolLink symbol={opp.symbol} className="font-mono font-semibold text-sm" stopPropagation />
         <Badge className={`text-[9px] ${actionColors[opp.action] ?? ''}`}>{opp.action}</Badge>
         <span className="text-[10px] text-muted-foreground truncate flex-1">{opp.sectorLabel}</span>
         <span onClick={(e) => e.stopPropagation()}>

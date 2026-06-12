@@ -4,6 +4,7 @@ import { SectorImpactMapPanel } from './SectorImpactMapPanel';
 import { printWithTitle } from '@/shared/printWithTitle';
 import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import { WatchlistButton } from '@/shared/WatchlistButton';
+import { SymbolLink } from '@/shared/SymbolLink';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -182,7 +183,7 @@ function RecommendationRow({ rec }: { rec: DigestRec }) {
     <div className="flex flex-col gap-0.5">
       <div className="flex items-baseline gap-1.5">
         <Badge className={`text-[8px] font-bold px-1 py-0 h-3.5 shrink-0 ${cfg.bg} ${cfg.text}`}>{cfg.label}</Badge>
-        <span className="font-mono font-semibold text-[10px] text-foreground shrink-0">{rec.symbol}</span>
+        <SymbolLink symbol={rec.symbol} className="font-mono font-semibold text-[10px] text-foreground shrink-0" />
         {rec.anticipatoryAlert && (
           <span title="Alerta anticipatoria activa" className="text-[10px] text-purple-400">⚡</span>
         )}
@@ -230,7 +231,7 @@ function TrackingHistory() {
                 )}
                 <div className="flex items-center justify-between py-1 px-2 rounded hover:bg-muted/30 text-[10px]">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-semibold text-[11px]">{s.symbol}</span>
+                    <SymbolLink symbol={s.symbol} className="font-mono font-semibold text-[11px]" />
                     <Badge className={`text-[8px] h-4 ${act.bg} ${act.text}`}>{act.label}</Badge>
                     <span className="text-muted-foreground">${s.entryPrice.toFixed(2)}</span>
                   </div>
@@ -337,7 +338,7 @@ function PortfolioAlerts({ symbolFilter, typeFilter }: { symbolFilter: string; t
               <div key={p.symbol} className={`rounded-md p-2 space-y-1 ${hasAlert ? 'bg-muted/40 border border-muted' : 'bg-muted/20'}`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-mono font-semibold">{p.symbol}</span>
+                    <SymbolLink symbol={p.symbol} className="text-sm font-mono font-semibold" />
                     <InstrumentBadge kind={p.kind} />
                     <Badge className={`text-[9px] h-4 ${act.bg} ${act.text}`}>{act.label}</Badge>
                     {opp?.opportunityScore != null && (
@@ -481,7 +482,7 @@ function ActiveAlerts({ symbolFilter, typeFilter }: { symbolFilter: string; type
                   <div key={o.symbol} className="rounded-md bg-muted/30 p-2 space-y-1">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-mono font-semibold">{o.symbol}</span>
+                        <SymbolLink symbol={o.symbol} className="text-sm font-mono font-semibold" />
                         <InstrumentBadge kind={typeMap.get(o.symbol)} />
                         <Badge className={`text-[10px] ${act.bg} ${act.text}`}>{act.label}</Badge>
                         <span className="text-[10px] font-mono text-muted-foreground">${o.currentPrice.toFixed(2)}</span>
@@ -713,7 +714,7 @@ function MarketDigestPanel() {
                 <div className="space-y-1 mt-0.5">
                   {digest.watching.map((w, i) => (
                     <p key={i} className="text-[10px] text-muted-foreground leading-relaxed">
-                      <span className="font-mono font-semibold text-foreground">{w.symbol}</span> — {w.narrative}
+                      <SymbolLink symbol={w.symbol} className="font-mono font-semibold text-foreground" /> — {w.narrative}
                     </p>
                   ))}
                 </div>
@@ -730,7 +731,7 @@ function MarketDigestPanel() {
                 <div className="space-y-1 mt-0.5">
                   {digest.watching.map((w, i) => (
                     <p key={i} className="text-[10px] text-muted-foreground leading-relaxed">
-                      <span className="font-mono font-semibold text-foreground">{w.symbol}</span> — {w.narrative}
+                      <SymbolLink symbol={w.symbol} className="font-mono font-semibold text-foreground" /> — {w.narrative}
                     </p>
                   ))}
                 </div>

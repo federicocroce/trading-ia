@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { SymbolLink } from '@/shared/SymbolLink';
 
 const PERIOD_OPTIONS = [
   { value: 30 as const, label: '30d' },
@@ -299,7 +300,9 @@ export function AccuracyDashboard() {
                 <tbody>
                   {missedOpps.topMissed.map((m, i) => (
                     <tr key={i} className="border-b border-border/40">
-                      <td className="py-2 font-medium">{m.symbol}</td>
+                      <td className="py-2 font-medium">
+                        <SymbolLink symbol={m.symbol} />
+                      </td>
                       <td className="text-right text-muted-foreground">{m.date}</td>
                       <td className={`text-right ${(m.return7d ?? 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                         {m.return7d != null ? `${m.return7d >= 0 ? '+' : ''}${m.return7d.toFixed(1)}%` : '—'}
