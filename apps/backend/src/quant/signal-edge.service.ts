@@ -11,19 +11,51 @@ import { computeIndicators } from '../technical/technical-analysis.service.js';
 import { resolveAlertOutcome } from '../intelligence/outcome-resolver.js';
 import { summarizeAlertEdge, type BarSample, type AlertEdgeSummary } from './alert-backtest.js';
 import { resolveBacktestUniverse } from './ma-trend.service.js';
-import { detectSignals, SIGNAL_KEYS, type SignalKey } from './signal-edge.js';
+import { detectSignals, SIGNAL_KEYS, twoProportionZ, isStableEdge, type SignalKey } from './signal-edge.js';
 
 const DEFAULTS = { years: 5, horizonDays: 14, atrStopMult: 1.5, atrTargetMult: 2.5, warmup: 220 };
+const PERIODS = 3; // walk-forward: ¿el edge se sostiene en 3 ventanas temporales?
+const Z_SIGNIFICANT = 1.96; // 95%
+
+interface DatedSample extends BarSample { date: string }
 
 export interface SignalEdgeResult extends AlertEdgeSummary {
   signal: SignalKey;
   /** Barras donde la señal disparó (= alerts.n). */
   firedBars: number;
+  /** |z| del test de dos proporciones (señal vs base). ≥1.96 = significativo. */
+  zScore: number;
+  significant: boolean;
+  /** Edge de win-rate en cada ventana temporal (walk-forward). */
+  edgeByPeriod: number[];
+  /** El edge no cambia de signo entre ventanas. */
+  stable: boolean;
+  /** Resumen honesto: ¿confiable? (significativo + estable + muestra suficiente). */
+  trustworthy: boolean;
 }
 
 export interface SignalEdgeStudy {
   params: { years: number; horizonDays: number; symbols: number; totalBars: number };
   signals: SignalEdgeResult[];
+}
+
+/** Edge de win-rate (alerts − baseline) sobre un subconjunto de samples. */
+function edgeWinOf(samples: BarSample[]): number {
+  return summarizeAlertEdge(samples).edgeWinRate;
+}
+
+/** Parte los samples (con fecha) en PERIODS ventanas cronológicas iguales y devuelve el edge de cada una. */
+function edgePerPeriod(samples: DatedSample[]): number[] {
+  if (samples.length === 0) return Array(PERIODS).fill(0);
+  const dates = samples.map((s) => Date.parse(s.date));
+  const min = Math.min(...dates);
+  const span = Math.max(...dates) - min || 1;
+  const buckets: DatedSample[][] = Array.from({ length: PERIODS }, () => []);
+  for (const s of samples) {
+    const idx = Math.min(PERIODS - 1, Math.floor(((Date.parse(s.date) - min) / span) * PERIODS));
+    buckets[idx].push(s);
+  }
+  return buckets.map((b) => edgeWinOf(b));
 }
 
 export async function runSignalEdgeStudy(
@@ -32,9 +64,9 @@ export async function runSignalEdgeStudy(
   const { years, horizonDays, atrStopMult, atrTargetMult, warmup } = { ...DEFAULTS, ...opts };
   const universe = opts.symbols ?? resolveBacktestUniverse().map((u) => u.symbol);
 
-  const perSignal: Record<SignalKey, BarSample[]> = Object.fromEntries(
-    SIGNAL_KEYS.map((k) => [k, [] as BarSample[]]),
-  ) as Record<SignalKey, BarSample[]>;
+  const perSignal: Record<SignalKey, DatedSample[]> = Object.fromEntries(
+    SIGNAL_KEYS.map((k) => [k, [] as DatedSample[]]),
+  ) as Record<SignalKey, DatedSample[]>;
   let totalBars = 0;
 
   for (const symbol of universe) {
@@ -73,14 +105,33 @@ export async function runSignalEdgeStudy(
 
       totalBars++;
       for (const key of SIGNAL_KEYS) {
-        perSignal[key].push({ fired: flags[key], outcome: res.outcome, returnPct: res.resolutionReturn ?? 0 });
+        perSignal[key].push({ date: candles[i].date, fired: flags[key], outcome: res.outcome, returnPct: res.resolutionReturn ?? 0 });
       }
     }
   }
 
   const signals: SignalEdgeResult[] = SIGNAL_KEYS.map((key) => {
-    const summary = summarizeAlertEdge(perSignal[key]);
-    return { signal: key, firedBars: summary.alerts.n, ...summary };
+    const samples = perSignal[key];
+    const summary = summarizeAlertEdge(samples);
+    // Significancia: triggered vs (triggered+missed), señal vs base.
+    const aConcl = summary.alerts.triggered + summary.alerts.missed;
+    const bConcl = summary.baseline.triggered + summary.baseline.missed;
+    const z = twoProportionZ(summary.alerts.triggered, aConcl, summary.baseline.triggered, bConcl);
+    const zScore = Math.round(Math.abs(z) * 100) / 100;
+    const significant = zScore >= Z_SIGNIFICANT;
+    const edgeByPeriod = edgePerPeriod(samples);
+    const stable = isStableEdge(edgeByPeriod);
+    return {
+      signal: key,
+      firedBars: summary.alerts.n,
+      ...summary,
+      zScore,
+      significant,
+      edgeByPeriod,
+      stable,
+      // Confiable = el edge es positivo, significativo, estable y con muestra decente.
+      trustworthy: summary.edgeWinRate > 0 && significant && stable && summary.alerts.n >= 100,
+    };
   }).sort((a, b) => b.edgeWinRate - a.edgeWinRate);
 
   return { params: { years, horizonDays, symbols: universe.length, totalBars }, signals };

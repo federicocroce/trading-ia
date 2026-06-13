@@ -30,3 +30,23 @@ export function detectSignals(s: SignalInput): Record<SignalKey, boolean> {
     macd_bullish: s.macdHistogram != null && s.macdHistogram > 0,
   };
 }
+
+/**
+ * Test z de dos proporciones: ¿la diferencia entre el win-rate de la señal y el base-rate
+ * es estadísticamente distinguible de cero, o es ruido de muestra chica? |z| ≥ 1.96 ≈ 95%.
+ */
+export function twoProportionZ(successesA: number, nA: number, successesB: number, nB: number): number {
+  if (nA <= 0 || nB <= 0) return 0;
+  const pA = successesA / nA;
+  const pB = successesB / nB;
+  const pPool = (successesA + successesB) / (nA + nB);
+  const se = Math.sqrt(pPool * (1 - pPool) * (1 / nA + 1 / nB));
+  if (se === 0) return 0;
+  return (pA - pB) / se;
+}
+
+/** El edge es "estable" si no cambia de signo entre períodos (los ceros no rompen). */
+export function isStableEdge(periodEdges: number[]): boolean {
+  const signs = periodEdges.filter((e) => e !== 0).map((e) => Math.sign(e));
+  return signs.every((s) => s === signs[0]);
+}
