@@ -7,6 +7,7 @@ import { runMaTrendUniverse, runMaTrendDetail, resolveBacktestUniverse } from '.
 import { runAlertBacktestUniverse, runAlertBacktestForSymbol } from './alert-backtest.service.js';
 import { runSignalEdgeStudy } from './signal-edge.service.js';
 import { runEventStudy, getEventPlaybook } from './event-study.service.js';
+import { runExitRuleBacktest } from './exit-rule-backtest.service.js';
 
 const alertBacktestOptsShape = {
   years: z.number().int().min(2).max(15).default(5),
@@ -130,4 +131,12 @@ export const quantRouter = router({
   eventPlaybook: publicProcedure
     .input(z.object({ eventType: z.string().optional() }).optional())
     .query(({ input }) => getEventPlaybook(input?.eventType)),
+
+  /**
+   * Head-to-head: valida con datos cuál de las dos reglas opuestas conviene cuando el motor y
+   * "Hoy" se contradicen — vender en la divergencia (motor) vs dejar correr con trailing (Hoy).
+   */
+  exitRuleBacktest: publicProcedure
+    .input(z.object({ years: z.number().int().min(3).max(15).default(7) }).optional())
+    .mutation(({ input }) => runExitRuleBacktest(input ?? {})),
 });
