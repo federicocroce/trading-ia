@@ -183,10 +183,13 @@ async function analyzeBatch(news: NewsItem[]): Promise<AnalyzedNewsItem[]> {
     if (batchResults) {
       // Anclaje anti-alucinación: validar contra Yahoo los tickers que el LLM dice afectados
       // y descartar los inventados antes de que alimenten el sentiment por símbolo.
-      const llmTickers = [...new Set(batchResults.flatMap((a) => a.affectedTickers ?? []))];
+      // Guarda: el LLM a veces devuelve affectedTickers como NO-array (string/objeto) → normalizar.
+      const tickersOf = (a: { affectedTickers?: unknown }): string[] =>
+        Array.isArray(a.affectedTickers) ? a.affectedTickers.filter((t): t is string => typeof t === 'string') : [];
+      const llmTickers = [...new Set(batchResults.flatMap(tickersOf))];
       const validSet = new Set(await validateTickers(llmTickers));
       for (const a of batchResults) {
-        a.affectedTickers = (a.affectedTickers ?? []).filter((t) => validSet.has(t));
+        a.affectedTickers = tickersOf(a).filter((t) => validSet.has(t));
         analysisMap.set(a.newsId, a);
         const original = batch.find((n) => n.id === a.newsId);
         updateNewsAnalysis(a.newsId, a.sentiment, a.impact,
