@@ -137,6 +137,9 @@ export const quantRouter = router({
    * "Hoy" se contradicen — vender en la divergencia (motor) vs dejar correr con trailing (Hoy).
    */
   exitRuleBacktest: publicProcedure
-    .input(z.object({ years: z.number().int().min(3).max(15).default(7) }).optional())
+    .input(z.object({
+      years: z.number().int().min(3).max(15).default(7),
+      scope: z.enum(['portfolio', 'universe']).default('portfolio'),
+    }).optional())
     .mutation(({ input }) => runExitRuleBacktest(input ?? {})),
 });

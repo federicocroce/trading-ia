@@ -3,8 +3,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import { AccuracyDashboard } from '@/intelligence/AccuracyDashboard';
 import { BacktestPage } from '@/backtest/BacktestPage';
+import { ExitRuleStudyView } from '@/backtest/ExitRuleStudyView';
 
-type HistoricoSubTab = 'accuracy' | 'backtest';
+type HistoricoSubTab = 'accuracy' | 'backtest' | 'validacion';
 
 export function HistoricoPage() {
   const [subTab, setSubTab] = useState<HistoricoSubTab>('accuracy');
@@ -28,6 +29,7 @@ export function HistoricoPage() {
           <TabsList variant="line" className="mb-4">
             <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
             <TabsTrigger value="backtest">Backtest</TabsTrigger>
+            <TabsTrigger value="validacion">Validación</TabsTrigger>
           </TabsList>
 
           <TabsContent value="accuracy" className="mt-0">
@@ -35,6 +37,9 @@ export function HistoricoPage() {
           </TabsContent>
           <TabsContent value="backtest" className="mt-0">
             <BacktestPage />
+          </TabsContent>
+          <TabsContent value="validacion" className="mt-0">
+            <ExitRuleStudyView />
           </TabsContent>
         </Tabs>
       </div>

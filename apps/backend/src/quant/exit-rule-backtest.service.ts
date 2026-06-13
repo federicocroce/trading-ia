@@ -89,9 +89,16 @@ export interface ExitRuleStudy {
 
 const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 100) / 100 : 0);
 
-export async function runExitRuleBacktest(opts: Partial<typeof DEFAULTS> & { symbols?: string[] } = {}): Promise<ExitRuleStudy> {
+export async function runExitRuleBacktest(
+  opts: Partial<typeof DEFAULTS> & { symbols?: string[]; scope?: 'portfolio' | 'universe' } = {},
+): Promise<ExitRuleStudy> {
   const { years, warmup, commissionPct, slippagePct } = { ...DEFAULTS, ...opts };
-  const universe = opts.symbols ?? resolveBacktestUniverse().map((u) => u.symbol);
+  // Default 'portfolio' (tus posiciones + benchmarks): rápido y es lo que te importa validar.
+  const universe = opts.symbols ?? (
+    opts.scope === 'universe'
+      ? resolveBacktestUniverse().map((u) => u.symbol)
+      : resolveBacktestUniverse().filter((u) => u.group === 'portfolio' || u.group === 'benchmark').map((u) => u.symbol)
+  );
 
   const perSymbol: ExitRuleSymbolResult[] = [];
   for (const symbol of universe) {
