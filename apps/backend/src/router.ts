@@ -5,13 +5,10 @@ import { analysisRouter } from './analysis/analysis.router.js';
 import { chatRouter } from './chat/chat.router.js';
 import { newsRouter } from './news/news.router.js';
 import { opportunitiesRouter } from './opportunities/opportunities.router.js';
-import { signalsRouter } from './signals/signals.router.js';
 import { intelligenceRouter } from './intelligence/intelligence.router.js';
 import { quantRouter } from './quant/quant.router.js';
-import { evidenceSignalsRouter } from './evidence-signals/evidence-signals.router.js';
 import { macroRouter } from './macro/macro.router.js';
 import { etfRouter } from './etf/etf.router.js';
-import { alertsRouter } from './alerts/alerts.router.js';
 import { getHealthReport } from './shared/service-health.js';
 export const appRouter = router({
   prices: pricesRouter,
@@ -20,13 +17,10 @@ export const appRouter = router({
   chat: chatRouter,
   news: newsRouter,
   opportunities: opportunitiesRouter,
-  signals: signalsRouter,
   intelligence: intelligenceRouter,
   quant: quantRouter,
-  evidenceSignals: evidenceSignalsRouter,
   macro: macroRouter,
   etf: etfRouter,
-  alerts: alertsRouter,
   health: publicProcedure.query(() => getHealthReport()),
 });
 

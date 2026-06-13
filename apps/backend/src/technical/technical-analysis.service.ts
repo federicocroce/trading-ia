@@ -2,6 +2,7 @@ import type { OHLC, TechnicalIndicators, TechnicalSummary, TASignal, SRLevel, Di
 import { getHistoricalQuotes, getQuote } from '../shared/yahoo.js';
 import { getActiveSymbolList, getHistoricalFromCache, upsertHistoricalCache } from '../db/repository.js';
 import { analyzeTimingSignals } from './timing-analysis.service.js';
+import { computeTrailingStop } from '../opportunities/today-decisions.js';
 import { sanitizeMovingAverages } from './indicator-sanity.js';
 import { reportOk, reportError } from '../shared/service-health.js';
 
@@ -988,8 +989,11 @@ export async function getTechnicalSummary(symbol: string): Promise<TechnicalSumm
 
     const adjustedSignal: TASignal = adjustedScore > 20 ? 'bullish' : adjustedScore < -20 ? 'bearish' : 'neutral';
 
+    // Stop dinámico (trailing chandelier) calculado UNA vez acá — fuente única para "Hoy" y demás vistas.
+    const trailingStop = computeTrailingStop(history);
+
     reportOk('Analisis Tecnico');
-    return { symbol, indicators, signal: adjustedSignal, score: adjustedScore, timing, weekly: weekly ?? undefined, divergences: allDivergences.length > 0 ? allDivergences : undefined };
+    return { symbol, indicators, signal: adjustedSignal, score: adjustedScore, timing, weekly: weekly ?? undefined, divergences: allDivergences.length > 0 ? allDivergences : undefined, trailingStop };
   } catch (err) {
     reportError('Analisis Tecnico', `Fallo para ${symbol}: ${(err as Error).message.slice(0, 100)}`);
     console.warn(`[TA] Failed for ${symbol}:`, (err as Error).message);

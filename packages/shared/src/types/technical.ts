@@ -123,6 +123,8 @@ export interface TechnicalSummary {
   timing: TimingSignal | null;
   weekly?: WeeklyAnalysis;
   divergences?: DivergenceSignal[];
+  /** Stop dinámico (trailing chandelier) calculado en el scan — fuente única para todas las vistas. */
+  trailingStop?: number | null;
 }
 
 // --- Technical Report (reporte separado para frontend) ---

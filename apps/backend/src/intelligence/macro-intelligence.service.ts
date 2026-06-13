@@ -1,4 +1,5 @@
 import { callAI } from '../shared/ai-router.js';
+import { validateTickers } from '../discovery/ticker-validator.js';
 import type { MacroEventRow } from '../db/repository.js';
 
 const VALID_CATEGORIES = [
@@ -101,7 +102,7 @@ export async function runMacroIntelligence(headlines: string[]): Promise<MacroEv
   // Merge paso1 metadata with paso2 chains
   const chainMap = new Map<string, RawChainEvent>(rawChainEvents.map(e => [e.id, e]));
 
-  return rawEvents.map(evt => {
+  const events: MacroEventRow[] = rawEvents.map(evt => {
     const chainEvt = chainMap.get(evt.id);
     return {
       eventId: evt.id,
@@ -121,4 +122,14 @@ export async function runMacroIntelligence(headlines: string[]): Promise<MacroEv
         })),
     };
   });
+
+  // Anclaje anti-alucinación: el LLM inventa tickers. Validamos contra Yahoo y descartamos
+  // las cadenas cuyo ticker no existe (era el peor ofensor, ~52% de acierto medido).
+  const allTickers = [...new Set(events.flatMap(e => e.chains.map(c => c.ticker)))];
+  const valid = new Set(await validateTickers(allTickers));
+  const dropped = allTickers.length - valid.size;
+  if (dropped > 0) console.log(`[macro-intelligence] ${dropped} tickers inválidos descartados (Yahoo)`);
+  for (const e of events) e.chains = e.chains.filter(c => valid.has(c.ticker));
+
+  return events;
 }

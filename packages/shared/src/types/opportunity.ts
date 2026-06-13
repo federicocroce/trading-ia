@@ -100,6 +100,8 @@ export interface Opportunity {
   passedAntiHype?: boolean;
   confluenceDetail?: ConfluenceDetail;
   tradeLevels?: TradeLevels;
+  /** Stop dinámico (trailing chandelier) — calculado una vez en el scan, leído por la vista "Hoy". */
+  trailingStop?: number | null;
   timingView?: TimingView;
   signalConflicts?: SignalConflict[];
   entryScore?: number;

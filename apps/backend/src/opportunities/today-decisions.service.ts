@@ -1,16 +1,13 @@
 /**
- * Vista "Hoy": un solo veredicto por cosa. Arriba tu cartera (MANTENER / VENDER, con stop y
- * objetivo RECALCULADOS solos según el precio); abajo, oportunidades del mercado (COMPRAR/
- * OBSERVAR). Colapsa los tres streams (oportunidades + alertas + stop-breach) en una decisión.
- *
- * El stop de cada posición se recalcula en cada visita (trailing chandelier): sube atrás del
- * precio y deja correr al ganador; solo VENDER cuando el precio realmente lo toca.
+ * Vista "Hoy": un solo veredicto por cosa. Arriba tu cartera (MANTENER / VENDER); abajo,
+ * oportunidades del mercado (COMPRAR / OBSERVAR). Fuente ÚNICA: lee el scan (acción, stop
+ * dinámico, objetivo ya calculados ahí) + el precio en vivo. No recalcula nada por su cuenta,
+ * así "Hoy" y "Oportunidades" muestran SIEMPRE los mismos números.
  */
 import type { Opportunity } from '@trading/shared';
 import { getPortfolioPositions, getLatestOpportunityScan } from '../db/repository.js';
-import { getQuotes, getHistoricalQuotes } from '../shared/yahoo.js';
-import { computeIndicators } from '../technical/technical-analysis.service.js';
-import { computeTrailingStop, decidePositionVerb, type PortfolioVerb } from './today-decisions.js';
+import { getQuotes } from '../shared/yahoo.js';
+import { decidePositionVerb, type PortfolioVerb } from './today-decisions.js';
 
 export type MarketVerb = 'COMPRAR' | 'OBSERVAR';
 
@@ -60,22 +57,6 @@ function pickReason(o: Opportunity): string {
   );
 }
 
-/** Stop dinámico + objetivo recalculados desde el precio reciente del símbolo. */
-async function recomputeLevels(symbol: string, currentPrice: number): Promise<{ trailingStop: number | null; target: number | null }> {
-  try {
-    const candles = await getHistoricalQuotes(symbol, '1y', '1d');
-    const trailingStop = computeTrailingStop(candles); // chandelier 22/3
-    const ind = computeIndicators(candles);
-    const resistance = ind.nearestResistance;
-    const target = resistance != null && resistance > currentPrice
-      ? round2(resistance)
-      : ind.atr14 != null ? round2(currentPrice + 3 * ind.atr14) : null;
-    return { trailingStop, target };
-  } catch {
-    return { trailingStop: null, target: null };
-  }
-}
-
 export async function getTodayDecisions(): Promise<TodayView> {
   const positions = getPortfolioPositions();
   const scan = getLatestOpportunityScan();
@@ -85,7 +66,7 @@ export async function getTodayDecisions(): Promise<TodayView> {
   const generatedAt = new Date().toISOString();
   const heldSet = new Set(positions.map((p) => p.symbol.toUpperCase()));
 
-  // --- Cartera ---
+  // --- Cartera --- (precio en vivo; stop/objetivo/acción los toma del scan: fuente única)
   const heldSymbols = positions.map((p) => p.symbol);
   const prices = new Map<string, number>();
   if (heldSymbols.length > 0) {
@@ -94,14 +75,16 @@ export async function getTodayDecisions(): Promise<TodayView> {
   }
 
   const portfolio: TodayPosition[] = [];
-  await Promise.all(positions.map(async (p) => {
-    if (p.avgCost <= 0) return;
+  for (const p of positions) {
+    if (p.avgCost <= 0) continue;
     const sym = p.symbol.toUpperCase();
-    const currentPrice = prices.get(sym) ?? bySymbol.get(sym)?.currentPrice ?? 0;
-    if (currentPrice <= 0) return;
+    const opp = bySymbol.get(sym);
+    const currentPrice = prices.get(sym) ?? opp?.currentPrice ?? 0;
+    if (currentPrice <= 0) continue;
 
-    const { trailingStop, target } = await recomputeLevels(p.symbol, currentPrice);
-    const engineAction = bySymbol.get(sym)?.action;
+    const trailingStop = opp?.trailingStop ?? null;
+    const target = opp?.tradeLevels?.takeProfit ?? null;
+    const engineAction = opp?.action;
     const v = decidePositionVerb({ avgCost: p.avgCost, currentPrice, trailingStop, target, engineWarnsSell: engineAction === 'SELL' });
 
     portfolio.push({
@@ -118,7 +101,7 @@ export async function getTodayDecisions(): Promise<TodayView> {
       value: round2(currentPrice * p.quantity),
       pnl: round2((currentPrice - p.avgCost) * p.quantity),
     });
-  }));
+  }
   portfolio.sort((a, b) => URGENCY[a.verb] - URGENCY[b.verb] || b.value - a.value);
 
   // --- Mercado: solo lo que NO tenés (excluye la cartera real → sin doble discurso) ---

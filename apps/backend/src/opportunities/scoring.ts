@@ -1520,6 +1520,7 @@ export function buildAlgorithmicOpportunity(
     horizonScores: { shortTerm, mediumTerm },
     confluenceDetail,
     tradeLevels: computeTradeLevels(tech, action, portfolioValue, portfolioQuantity),
+    trailingStop: tech?.trailingStop ?? null,
     timingView: buildTimingView(tech),
     classification: getClassificationForSymbol(symbol),
     divergences: tech?.divergences,

@@ -155,16 +155,6 @@ export const opportunitiesRouter = router({
       return getMissedOpportunities(input?.limit ?? 50);
     }),
 
-  compare: publicProcedure
-    .input(z.object({
-      symbols: z.array(z.string()).min(2).max(5),
-      budget: z.number().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      const { compareAssets } = await import('./compare.service.js');
-      return compareAssets(input.symbols, input.budget);
-    }),
-
   // --- Discovery ---
 
   discoveredTickers: publicProcedure
