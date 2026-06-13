@@ -1,4 +1,5 @@
 import type { OHLC, TechnicalIndicators, TechnicalSummary, TASignal, SRLevel, DivergenceSignal, WeeklyAnalysis } from '@trading/shared';
+import { TECHNICAL_WEIGHTS } from '@trading/shared';
 import { getHistoricalQuotes, getQuote } from '../shared/yahoo.js';
 import { getActiveSymbolList, getHistoricalFromCache, upsertHistoricalCache } from '../db/repository.js';
 import { analyzeTimingSignals } from './timing-analysis.service.js';
@@ -893,9 +894,10 @@ export function scoreTechnical(ind: TechnicalIndicators): { signal: TASignal; sc
     score -= 8;
   }
 
-  // SMA Crossovers
-  if (ind.crossovers?.goldenCross) score += 8;
-  if (ind.crossovers?.deathCross) score -= 8;
+  // SMA Crossovers — peso bajado a ±4 (TECHNICAL_WEIGHTS): el estudio de señales midió
+  // golden_cross como ruido (no significativo, inestable). Lo dejamos como contexto leve.
+  if (ind.crossovers?.goldenCross) score += TECHNICAL_WEIGHTS.goldenDeathCross.max;
+  if (ind.crossovers?.deathCross) score -= TECHNICAL_WEIGHTS.goldenDeathCross.max;
 
   // BB Squeeze bonus (additive, not multiplicative)
   if (ind.bbSqueeze && ind.bbSqueezeIntensity != null && ind.bbSqueezeIntensity > 70) {

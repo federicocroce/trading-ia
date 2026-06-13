@@ -12,7 +12,9 @@ export const TECHNICAL_WEIGHTS = {
   stochastic: { max: 10 },
   obv: { max: 18 },          // Changed from 12 → 18 (leading indicator, subestimado)
   supportResistance: { support: 8, resistance: -8 }, // Simetrizado (era +8/-5)
-  goldenDeathCross: { max: 8 }, // Changed from 15 → 8 (lagging indicator)
+  // 8 → 4: el estudio de aislamiento de señales midió golden_cross como RUIDO
+  // (z=0.04, edge inestable que cambia de signo entre períodos). Lagging + sin edge real.
+  goldenDeathCross: { max: 4 },
   bbSqueeze: { bonus: 6 },     // Changed from 15% multiplicative → +6 additive
   volume: { maxAmplifier: 1.20 }, // Capped at 20% (was up to 30%)
 } as const;
