@@ -1,0 +1,119 @@
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { trpc } from '@/shared/trpc';
+import { useNavigation } from '@/shared/navigation';
+
+const PORTFOLIO_VERB: Record<string, { label: string; cls: string; border: string }> = {
+  VENDER: { label: 'VENDER', cls: 'bg-red-500/20 text-red-400', border: 'border-l-red-500' },
+  MANTENER: { label: 'MANTENER', cls: 'bg-slate-500/20 text-slate-300', border: 'border-l-slate-600' },
+};
+
+const MARKET_VERB: Record<string, { label: string; cls: string; border: string }> = {
+  COMPRAR: { label: 'COMPRAR', cls: 'bg-green-500/20 text-green-400', border: 'border-l-green-500' },
+  OBSERVAR: { label: 'OBSERVAR', cls: 'bg-blue-500/20 text-blue-400', border: 'border-l-blue-500' },
+};
+
+function gainCls(pct: number): string {
+  return pct >= 0 ? 'text-green-400' : 'text-red-400';
+}
+function money(n: number): string {
+  return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+function relTime(iso?: string): string {
+  if (!iso) return 'sin scan';
+  const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
+  if (mins < 60) return `hace ${mins} min`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `hace ${hrs} h`;
+  return `hace ${Math.round(hrs / 24)} d`;
+}
+
+export function TodayPage() {
+  const { data, isLoading } = trpc.opportunities.today.useQuery(undefined, { staleTime: 60_000 });
+  const { goToSymbol } = useNavigation();
+
+  return (
+    <div className="p-4 space-y-6 max-w-3xl mx-auto">
+      <div>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-foreground">📋 Hoy</h2>
+        <p className="text-[11px] text-muted-foreground mt-1">
+          Tu decisión del día: un solo veredicto por cosa. El default es no hacer nada — actuá solo cuando algo lo pide.
+        </p>
+        {data && (
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Precios y stops en vivo · análisis del motor {relTime(data.scanDate)}
+            {relTime(data.scanDate).includes('d') && <span className="text-amber-400"> — conviene correr el pipeline</span>}
+          </p>
+        )}
+      </div>
+
+      {isLoading && <p className="text-xs text-muted-foreground">Calculando…</p>}
+
+      {/* ---- Tu cartera ---- */}
+      <section className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tu cartera</h3>
+        {data && data.portfolio.length === 0 && (
+          <Card size="sm"><CardContent><p className="text-xs text-muted-foreground py-3">No tenés posiciones cargadas.</p></CardContent></Card>
+        )}
+        {data?.portfolio.map((p) => {
+          const v = PORTFOLIO_VERB[p.verb] ?? PORTFOLIO_VERB.MANTENER;
+          return (
+            <Card key={p.symbol} size="sm" className={`border-l-4 ${v.border}`}>
+              <CardContent className="py-3 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Badge className={`text-[10px] font-bold ${v.cls}`}>{v.label}</Badge>
+                  <button className="text-sm font-bold hover:text-purple-400" onClick={() => goToSymbol(p.symbol)}>{p.symbol}</button>
+                  <span className={`text-[11px] font-semibold ${gainCls(p.gainPct)}`}>{p.gainPct >= 0 ? '+' : ''}{p.gainPct}%</span>
+                  {p.canAdd && <Badge className="text-[9px] bg-green-500/20 text-green-400">podés sumar</Badge>}
+                  <span className="text-[10px] text-muted-foreground ml-auto">{money(p.value)} · P&L {p.pnl >= 0 ? '+' : ''}{money(p.pnl)}</span>
+                </div>
+                <p className="text-[11px] text-foreground">{p.reason}</p>
+                {p.warning && <p className="text-[10px] text-amber-400">⚠ {p.warning}</p>}
+                <div className="flex gap-3 text-[10px] text-muted-foreground">
+                  <span>Costo {money(p.avgCost)}</span>
+                  <span>Actual {money(p.currentPrice)}</span>
+                  {p.stop != null && <span>Stop ↑ {money(p.stop)}</span>}
+                  {p.target != null && <span>Objetivo {money(p.target)}</span>}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </section>
+
+      {/* ---- Oportunidades ---- */}
+      <section className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Oportunidades (no las tenés)</h3>
+        {data && data.opportunities.length === 0 && (
+          <Card size="sm"><CardContent><p className="text-xs text-muted-foreground py-3">Nada accionable hoy. Correr el pipeline para refrescar.</p></CardContent></Card>
+        )}
+        {data?.opportunities.map((o) => {
+          const v = MARKET_VERB[o.verb] ?? MARKET_VERB.OBSERVAR;
+          return (
+            <Card key={o.symbol} size="sm" className={`border-l-4 ${v.border}`}>
+              <CardContent className="py-3 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Badge className={`text-[10px] font-bold ${v.cls}`}>{v.label}</Badge>
+                  <button className="text-sm font-bold hover:text-purple-400" onClick={() => goToSymbol(o.symbol)}>{o.symbol}</button>
+                  <span className="text-[10px] text-muted-foreground ml-auto">score {o.score}</span>
+                </div>
+                {o.reason && <p className="text-[11px] text-foreground">{o.reason}</p>}
+                {(o.entry != null || o.stop != null || o.target != null) && (
+                  <div className="flex gap-3 text-[10px] text-muted-foreground">
+                    {o.entry != null && <span>Entrada {money(o.entry)}</span>}
+                    {o.stop != null && <span>Stop {money(o.stop)}</span>}
+                    {o.target != null && <span>Target {money(o.target)}</span>}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </section>
+
+      <p className="text-[10px] text-muted-foreground border-t border-border pt-3">
+        El sistema no garantiza nada. Su valor honesto: protegerte el capital en lo que tenés y darte una watchlist corta. La decisión final es tuya.
+      </p>
+    </div>
+  );
+}

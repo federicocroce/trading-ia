@@ -21,6 +21,7 @@ import {
   resolveExpiredSignals,
 } from './signal-tracking.service.js';
 import { promoteToWatchlist, getDiscoveredTickers } from '../discovery/discovery-registry.js';
+import { getTodayDecisions } from './today-decisions.service.js';
 import {
   getAccuracyBySector,
   getAccuracyByConfidenceTier,
@@ -203,4 +204,8 @@ export const opportunitiesRouter = router({
     .query(async () => {
       return getPortfolioDiagnostic();
     }),
+
+  // --- Vista "Hoy": un veredicto por cosa (cartera + mercado) ---
+
+  today: publicProcedure.query(() => getTodayDecisions()),
 });

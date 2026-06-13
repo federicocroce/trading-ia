@@ -1009,6 +1009,32 @@ export async function getTechnicalSummary(symbol: string): Promise<TechnicalSumm
   }
 }
 
+/**
+ * Divergencias diarias (RSI/MACD/OBV) — MISMO ensamblado que getTechnicalSummary, pero puro
+ * (recibe la ventana e indicadores ya calculados, sin DB). Lo usa el backtest de alertas para
+ * replicar la detección bar-por-bar de forma point-in-time. (Omite las semanales a propósito:
+ * solo refuerzan la categoría 'divergence', que igual queda detectable por las diarias.)
+ */
+export function detectDailyDivergences(history: OHLC[], indicators: TechnicalIndicators): DivergenceSignal[] {
+  const closes = history.map((h) => h.close);
+  const out: DivergenceSignal[] = [];
+  const rsiDiv = detectRSIDivergence(closes, 14, 30, 'daily');
+  if (rsiDiv) out.push(rsiDiv);
+  const macdDiv = detectMACDDivergence(closes, 30, 'daily');
+  if (macdDiv) out.push(macdDiv);
+  if (indicators.obvDivergence) {
+    out.push({
+      type: indicators.obvTrend === 'rising' ? 'bullish' : 'bearish',
+      indicator: 'obv',
+      timeframe: 'daily',
+      description: indicators.obvTrend === 'rising'
+        ? 'Divergencia alcista OBV diaria: precio baja pero volumen acumula'
+        : 'Divergencia bajista OBV diaria: precio sube pero volumen distribuye',
+    });
+  }
+  return out;
+}
+
 export async function getAllTechnicalSummaries(): Promise<TechnicalSummary[]> {
   const results = await Promise.allSettled(getActiveSymbolList().map(getTechnicalSummary));
   return results

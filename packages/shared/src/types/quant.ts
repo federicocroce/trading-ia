@@ -91,3 +91,52 @@ export interface BacktestRun {
   status: 'running' | 'completed' | 'failed';
   error?: string;
 }
+
+// --- MA-trend (regla pura de medias móviles) ---
+
+export interface MaTrendStrategy {
+  /** El precio debe estar por encima de TODAS estas SMAs para entrar (ej. [300, 1000]). */
+  entryMas: number[];
+  /** Se sale cuando el precio cae por debajo de esta SMA (ej. 300). */
+  exitMa: number;
+  /** Comisión por transacción (compra y venta, cada una), en %. */
+  commissionPct?: number;
+  /** Slippage por ejecución, en %. */
+  slippagePct?: number;
+  stopLossPct?: number;
+  takeProfitPct?: number;
+}
+
+export type MaTrendGroup = 'portfolio' | 'watchlist' | 'benchmark';
+
+export interface MaTrendTickerResult {
+  symbol: string;
+  group: MaTrendGroup;
+  strategyReturnPct: number | null;
+  buyHoldReturnPct: number | null;
+  strategyMaxDrawdownPct: number | null;
+  buyHoldMaxDrawdownPct: number | null;
+  numTrades: number | null;
+  winRate: number | null;
+  sharpe: number | null;
+  /** ¿La regla superó a comprar-y-aguantar en retorno total? */
+  beatBuyHold: boolean | null;
+  error?: string;
+}
+
+export interface MaTrendUniverseSummary {
+  strategy: MaTrendStrategy;
+  years: number;
+  tickers: MaTrendTickerResult[];
+  aggregate: {
+    evaluated: number;
+    beatBuyHold: number;
+    beatBuyHoldPct: number;
+    avgStrategyReturn: number;
+    avgBuyHoldReturn: number;
+    avgStrategyMaxDrawdown: number;
+    avgBuyHoldMaxDrawdown: number;
+    avgNumTrades: number;
+    avgWinRate: number;
+  };
+}

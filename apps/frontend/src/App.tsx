@@ -11,18 +11,17 @@ import { ChatPanel } from '@/chat/ChatPanel';
 import { ChatToggle } from '@/layout/ChatToggle';
 import { SymbolDetailPage } from '@/symbol/SymbolDetailPage';
 import { OpportunityDashboard } from '@/opportunities/OpportunityDashboard';
+import { TodayPage } from '@/today/TodayPage';
 import { DailySummary } from '@/daily/DailySummary';
 import { HistoricoPage } from '@/historico/HistoricoPage';
-import { AlertsPanel } from '@/alerts/AlertsPanel';
-import { useAlertNotifications } from '@/alerts/useAlertNotifications';
 import { NavigationContext } from '@/shared/navigation';
 import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
 import { WebSearchBlockedModal } from '@/pipeline/WebSearchBlockedModal';
 
-const VALID_TABS = ['daily', 'opportunities', 'portfolio', 'historico', 'alertas'] as const;
+const VALID_TABS = ['hoy', 'daily', 'opportunities', 'portfolio', 'historico'] as const;
 type TabValue = typeof VALID_TABS[number];
-const DEFAULT_TAB: TabValue = 'daily';
+const DEFAULT_TAB: TabValue = 'hoy';
 
 function getSymbolFromURL(): string | null {
   const params = new URLSearchParams(window.location.search);
@@ -44,17 +43,6 @@ function buildURL(tab: TabValue, symbol: string | null): string {
   return qs ? `?${qs}` : '/';
 }
 
-function AlertsBadge() {
-  const { data } = trpc.alerts.unseenCount.useQuery(undefined, { refetchInterval: 60_000 });
-  const count = data?.count ?? 0;
-  if (count === 0) return null;
-  return (
-    <span className="absolute -top-0.5 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-purple-500 text-[8px] font-bold text-white">
-      {count > 9 ? '9+' : count}
-    </span>
-  );
-}
-
 function BuyBadge() {
   const { data } = trpc.opportunities.scan.useQuery(undefined, { staleTime: 5 * 60_000 });
   const buyCount = data?.opportunities?.filter((o: { action: string }) => o.action === 'BUY').length ?? 0;
@@ -71,7 +59,6 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabValue>(getTabFromURL);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { isWaitingUser, resolveWebSearch } = usePipeline();
-  useAlertNotifications();
 
   const goToSymbol = useCallback((symbol: string) => {
     setSelectedSymbol(symbol);
@@ -133,6 +120,7 @@ export function App() {
 
             <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col overflow-hidden gap-0">
               <TabsList variant="line" className="w-full justify-start rounded-none border-b border-border bg-card px-2">
+                <TabsTrigger value="hoy">Hoy</TabsTrigger>
                 <TabsTrigger value="daily">Resumen</TabsTrigger>
                 <TabsTrigger value="opportunities" className="relative">
                   Oportunidades
@@ -140,10 +128,6 @@ export function App() {
                 </TabsTrigger>
                 <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
                 <TabsTrigger value="historico">Histórico</TabsTrigger>
-                <TabsTrigger value="alertas" className="relative">
-                  Alertas
-                  <AlertsBadge />
-                </TabsTrigger>
               </TabsList>
 
               {selectedSymbol ? (
@@ -152,6 +136,9 @@ export function App() {
                 </div>
               ) : (
                 <>
+                  <TabsContent value="hoy" className="flex-1 overflow-y-auto">
+                    <TodayPage />
+                  </TabsContent>
                   <TabsContent value="daily" className="flex-1 overflow-y-auto">
                     <DailySummary />
                   </TabsContent>
@@ -163,9 +150,6 @@ export function App() {
                   </TabsContent>
                   <TabsContent value="historico" className="flex-1 overflow-y-auto">
                     <HistoricoPage />
-                  </TabsContent>
-                  <TabsContent value="alertas" className="flex-1 overflow-y-auto">
-                    <AlertsPanel />
                   </TabsContent>
                 </>
               )}

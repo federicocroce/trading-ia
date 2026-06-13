@@ -18,7 +18,6 @@ import {
   type InstrumentKind,
 } from '@/shared/instrumentType';
 import { MarketReportView } from './MarketReportView';
-import { AnticipatoryAlertsPinned } from '@/alerts/AnticipatoryAlertsPinned';
 import { AccuracyPanel } from './AccuracyPanel';
 import { RadarSummaryWidget } from './widgets/RadarSummaryWidget';
 import { SectorRotationWidget } from './widgets/SectorRotationWidget';
@@ -641,16 +640,6 @@ function MarketDigestPanel() {
           </div>
         )}
 
-        {/* ============================== */}
-        {/* SECCIÓN TU PORTFOLIO            */}
-        {/* ============================== */}
-        <div className="space-y-1 pt-1">
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] font-semibold text-amber-400 uppercase tracking-widest">Tu Portfolio</span>
-            <div className="flex-1 h-px bg-amber-500/20" />
-          </div>
-        </div>
-
         {digest.portfolioImpact && (
           <div>
             <span className="text-[9px] text-blue-400 uppercase tracking-wider font-medium">Impacto en tu portfolio</span>
@@ -658,87 +647,9 @@ function MarketDigestPanel() {
           </div>
         )}
 
-        {digest.portfolioRecommendations && digest.portfolioRecommendations.length > 0 ? (
-          <div className="rounded-md bg-muted/20 border border-border/40 p-2">
-            <span className="text-[9px] text-amber-400 uppercase tracking-wider font-medium">Qué haría con cada posición</span>
-            <div className="space-y-1.5 mt-1.5">
-              {digest.portfolioRecommendations.map((rec, i) => (
-                <RecommendationRow key={`${rec.symbol}-${i}`} rec={rec} />
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="rounded-md bg-yellow-500/5 border border-yellow-500/20 p-2 flex items-center justify-between gap-2">
-            <div>
-              <span className="text-[9px] text-yellow-400 uppercase tracking-wider font-medium">Recomendaciones de tu portfolio</span>
-              <p className="text-[10px] text-muted-foreground mt-0.5">Sin recomendaciones para portfolio en este run. Regenerá el análisis.</p>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 text-[9px] px-2 shrink-0 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10"
-              onClick={async () => {
-                const mode = await selectMode();
-                if (!mode) return;
-                run(false, undefined, mode);
-              }}
-              disabled={isRunning}
-            >
-              {isRunning ? 'Ejecutando...' : 'Regenerar'}
-            </Button>
-          </div>
-        )}
-
-        {/* ============================== */}
-        {/* SECCIÓN MERCADO                 */}
-        {/* ============================== */}
-        <div className="space-y-1 pt-2">
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] font-semibold text-cyan-400 uppercase tracking-widest">Mercado</span>
-            <span className="text-[8px] text-muted-foreground">(fuera de tu portfolio)</span>
-            <div className="flex-1 h-px bg-cyan-500/20" />
-          </div>
+        <div className="rounded-md bg-muted/20 border border-border/40 p-2 text-[10px] text-muted-foreground">
+          Las decisiones por símbolo — comprar, vender, mantener — viven en la pestaña <span className="text-foreground font-semibold">Hoy</span>. Acá va solo el panorama de mercado.
         </div>
-
-        {digest.marketRecommendations && digest.marketRecommendations.length > 0 ? (
-          <div className="rounded-md bg-muted/20 border border-border/40 p-2">
-            <span className="text-[9px] text-cyan-400 uppercase tracking-wider font-medium">Oportunidades de mercado</span>
-            <div className="space-y-1.5 mt-1.5">
-              {digest.marketRecommendations.map((rec, i) => (
-                <RecommendationRow key={`${rec.symbol}-${i}`} rec={rec} />
-              ))}
-            </div>
-            {digest.watching && digest.watching.length > 0 && (
-              <div className="mt-2 pt-2 border-t border-border/30">
-                <span className="text-[9px] text-cyan-300/70 uppercase tracking-wider font-medium">En radar (triggers de entrada)</span>
-                <div className="space-y-1 mt-0.5">
-                  {digest.watching.map((w, i) => (
-                    <p key={i} className="text-[10px] text-muted-foreground leading-relaxed">
-                      <SymbolLink symbol={w.symbol} className="font-mono font-semibold text-foreground" /> — {w.narrative}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="rounded-md bg-muted/30 p-2">
-            <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">Oportunidades de mercado</span>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Sin oportunidades fuera de tu portfolio hoy.</p>
-            {digest.watching && digest.watching.length > 0 && (
-              <div className="mt-2 pt-2 border-t border-muted-foreground/10">
-                <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">En radar (triggers de entrada)</span>
-                <div className="space-y-1 mt-0.5">
-                  {digest.watching.map((w, i) => (
-                    <p key={i} className="text-[10px] text-muted-foreground leading-relaxed">
-                      <SymbolLink symbol={w.symbol} className="font-mono font-semibold text-foreground" /> — {w.narrative}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Warnings */}
         {digest.warnings.length > 0 && (
@@ -855,7 +766,6 @@ export function DailySummary() {
       </div>
 
       {/* 0. Alertas anticipatorias — fijadas arriba de todo (solo si hay activas) */}
-      {isToday && <AnticipatoryAlertsPinned />}
 
       {/* 1. Digest del día — mood + portfolio/mercado SÍ/NO (lo más importante primero) */}
       {isToday && <MarketDigestPanel />}

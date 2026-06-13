@@ -3,6 +3,24 @@ import { z } from 'zod';
 import { runBacktest } from './backtest.service.js';
 import { getBacktestRun, listBacktestRuns } from './backtest.repository.js';
 import { getStageQuantContext } from '../intelligence/pipeline.service.js';
+import { runMaTrendUniverse, runMaTrendDetail, resolveBacktestUniverse } from './ma-trend.service.js';
+import { runAlertBacktestUniverse, runAlertBacktestForSymbol } from './alert-backtest.service.js';
+
+const alertBacktestOptsShape = {
+  years: z.number().int().min(2).max(15).default(5),
+  horizonDays: z.number().int().min(3).max(60).default(14),
+  atrStopMult: z.number().min(0.5).max(5).default(1.5),
+  atrTargetMult: z.number().min(0.5).max(10).default(2.5),
+};
+
+const maTrendStrategySchema = z.object({
+  entryMas: z.array(z.number().int().positive()).min(1).max(4),
+  exitMa: z.number().int().positive(),
+  commissionPct: z.number().min(0).max(5).optional(),
+  slippagePct: z.number().min(0).max(5).optional(),
+  stopLossPct: z.number().min(0).max(100).optional(),
+  takeProfitPct: z.number().min(0).max(1000).optional(),
+});
 
 const strategyConfigSchema = z.object({
   name: z.string(),
@@ -47,4 +65,44 @@ export const quantRouter = router({
 
   getQuantContext: publicProcedure
     .query(() => getStageQuantContext()),
+
+  /** Universo fijo (portfolio + watchlist + benchmarks) que se va a backtestear. */
+  backtestUniverse: publicProcedure.query(() => resolveBacktestUniverse()),
+
+  /**
+   * Backtest de REGLA PURA de medias sobre todo el universo. Default = la regla del video:
+   * comprar sobre SMA300 y SMA1000, vender bajo SMA300. Devuelve estrategia vs buy&hold.
+   */
+  runMaTrendUniverse: publicProcedure
+    .input(z.object({
+      strategy: maTrendStrategySchema.default({ entryMas: [300, 1000], exitMa: 300, commissionPct: 0.1, slippagePct: 0.05 }),
+      years: z.number().int().min(2).max(20).default(10),
+    }))
+    .mutation(({ input }) => runMaTrendUniverse(input.strategy, { years: input.years })),
+
+  /** Detalle de un símbolo (trades + curva de equity) para la regla de medias. */
+  runMaTrendSymbol: publicProcedure
+    .input(z.object({
+      symbol: z.string().min(1),
+      strategy: maTrendStrategySchema.default({ entryMas: [300, 1000], exitMa: 300, commissionPct: 0.1, slippagePct: 0.05 }),
+      years: z.number().int().min(2).max(20).default(10),
+    }))
+    .mutation(({ input }) => runMaTrendDetail(input.symbol, input.strategy, input.years)),
+
+  /**
+   * Backtest de las REGLAS DE ALERTA ANTICIPATORIA del sistema sobre todo el universo.
+   * Mide si disparar la alerta (≥2 confluencias bullish) predice mejor que una barra
+   * cualquiera (base-rate), con el mismo manejo de riesgo. El edge es lo que importa.
+   */
+  runAlertBacktestUniverse: publicProcedure
+    .input(z.object({ ...alertBacktestOptsShape }).optional())
+    .mutation(({ input }) => runAlertBacktestUniverse(input ?? {})),
+
+  /** Backtest de la regla de alerta para un solo símbolo. */
+  runAlertBacktestSymbol: publicProcedure
+    .input(z.object({ symbol: z.string().min(1), ...alertBacktestOptsShape }))
+    .mutation(({ input }) => {
+      const { symbol, ...opts } = input;
+      return runAlertBacktestForSymbol(symbol, 'watchlist', opts);
+    }),
 });
