@@ -8,6 +8,8 @@ import type { Opportunity } from '@trading/shared';
 import { getPortfolioPositions, getLatestOpportunityScan } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
 import { decidePositionVerb, type PortfolioVerb } from './today-decisions.js';
+import { getRegime, type RegimeInfo } from '../quant/risk.service.js';
+import { suggestPositionSize } from '../quant/risk.js';
 
 export type MarketVerb = 'COMPRAR' | 'OBSERVAR';
 
@@ -36,12 +38,17 @@ export interface TodayOpportunity {
   entry?: number;
   stop?: number;
   target?: number;
+  /** Sizing por riesgo (arriesga ~1% del portfolio según la distancia al stop). */
+  suggestedShares?: number;
+  suggestedDollars?: number;
 }
 
 export interface TodayView {
   generatedAt: string;
   portfolio: TodayPosition[];
   opportunities: TodayOpportunity[];
+  regime: RegimeInfo;
+  portfolioValue: number;
   scanDate?: string;
 }
 
@@ -104,21 +111,34 @@ export async function getTodayDecisions(): Promise<TodayView> {
   }
   portfolio.sort((a, b) => URGENCY[a.verb] - URGENCY[b.verb] || b.value - a.value);
 
+  // Columna de riesgo: régimen + valor de cartera para el sizing por riesgo.
+  const regime = await getRegime();
+  const portfolioValue = round2(portfolio.reduce((s, p) => s + p.value, 0));
+
   // --- Mercado: solo lo que NO tenés (excluye la cartera real → sin doble discurso) ---
   const opportunities: TodayOpportunity[] = opps
     .filter((o) => !heldSet.has(o.symbol.toUpperCase()) && (o.action === 'BUY' || o.action === 'WATCH'))
     .sort((a, b) => b.opportunityScore - a.opportunityScore)
     .slice(0, 6)
-    .map((o) => ({
-      symbol: o.symbol,
-      verb: o.action === 'BUY' ? 'COMPRAR' : 'OBSERVAR',
-      reason: pickReason(o),
-      score: Math.round(o.opportunityScore),
-      currentPrice: round2(o.currentPrice),
-      entry: o.tradeLevels?.entryPrice,
-      stop: o.tradeLevels?.stopLoss,
-      target: o.tradeLevels?.takeProfit,
-    }));
+    .map((o) => {
+      const entry = o.tradeLevels?.entryPrice;
+      const stop = o.tradeLevels?.stopLoss;
+      const size = entry != null && stop != null && portfolioValue > 0
+        ? suggestPositionSize({ portfolioValue, entry, stop })
+        : null;
+      return {
+        symbol: o.symbol,
+        verb: o.action === 'BUY' ? 'COMPRAR' as const : 'OBSERVAR' as const,
+        reason: pickReason(o),
+        score: Math.round(o.opportunityScore),
+        currentPrice: round2(o.currentPrice),
+        entry,
+        stop,
+        target: o.tradeLevels?.takeProfit,
+        suggestedShares: size?.shares,
+        suggestedDollars: size?.dollars,
+      };
+    });
 
-  return { generatedAt, portfolio, opportunities, scanDate: scan?.scannedAt };
+  return { generatedAt, portfolio, opportunities, regime, portfolioValue, scanDate: scan?.scannedAt };
 }

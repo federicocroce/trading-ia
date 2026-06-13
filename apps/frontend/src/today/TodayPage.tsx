@@ -47,6 +47,23 @@ export function TodayPage() {
         )}
       </div>
 
+      {/* Régimen de mercado: el filtro robusto de riesgo (SPY vs SMA200) */}
+      {data && (
+        <div className={`rounded-md border p-2 text-[11px] ${
+          data.regime.regime === 'risk_on' ? 'border-green-500/30 bg-green-500/5 text-green-400'
+          : data.regime.regime === 'risk_off' ? 'border-red-500/30 bg-red-500/5 text-red-400'
+          : 'border-border bg-muted/20 text-muted-foreground'
+        }`}>
+          <span className="font-semibold">
+            Régimen: {data.regime.regime === 'risk_on' ? 'RISK-ON' : data.regime.regime === 'risk_off' ? 'RISK-OFF' : 'desconocido'}
+          </span>
+          {data.regime.indexPrice != null && data.regime.indexSma200 != null && (
+            <span className="text-muted-foreground"> · SPY {money(data.regime.indexPrice)} vs SMA200 {money(data.regime.indexSma200)}</span>
+          )}
+          {data.regime.regime === 'risk_off' && <span className="text-muted-foreground"> — cautela con compras nuevas, el índice está bajo su media larga.</span>}
+        </div>
+      )}
+
       {isLoading && <p className="text-xs text-muted-foreground">Calculando…</p>}
 
       {/* ---- Tu cartera ---- */}
@@ -103,6 +120,11 @@ export function TodayPage() {
                     {o.entry != null && <span>Entrada {money(o.entry)}</span>}
                     {o.stop != null && <span>Stop {money(o.stop)}</span>}
                     {o.target != null && <span>Target {money(o.target)}</span>}
+                  </div>
+                )}
+                {o.suggestedShares != null && o.suggestedShares > 0 && (
+                  <div className="text-[10px] text-blue-400">
+                    Sizing por riesgo (~1%): {o.suggestedShares} acciones · {money(o.suggestedDollars ?? 0)}
                   </div>
                 )}
               </CardContent>
