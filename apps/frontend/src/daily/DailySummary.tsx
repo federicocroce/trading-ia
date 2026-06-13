@@ -770,9 +770,8 @@ export function DailySummary() {
       {/* 1. Digest del día — mood + portfolio/mercado SÍ/NO (lo más importante primero) */}
       {isToday && <MarketDigestPanel />}
 
-      {/* 2. Alertas de portfolio urgentes */}
-      <PortfolioAlerts symbolFilter={symbolFilter} typeFilter={typeFilter} />
-      <ActiveAlerts symbolFilter={symbolFilter} typeFilter={typeFilter} />
+      {/* Las decisiones por símbolo (comprar/vender/mantener) viven SOLO en "Hoy" —
+          acá NO se repiten, para no contradecir. Resumen = panorama de mercado. */}
 
       {/* 3. Sectores impactados por noticias (convicción + catalizadores) */}
       {isToday && <SectorImpactsSection />}

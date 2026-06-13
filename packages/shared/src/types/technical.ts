@@ -125,6 +125,8 @@ export interface TechnicalSummary {
   divergences?: DivergenceSignal[];
   /** Stop dinámico (trailing chandelier) calculado en el scan — fuente única para todas las vistas. */
   trailingStop?: number | null;
+  /** Volumen-dólar diario promedio (últimas ~20 ruedas) — para filtrar ilíquidos. */
+  avgDollarVolume?: number | null;
 }
 
 // --- Technical Report (reporte separado para frontend) ---

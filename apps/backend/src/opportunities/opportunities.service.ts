@@ -20,6 +20,7 @@ import { getIntelligence, getIntelligenceFromDB } from '../news/news-intelligenc
 import { analyzeSecondOrderEffects } from '../analysis/sector-correlation.service.js';
 import { persistDailyReport } from '../intelligence/daily-report.service.js';
 import { recordSignals, resolveExpiredSignals, recordMissedOpportunities } from './signal-tracking.service.js';
+import { isExcludedInstrument, isTradeable } from './tradeability.js';
 import { runUnifiedAnalysis } from '../intelligence/unified-analysis.service.js';
 import { getSectorForSymbolDynamic, getDiscoveredTickers, pruneExpiredDiscoveries } from '../discovery/discovery-registry.js';
 import { classifyAssets } from '../discovery/asset-classifier.js';
@@ -421,7 +422,11 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
   const causalRows = getCausalTickersByDate(today);
   const causalTickers = causalRows.map(c => c.ticker);
   const causalContextMap = new Map(causalRows.map(c => [c.ticker, c.causalSummary]));
-  const discovered = getDiscoveredTickers().map(t => t.symbol);
+  // Filtra el ruido del descubrimiento por noticias: bonos / MLPs / preferidas / fondos de renta
+  // no son swing trades. (La liquidez se filtra después, con el volumen ya calculado.)
+  const discovered = getDiscoveredTickers()
+    .filter(t => !isExcludedInstrument(t.classification?.name, t.classification?.instrumentType))
+    .map(t => t.symbol);
   // Portfolio always included; news-derived tickers replace hardcoded watchlist
   const etfSymbols = getEtfSymbols();
   const allSymbols = [...new Set([...portfolioSymbolsList, ...causalTickers, ...discovered, ...etfSymbols])];
@@ -781,6 +786,12 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
       ),
     )
     .filter((o): o is Opportunity => o !== null)
+    // Filtro de tradeabilidad: descarta ilíquidos / renta fija / MLPs / preferidas — PERO nunca
+    // saca lo que ya tenés en cartera (eso siempre se muestra para que decidas).
+    .filter((o) =>
+      positionMap.has(o.symbol) ||
+      isTradeable({ name: o.classification?.name, instrumentType: o.classification?.instrumentType, avgDollarVolume: o.avgDollarVolume }),
+    )
     .sort((a, b) => b.opportunityScore - a.opportunityScore);
 
   // Mark anti-hype status + radar audit trail per opportunity

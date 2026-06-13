@@ -102,6 +102,8 @@ export interface Opportunity {
   tradeLevels?: TradeLevels;
   /** Stop dinámico (trailing chandelier) — calculado una vez en el scan, leído por la vista "Hoy". */
   trailingStop?: number | null;
+  /** Volumen-dólar diario promedio — para filtrar instrumentos ilíquidos. */
+  avgDollarVolume?: number | null;
   timingView?: TimingView;
   signalConflicts?: SignalConflict[];
   entryScore?: number;

@@ -994,8 +994,14 @@ export async function getTechnicalSummary(symbol: string): Promise<TechnicalSumm
     // Stop dinámico (trailing chandelier) calculado UNA vez acá — fuente única para "Hoy" y demás vistas.
     const trailingStop = computeTrailingStop(history);
 
+    // Volumen-dólar promedio (últimas 20 ruedas) — para filtrar instrumentos ilíquidos.
+    const recent = history.slice(-20);
+    const avgDollarVolume = recent.length > 0
+      ? Math.round(recent.reduce((s, b) => s + b.close * (b.volume ?? 0), 0) / recent.length)
+      : null;
+
     reportOk('Analisis Tecnico');
-    return { symbol, indicators, signal: adjustedSignal, score: adjustedScore, timing, weekly: weekly ?? undefined, divergences: allDivergences.length > 0 ? allDivergences : undefined, trailingStop };
+    return { symbol, indicators, signal: adjustedSignal, score: adjustedScore, timing, weekly: weekly ?? undefined, divergences: allDivergences.length > 0 ? allDivergences : undefined, trailingStop, avgDollarVolume };
   } catch (err) {
     reportError('Analisis Tecnico', `Fallo para ${symbol}: ${(err as Error).message.slice(0, 100)}`);
     console.warn(`[TA] Failed for ${symbol}:`, (err as Error).message);

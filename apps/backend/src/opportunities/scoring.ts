@@ -1522,6 +1522,7 @@ export function buildAlgorithmicOpportunity(
     confluenceDetail,
     tradeLevels: computeTradeLevels(tech, action, portfolioValue, portfolioQuantity),
     trailingStop: tech?.trailingStop ?? null,
+    avgDollarVolume: tech?.avgDollarVolume ?? null,
     timingView: buildTimingView(tech),
     classification: getClassificationForSymbol(symbol),
     divergences: tech?.divergences,
