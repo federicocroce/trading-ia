@@ -5,6 +5,7 @@ import { getBacktestRun, listBacktestRuns } from './backtest.repository.js';
 import { getStageQuantContext } from '../intelligence/pipeline.service.js';
 import { runMaTrendUniverse, runMaTrendDetail, resolveBacktestUniverse } from './ma-trend.service.js';
 import { runAlertBacktestUniverse, runAlertBacktestForSymbol } from './alert-backtest.service.js';
+import { runSignalEdgeStudy } from './signal-edge.service.js';
 
 const alertBacktestOptsShape = {
   years: z.number().int().min(2).max(15).default(5),
@@ -105,4 +106,16 @@ export const quantRouter = router({
       const { symbol, ...opts } = input;
       return runAlertBacktestForSymbol(symbol, 'watchlist', opts);
     }),
+
+  /**
+   * Estudio de aislamiento de señales: mide el edge de cada ingrediente del motor por
+   * separado (RSI oversold, sobre SMA200, golden cross, MACD…) vs base-rate. La base de
+   * "robusto y confiable": quedarse solo con lo que mide edge real.
+   */
+  signalEdgeStudy: publicProcedure
+    .input(z.object({
+      years: z.number().int().min(2).max(15).default(5),
+      horizonDays: z.number().int().min(3).max(60).default(14),
+    }).optional())
+    .mutation(({ input }) => runSignalEdgeStudy(input ?? {})),
 });
