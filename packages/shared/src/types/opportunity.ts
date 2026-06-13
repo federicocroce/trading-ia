@@ -284,5 +284,4 @@ export interface MacroDashboard {
   regime: import('./evidence-signals.js').MarketRegimeData;
   sectors: SectorRotationData[];
   argentinaSignal: 'STABLE' | 'VOLATILE';
-  picks: WeeklyPick[];
 }

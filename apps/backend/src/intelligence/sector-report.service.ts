@@ -1,5 +1,6 @@
 import type { SectorReport } from '@trading/shared';
 import { callAI } from '../shared/ai-router.js';
+import { validateTickers } from '../discovery/ticker-validator.js';
 import {
   insertSectorImpacts,
   deleteSectorImpactsByDate,
@@ -144,6 +145,12 @@ Responde SOLO con JSON válido:
       tension: r.tension ?? null,
       generatedAt: now,
     }));
+    // Anclaje anti-alucinación: validar suggestedTickers contra Yahoo, descartar inventados.
+    const allTickers = [...new Set(llmReports.flatMap((r) => r.suggestedTickers.map((t) => String(t).trim().toUpperCase())))];
+    const valid = new Set(await validateTickers(allTickers));
+    for (const rep of llmReports) {
+      rep.suggestedTickers = rep.suggestedTickers.filter((t) => valid.has(String(t).trim().toUpperCase()));
+    }
     return mergeWithCanonical(llmReports, now);
   } catch (err) {
     throw err;

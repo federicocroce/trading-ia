@@ -52,7 +52,7 @@ export const COMPOSITE_WEIGHTS = {
 // --- Action Thresholds ---
 export const ACTION_THRESHOLDS = {
   strongBuy: { minScore: 72, minConfidence: 70 },
-  buy: { minScore: 62 },
+  buy: { minScore: 58 },   // bajado de 62 → más señales en mercado volátil
   hold: { minScore: 52 },  // portfolio only
   holdWeak: { minScore: 42 }, // portfolio = HOLD, non-portfolio = WATCH
   sell: { below: 42 }, // portfolio only

@@ -14,3 +14,18 @@ export function filterActionableTriggers(triggers: string[]): string[] {
   const actionable = triggers.filter(isActionableTrigger);
   return actionable.length > 0 ? actionable : [triggers[0]];
 }
+
+/**
+ * Anclaje anti-alucinación: descarta triggers cuyo precio en $ está absurdamente lejos del
+ * actual (ej. "$2" cuando cotiza $140). Triggers sin precio (RSI/SMA) se conservan.
+ */
+export function dropUnrealisticPriceTriggers(triggers: string[], currentPrice: number, maxDevPct = 60): string[] {
+  if (!currentPrice || currentPrice <= 0) return triggers;
+  const lo = currentPrice * (1 - maxDevPct / 100);
+  const hi = currentPrice * (1 + maxDevPct / 100);
+  return triggers.filter((t) => {
+    const prices = [...t.matchAll(/\$\s?(\d+(?:\.\d+)?)/g)].map((m) => Number(m[1]));
+    if (prices.length === 0) return true; // sin precio: no se puede chequear por nivel
+    return prices.every((p) => p >= lo && p <= hi);
+  });
+}

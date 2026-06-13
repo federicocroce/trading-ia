@@ -11,6 +11,7 @@ import {
 import { getPortfolioPositions, getActiveSymbolList } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
 import { registerNovelTickers } from '../discovery/discovery-registry.js';
+import { validateTickers } from '../discovery/ticker-validator.js';
 import {
   getTodayMarketReport,
   getMarketReportByDate,
@@ -375,6 +376,30 @@ export async function generateMarketReport(
             : [],
         }))
       : [];
+    // Locales para anclar los tickers narrativos del LLM (widgets Top News / oportunidades).
+    let topOpportunities = Array.isArray(p.topOpportunities)
+      ? p.topOpportunities.slice(0, 5).map((o: any) => ({ symbol: String(o.symbol ?? ''), action: o.action ?? 'BUY', narrative: o.narrative ?? '' }))
+      : [];
+    let watching = Array.isArray(p.watching)
+      ? p.watching.slice(0, 4).map((o: any) => ({ symbol: String(o.symbol ?? ''), narrative: o.narrative ?? '' })).filter((o: any) => o.symbol)
+      : [];
+
+    // Anclaje anti-alucinación: validar contra Yahoo todos los tickers que el LLM mete en los
+    // widgets narrativos y descartar los inventados.
+    const up = (t: unknown) => String(t).trim().toUpperCase();
+    const narrativeTickers = [...new Set([
+      ...topImpactNews.flatMap((n) => n.tickers),
+      ...topOpportunities.map((o: { symbol: string }) => o.symbol),
+      ...watching.map((w: { symbol: string }) => w.symbol),
+      ...scenarios.flatMap((s) => s.distribution.map((d) => d.symbol)),
+    ].map(up).filter(Boolean))];
+    const validNarr = new Set(await validateTickers(narrativeTickers));
+    const keepT = (t: unknown) => validNarr.has(up(t));
+    topImpactNews.forEach((n) => { n.tickers = n.tickers.filter(keepT); });
+    scenarios.forEach((s) => { s.distribution = s.distribution.filter((d) => keepT(d.symbol)); });
+    topOpportunities = topOpportunities.filter((o: { symbol: string }) => keepT(o.symbol));
+    watching = watching.filter((w: { symbol: string }) => keepT(w.symbol));
+
     // Build digest from same response
     const buyTickers = new Set(
       (digestInputs?.opportunities ?? [])
@@ -400,12 +425,8 @@ export async function generateMarketReport(
       generatedAt: Date.now(),
       overnightSummary: p.overnightSummary ?? '',
       portfolioImpact,
-      topOpportunities: Array.isArray(p.topOpportunities)
-        ? p.topOpportunities.slice(0, 5).map((o: any) => ({ symbol: o.symbol ?? '', action: o.action ?? 'BUY', narrative: o.narrative ?? '' }))
-        : [],
-      watching: Array.isArray(p.watching)
-        ? p.watching.slice(0, 4).map((o: any) => ({ symbol: o.symbol ?? '', narrative: o.narrative ?? '' })).filter((o: any) => o.symbol)
-        : [],
+      topOpportunities,
+      watching,
       warnings: Array.isArray(p.warnings) ? p.warnings.slice(0, 3) : [],
       marketMood: ['risk-on', 'risk-off', 'mixed'].includes(p.marketMood) ? p.marketMood : 'mixed',
       portfolioRecommendations: flaggedPortfolioRecs,

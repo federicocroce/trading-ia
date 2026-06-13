@@ -12,6 +12,7 @@ import type {
 } from '@trading/shared';
 import { buildBatchNewsAnalysisPrompt, getPlazaForSymbol, PLAZA_CONFIG } from '@trading/shared';
 import { updateNewsAnalysis, getActiveSentimentKeywords, insertNewsIntelligenceSnapshot } from '../db/repository.js';
+import { validateTickers } from '../discovery/ticker-validator.js';
 import { getLastTriangulationStats } from './triangulation.service.js';
 import { getFullSymbolUniverse } from '../discovery/discovery-registry.js';
 import { callAI } from '../shared/ai-router.js';
@@ -180,7 +181,12 @@ async function analyzeBatch(news: NewsItem[]): Promise<AnalyzedNewsItem[]> {
     }
 
     if (batchResults) {
+      // Anclaje anti-alucinación: validar contra Yahoo los tickers que el LLM dice afectados
+      // y descartar los inventados antes de que alimenten el sentiment por símbolo.
+      const llmTickers = [...new Set(batchResults.flatMap((a) => a.affectedTickers ?? []))];
+      const validSet = new Set(await validateTickers(llmTickers));
       for (const a of batchResults) {
+        a.affectedTickers = (a.affectedTickers ?? []).filter((t) => validSet.has(t));
         analysisMap.set(a.newsId, a);
         const original = batch.find((n) => n.id === a.newsId);
         updateNewsAnalysis(a.newsId, a.sentiment, a.impact,

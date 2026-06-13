@@ -16,7 +16,7 @@ import type {
   ConvictionTier,
   PortfolioContext,
 } from '@trading/shared';
-import { OPPORTUNITY_UNIVERSE, getSectorForSymbol } from '@trading/shared';
+import { OPPORTUNITY_UNIVERSE, getSectorForSymbol, ACTION_THRESHOLDS } from '@trading/shared';
 import { getActiveWeights } from '../intelligence/weight-adjustment.service.js';
 import { getSectorForSymbolDynamic, getSectorLabelDynamic, getClassificationForSymbol } from '../discovery/discovery-registry.js';
 import { detectSignalConflicts } from './signal-conflicts.js';
@@ -382,11 +382,12 @@ export function computeConfluenceDetail(
  * - Score 62-71 con conflictos → WATCH (no entrar cuando hay contradicción)
  */
 export function scoreToAction(score: number, inPortfolio: boolean, confidence?: number, hasConflicts?: boolean): SignalAction {
-  if (score >= 72 && (confidence ?? 0) >= 70 && !hasConflicts) return 'BUY'; // STRONG BUY tier
-  if (score >= 72) return hasConflicts ? 'WATCH' : 'BUY';
-  if (score >= 58) return hasConflicts ? 'WATCH' : 'BUY'; // bajado de 62 → más señales en mercado volátil
-  if (score >= 52 && inPortfolio) return 'HOLD';
-  if (score >= 42) return inPortfolio ? 'HOLD' : 'WATCH';
+  const T = ACTION_THRESHOLDS;
+  if (score >= T.strongBuy.minScore && (confidence ?? 0) >= T.strongBuy.minConfidence && !hasConflicts) return 'BUY'; // STRONG BUY tier
+  if (score >= T.strongBuy.minScore) return hasConflicts ? 'WATCH' : 'BUY';
+  if (score >= T.buy.minScore) return hasConflicts ? 'WATCH' : 'BUY';
+  if (score >= T.hold.minScore && inPortfolio) return 'HOLD';
+  if (score >= T.holdWeak.minScore) return inPortfolio ? 'HOLD' : 'WATCH';
   return inPortfolio ? 'SELL' : 'WATCH'; // <42 en portfolio = SELL
 }
 
