@@ -8,7 +8,7 @@ import type { Opportunity } from '@trading/shared';
 import { getPortfolioPositions, getLatestOpportunityScan } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
 import { decidePositionVerb, type PortfolioVerb } from './today-decisions.js';
-import { getRegime, type RegimeInfo } from '../quant/risk.service.js';
+import { getRegimes, assetClassOf, type Regimes } from '../quant/risk.service.js';
 import { suggestPositionSize } from '../quant/risk.js';
 
 export type MarketVerb = 'COMPRAR' | 'OBSERVAR';
@@ -35,6 +35,7 @@ export interface TodayOpportunity {
   reason: string;
   score: number;
   currentPrice: number;
+  assetClass: 'us' | 'crypto' | 'argentina';
   entry?: number;
   stop?: number;
   target?: number;
@@ -47,7 +48,7 @@ export interface TodayView {
   generatedAt: string;
   portfolio: TodayPosition[];
   opportunities: TodayOpportunity[];
-  regime: RegimeInfo;
+  regimes: Regimes;
   portfolioValue: number;
   scanDate?: string;
 }
@@ -111,8 +112,8 @@ export async function getTodayDecisions(): Promise<TodayView> {
   }
   portfolio.sort((a, b) => URGENCY[a.verb] - URGENCY[b.verb] || b.value - a.value);
 
-  // Columna de riesgo: régimen + valor de cartera para el sizing por riesgo.
-  const regime = await getRegime();
+  // Columna de riesgo: régimen por clase de activo + valor de cartera para el sizing.
+  const regimes = await getRegimes();
   const portfolioValue = round2(portfolio.reduce((s, p) => s + p.value, 0));
 
   // --- Mercado: solo lo que NO tenés (excluye la cartera real → sin doble discurso) ---
@@ -132,6 +133,7 @@ export async function getTodayDecisions(): Promise<TodayView> {
         reason: pickReason(o),
         score: Math.round(o.opportunityScore),
         currentPrice: round2(o.currentPrice),
+        assetClass: assetClassOf(o.symbol),
         entry,
         stop,
         target: o.tradeLevels?.takeProfit,
@@ -140,5 +142,5 @@ export async function getTodayDecisions(): Promise<TodayView> {
       };
     });
 
-  return { generatedAt, portfolio, opportunities, regime, portfolioValue, scanDate: scan?.scannedAt };
+  return { generatedAt, portfolio, opportunities, regimes, portfolioValue, scanDate: scan?.scannedAt };
 }
