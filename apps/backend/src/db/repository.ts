@@ -1679,3 +1679,40 @@ export function addEtfToWatchlist(
 export function removeEtfFromWatchlist(symbol: string): void {
   db.update(etfWatchlist).set({ active: false }).where(eq(etfWatchlist.symbol, symbol.toUpperCase())).run();
 }
+
+// ==================== EVENT STUDY (playbook empírico) ====================
+
+export interface EventReactionRow {
+  eventType: string;
+  target: string;
+  horizonDays: number;
+  reactionAvg: number;
+  baselineAvg: number;
+  edge: number;
+  winRate: number;
+  tStat: number;
+  significant: boolean;
+  nEvents: number;
+}
+
+/** Reemplaza el playbook completo (es un recálculo, no un incremento). */
+export function replaceEventReactions(rows: EventReactionRow[]): void {
+  db.delete(schema.eventSectorReactions).run();
+  if (rows.length === 0) return;
+  const now = new Date().toISOString();
+  for (const r of rows) {
+    db.insert(schema.eventSectorReactions).values({ ...r, computedAt: now }).run();
+  }
+}
+
+export function getEventReactions(eventType?: string): EventReactionRow[] {
+  const q = db.select().from(schema.eventSectorReactions);
+  const rows = eventType
+    ? q.where(eq(schema.eventSectorReactions.eventType, eventType)).all()
+    : q.all();
+  return rows.map((r) => ({
+    eventType: r.eventType, target: r.target, horizonDays: r.horizonDays,
+    reactionAvg: r.reactionAvg, baselineAvg: r.baselineAvg, edge: r.edge,
+    winRate: r.winRate, tStat: r.tStat, significant: r.significant, nEvents: r.nEvents,
+  }));
+}

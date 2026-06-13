@@ -6,6 +6,7 @@ import { getStageQuantContext } from '../intelligence/pipeline.service.js';
 import { runMaTrendUniverse, runMaTrendDetail, resolveBacktestUniverse } from './ma-trend.service.js';
 import { runAlertBacktestUniverse, runAlertBacktestForSymbol } from './alert-backtest.service.js';
 import { runSignalEdgeStudy } from './signal-edge.service.js';
+import { runEventStudy, getEventPlaybook } from './event-study.service.js';
 
 const alertBacktestOptsShape = {
   years: z.number().int().min(2).max(15).default(5),
@@ -118,4 +119,15 @@ export const quantRouter = router({
       horizonDays: z.number().int().min(3).max(60).default(14),
     }).optional())
     .mutation(({ input }) => runSignalEdgeStudy(input ?? {})),
+
+  /**
+   * Event-study: aprende empíricamente de la historia de PRECIOS qué le hace cada tipo de
+   * evento (petróleo, tasas, risk-off, oro) a cada sector. Recalcula y persiste el playbook.
+   */
+  runEventStudy: publicProcedure.mutation(() => runEventStudy()),
+
+  /** Lee el playbook empírico guardado (opcionalmente filtrado por tipo de evento). */
+  eventPlaybook: publicProcedure
+    .input(z.object({ eventType: z.string().optional() }).optional())
+    .query(({ input }) => getEventPlaybook(input?.eventType)),
 });

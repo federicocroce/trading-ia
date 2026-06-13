@@ -770,3 +770,19 @@ export const eventRelations = sqliteTable('event_relations', {
   eventId: text('event_id').notNull(),
   relatedEventId: text('related_event_id').notNull(),
 });
+
+// --- Event study: playbook empírico (evento de mercado → reacción sectorial medida) ---
+export const eventSectorReactions = sqliteTable('event_sector_reactions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  eventType: text('event_type').notNull(),     // oil_shock_up | rate_spike | risk_off | ...
+  target: text('target').notNull(),            // ETF sectorial / ticker
+  horizonDays: integer('horizon_days').notNull(),
+  reactionAvg: real('reaction_avg').notNull(), // retorno medio del target tras el evento
+  baselineAvg: real('baseline_avg').notNull(), // retorno medio incondicional (línea base)
+  edge: real('edge').notNull(),                // reaction − baseline
+  winRate: integer('win_rate').notNull(),
+  tStat: real('t_stat').notNull(),
+  significant: integer('significant', { mode: 'boolean' }).notNull().default(false),
+  nEvents: integer('n_events').notNull(),
+  computedAt: text('computed_at').notNull().default(sql`(datetime('now'))`),
+});
