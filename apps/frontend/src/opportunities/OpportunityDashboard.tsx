@@ -383,6 +383,11 @@ export function OpportunityDashboard() {
         </div>
       )}
 
+      <div className="rounded-md bg-muted/20 border border-border/40 p-2 text-[10px] text-muted-foreground mb-2">
+        Esto es el <span className="text-foreground font-medium">análisis del motor</span> (lectura técnica + fundamental + noticias). No es tu decisión —
+        esa, con tu costo y el stop dinámico, está en la pestaña <span className="text-foreground font-medium">Hoy</span>. Pueden diferir: el análisis es la opinión, "Hoy" es la disciplina.
+      </div>
+
       {/* Opportunity cards */}
       {(() => {
         let filtered = opportunities;

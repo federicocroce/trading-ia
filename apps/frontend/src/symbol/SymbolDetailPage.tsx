@@ -391,10 +391,11 @@ function SignalCard({ signal }: { signal: any }) {
     <div className={`rounded-lg border border-border bg-card p-4 border-l-4 ${config.borderColor} space-y-3`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Senal IA</h3>
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Análisis del motor</h3>
           <Badge variant={config.variant} className="text-xs">
             {config.label}
           </Badge>
+          <span className="text-[9px] text-muted-foreground">(opinión — tu decisión está en "Hoy")</span>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-20 bg-muted rounded-full h-1.5">

@@ -86,11 +86,15 @@ export function PortfolioTable() {
   const { data: scan } = trpc.opportunities.scan.useQuery(undefined, {
     staleTime: 5 * 60_000,
   });
+  // Fuente ÚNICA de la DECISIÓN: la misma función que "Hoy" (trailing stop + tu costo).
+  const { data: today } = trpc.opportunities.today.useQuery(undefined, { staleTime: 60_000 });
 
-  // Build lookup map from latest scan: symbol → opportunity
+  // Build lookup map from latest scan: symbol → opportunity (score/análisis del motor)
   const opportunityMap = new Map(
     (scan?.opportunities ?? []).map((o) => [o.symbol, o]),
   );
+  // Decisión por símbolo desde "Hoy" (MANTENER/VENDER) — para no contradecir.
+  const todayMap = new Map((today?.portfolio ?? []).map((p) => [p.symbol.toUpperCase(), p]));
   const allPositions = portfolio?.positions ?? [];
   const displayedPositions = watchlistTab === 'portfolio' && watchlistSearch
     ? allPositions.filter(
@@ -295,14 +299,17 @@ export function PortfolioTable() {
                   <TableCell className="text-right">
                     {(() => {
                       const opp = opportunityMap.get(pos.symbol);
-                      if (!opp) return <span className="text-[9px] text-muted-foreground/40">—</span>;
+                      const dec = todayMap.get(pos.symbol.toUpperCase());
+                      if (!opp && !dec) return <span className="text-[9px] text-muted-foreground/40">—</span>;
+                      // La ACCIÓN es la decisión de "Hoy" (VENDER/MANTENER); el score queda como análisis del motor.
+                      const action: SignalAction = dec ? (dec.verb === 'VENDER' ? 'SELL' : 'HOLD') : (opp!.action as SignalAction);
                       return (
                         <RecommendationCell
-                          action={opp.action as SignalAction}
-                          score={opp.opportunityScore}
-                          confidence={opp.confidence}
-                          convictionTier={(opp as any).convictionTier as ConvictionTier | undefined}
-                          reasoning={(opp as any).simpleReasoning ?? opp.reasoning}
+                          action={action}
+                          score={opp?.opportunityScore ?? 0}
+                          confidence={opp?.confidence ?? 0}
+                          convictionTier={(opp as any)?.convictionTier as ConvictionTier | undefined}
+                          reasoning={dec?.reason ?? (opp as any)?.simpleReasoning ?? opp?.reasoning}
                         />
                       );
                     })()}
