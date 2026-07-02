@@ -57,4 +57,23 @@ export function startCronJobs(): void {
     }
   });
   console.log('[Cron] Scheduled: outcome resolver diario 23:00 UTC (lun-vie)');
+
+  // Pipeline pre-market: corre solo a las 7:30 ET (lun-vie) para que el digest
+  // esté listo ANTES de la apertura. Sin esto el sistema solo "anticipa" cuando
+  // el usuario aprieta el botón — o sea, nunca a tiempo.
+  cron.schedule(
+    '30 7 * * 1-5',
+    async () => {
+      console.log('[Cron] Pipeline pre-market (7:30 ET)...');
+      try {
+        const { checkOrRunPipeline } = await import('../intelligence/pipeline.service.js');
+        await checkOrRunPipeline(false);
+        console.log('[Cron] Pipeline pre-market OK');
+      } catch (err) {
+        console.error('[Cron] Pipeline pre-market error:', (err as Error).message);
+      }
+    },
+    { timezone: 'America/New_York' },
+  );
+  console.log('[Cron] Scheduled: pipeline pre-market diario 7:30 ET (lun-vie)');
 }
