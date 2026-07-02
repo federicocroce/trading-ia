@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveFinalVerdict } from './verdicts.service.js';
+import { resolveFinalVerdict, applyLlmAction } from './verdicts.service.js';
 
 describe('resolveFinalVerdict with portfolioAdjustment', () => {
   it('adds a portfolio trace layer showing the delta', () => {
@@ -23,5 +23,29 @@ describe('resolveFinalVerdict with portfolioAdjustment', () => {
   it('omits the layer when there is no adjustment or it is neutral', () => {
     const v = resolveFinalVerdict({ algoAction: 'BUY', algoScore: 64, smartAction: 'BUY' });
     expect(v.trace.some(t => t.startsWith('portfolio:'))).toBe(false);
+  });
+});
+
+describe('applyLlmAction — el LLM solo puede degradar', () => {
+  it('bloquea upgrade WATCH → BUY (vector del caso SDOT)', () => {
+    expect(applyLlmAction('WATCH', 'BUY')).toBe('WATCH');
+  });
+  it('bloquea upgrade HOLD → BUY', () => {
+    expect(applyLlmAction('HOLD', 'BUY')).toBe('HOLD');
+  });
+  it('permite degradar BUY → WATCH', () => {
+    expect(applyLlmAction('BUY', 'WATCH')).toBe('WATCH');
+  });
+  it('permite degradar BUY → SELL', () => {
+    expect(applyLlmAction('BUY', 'SELL')).toBe('SELL');
+  });
+  it('permite degradar HOLD → SELL (salida de posición)', () => {
+    expect(applyLlmAction('HOLD', 'SELL')).toBe('SELL');
+  });
+  it('confirmación no cambia nada', () => {
+    expect(applyLlmAction('BUY', 'BUY')).toBe('BUY');
+  });
+  it('acción desconocida del LLM no cambia nada', () => {
+    expect(applyLlmAction('BUY', 'YOLO')).toBe('BUY');
   });
 });

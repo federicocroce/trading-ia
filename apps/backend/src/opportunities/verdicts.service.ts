@@ -256,3 +256,17 @@ export function computeMacroAdjustment(
 
   return { delta, drivers };
 }
+
+/**
+ * Orden de "bullishness" de las acciones. El LLM (capa narrativa) solo puede
+ * DEGRADAR la acción algorítmica hacia menos alcista — nunca subirla. Un modelo
+ * entusiasmado con una narrativa no puede convertir WATCH en COMPRAR (caso SDOT).
+ */
+const ACTION_BULLISH_RANK: Record<string, number> = { SELL: 0, WATCH: 1, HOLD: 2, BUY: 3 };
+
+export function applyLlmAction(algoAction: string, llmAction: string): string {
+  const algoRank = ACTION_BULLISH_RANK[algoAction];
+  const llmRank = ACTION_BULLISH_RANK[llmAction];
+  if (algoRank === undefined || llmRank === undefined) return algoAction;
+  return llmRank < algoRank ? llmAction : algoAction;
+}

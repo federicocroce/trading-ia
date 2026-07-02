@@ -22,6 +22,7 @@ import { persistDailyReport } from '../intelligence/daily-report.service.js';
 import { recordSignals, resolveExpiredSignals, recordMissedOpportunities } from './signal-tracking.service.js';
 import { resolveWatchlistItems } from './watchlist-tracking.service.js';
 import { isExcludedInstrument, isTradeable } from './tradeability.js';
+import { applyLlmAction } from './verdicts.service.js';
 import { runUnifiedAnalysis } from '../intelligence/unified-analysis.service.js';
 import { getSectorForSymbolDynamic, getDiscoveredTickers, pruneExpiredDiscoveries } from '../discovery/discovery-registry.js';
 import { classifyAssets } from '../discovery/asset-classifier.js';
@@ -900,23 +901,25 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
       opp.risks = unified.risks;
       opp.narrativeDigest = unified.narrative;
 
-      // Actualizar verdict chain con capa LLM (Stage 5b)
+      // Actualizar verdict chain con capa LLM (Stage 5b) — el LLM solo puede degradar.
       if (opp.verdict) {
         opp.verdict.layers.llmAction = unified.action;
         opp.verdict.layers.llmReason = unified.thesis.slice(0, 120);
-        // Si el LLM cambia la acción, agregar al trace y promover source
-        if (unified.action !== opp.verdict.finalAction) {
+        const gated = applyLlmAction(opp.verdict.finalAction, unified.action) as typeof opp.verdict.finalAction;
+        if (gated !== opp.verdict.finalAction) {
           opp.verdict.trace.push(`llm:${unified.action} (${unified.thesis.slice(0, 60)})`);
-          opp.verdict.finalAction = unified.action;
+          opp.verdict.finalAction = gated;
           opp.verdict.source = 'llm';
-          // Sincronizar la acción del opp con el verdict final
-          opp.action = unified.action;
+          opp.action = gated;
+        } else if (unified.action !== opp.verdict.finalAction) {
+          // El LLM quiso subir la acción: se registra pero NO se aplica.
+          opp.verdict.trace.push(`llm:sugirió ${unified.action} — bloqueado (solo degrada)`);
         } else {
           opp.verdict.trace.push(`llm:confirma`);
         }
       } else {
-        // Si por alguna razón no había verdict previo, lo creamos mínimo
-        opp.action = unified.action;
+        // Sin verdict previo: aplicar el mismo gate sobre la acción algorítmica.
+        opp.action = applyLlmAction(opp.action, unified.action) as typeof opp.action;
       }
 
       // deepAnalysis retrocompat (UI puede leerlo desde unifiedAnalysis.wouldDo)
