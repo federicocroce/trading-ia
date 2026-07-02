@@ -28,10 +28,26 @@ export function isTradeable(meta: { name?: string | null; instrumentType?: strin
 // Barrera de calidad: bajo estos umbrales el riesgo de pump-and-dump / iliquidez
 // real supera cualquier edge del análisis. Dato faltante = NO pasa (fail-closed):
 // si no sabemos cuánto vale la empresa, no la recomendamos.
-const MIN_MARKET_CAP = Number(process.env.MIN_MARKET_CAP_USD ?? 500_000_000);
-const MIN_QUALITY_PRICE = Number(process.env.MIN_QUALITY_PRICE_USD ?? 5);
+function envNumber(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+const MIN_MARKET_CAP = envNumber('MIN_MARKET_CAP_USD', 500_000_000);
+const MIN_QUALITY_PRICE = envNumber('MIN_QUALITY_PRICE_USD', 5);
 
-export function meetsQualityBar(meta: { marketCap?: number | null; currentPrice?: number | null }): boolean {
+export function meetsQualityBar(meta: {
+  marketCap?: number | null;
+  currentPrice?: number | null;
+  instrumentType?: string | null;
+}): boolean {
+  // Cripto: market cap y precio tienen otra semántica; el riesgo se gestiona aparte.
+  if (meta.instrumentType === 'crypto') return true;
+  // ETFs y commodity-ETFs (GLD/SLV/USO...): Yahoo no reporta marketCap de fondos —
+  // exigir solo precio (la liquidez ya la cubre isTradeable).
+  if (meta.instrumentType === 'etf' || meta.instrumentType === 'commodity') {
+    return meta.currentPrice != null && meta.currentPrice >= MIN_QUALITY_PRICE;
+  }
+  // Acciones (y tipo desconocido: fail-closed como acción)
   if (meta.marketCap == null || meta.marketCap < MIN_MARKET_CAP) return false;
   if (meta.currentPrice == null || meta.currentPrice < MIN_QUALITY_PRICE) return false;
   return true;

@@ -788,13 +788,15 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
       ),
     )
     .filter((o): o is Opportunity => o !== null)
-    // Filtro de tradeabilidad: descarta ilíquidos / renta fija / MLPs / preferidas — PERO nunca
-    // saca lo que ya tenés en cartera (eso siempre se muestra para que decidas).
+    // Filtro de tradeabilidad + barrera de calidad: descarta ilíquidos / renta fija / MLPs /
+    // preferidas, y small-caps basura (market cap < $500M o precio < $5; ETFs/cripto tienen
+    // reglas propias) — PERO nunca saca lo que ya tenés en cartera (eso siempre se muestra
+    // para que decidas).
     .filter((o) =>
       positionMap.has(o.symbol) ||
       (
         isTradeable({ name: o.classification?.name, instrumentType: o.classification?.instrumentType, avgDollarVolume: o.avgDollarVolume }) &&
-        meetsQualityBar({ marketCap: fundMap.get(o.symbol)?.data.marketCap, currentPrice: o.currentPrice })
+        meetsQualityBar({ marketCap: fundMap.get(o.symbol)?.data.marketCap, currentPrice: o.currentPrice, instrumentType: o.classification?.instrumentType })
       ),
     )
     .sort((a, b) => b.opportunityScore - a.opportunityScore);

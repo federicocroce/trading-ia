@@ -60,4 +60,19 @@ describe('meetsQualityBar — barrera anti small-cap basura', () => {
   it('acepta justo en los umbrales', () => {
     expect(meetsQualityBar({ marketCap: 500_000_000, currentPrice: 5 })).toBe(true);
   });
+  it('ETF sin market cap pasa si el precio es razonable (Yahoo no reporta cap de fondos)', () => {
+    expect(meetsQualityBar({ marketCap: null, currentPrice: 450, instrumentType: 'etf' })).toBe(true);
+  });
+  it('ETF con precio penny NO pasa', () => {
+    expect(meetsQualityBar({ marketCap: null, currentPrice: 2.1, instrumentType: 'etf' })).toBe(false);
+  });
+  it('commodity-ETF (GLD/SLV) sin market cap pasa con precio razonable', () => {
+    expect(meetsQualityBar({ marketCap: null, currentPrice: 28, instrumentType: 'commodity' })).toBe(true);
+  });
+  it('cripto exenta de la barrera', () => {
+    expect(meetsQualityBar({ marketCap: null, currentPrice: 0.08, instrumentType: 'crypto' })).toBe(true);
+  });
+  it('tipo desconocido se trata como acción (fail-closed)', () => {
+    expect(meetsQualityBar({ marketCap: null, currentPrice: 50, instrumentType: null })).toBe(false);
+  });
 });
