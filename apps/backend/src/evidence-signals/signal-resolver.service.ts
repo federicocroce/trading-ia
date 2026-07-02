@@ -1,5 +1,6 @@
 import { getPendingSignals, resolveSignal } from '../db/repository.js';
 import { getHistoricalQuotes, getQuote } from '../shared/yahoo.js';
+import { computeRMultiple } from '../intelligence/outcome-resolver.js';
 
 const DAYS_7 = 7 * 24 * 60 * 60 * 1000;
 const DAYS_30 = 30 * 24 * 60 * 60 * 1000;
@@ -99,6 +100,10 @@ async function resolveOne(signal: ReturnType<typeof getPendingSignals>[0]): Prom
           hitTarget: targetWins,
           hitStop: !targetWins,
           outcome: targetWins ? 'win' : 'loss',
+          // R contra el precio de resolución que este sitio persiste (close en la fecha del hit).
+          rMultiple: priceAtHit != null
+            ? computeRMultiple(signal.action as 'BUY' | 'SELL', signal.entryPrice, signal.stopLoss, priceAtHit)
+            : null,
         });
         console.log(`[SignalResolver] ⚡ Early exit ${signal.symbol} → ${targetWins ? 'WIN (target)' : 'LOSS (stop)'} hit on ${targetHitAt ?? stopHitAt}`);
         return;
@@ -108,7 +113,14 @@ async function resolveOne(signal: ReturnType<typeof getPendingSignals>[0]): Prom
         const quote = await getQuote(signal.symbol);
         if (quote.current > 0) {
           const returnAfter7d = Math.round(((quote.current - signal.entryPrice) / signal.entryPrice) * 10000) / 100;
-          resolveSignal(signal.id, { priceAfter7d: quote.current, returnAfter7d, outcome: 'pending' });
+          resolveSignal(signal.id, {
+            priceAfter7d: quote.current,
+            returnAfter7d,
+            outcome: 'pending',
+            // R "mark-to-market" contra el precio actual (el que este sitio persiste); se
+            // sobreescribe al resolver definitivo. Stats excluyen pending, no contamina.
+            rMultiple: computeRMultiple(signal.action as 'BUY' | 'SELL', signal.entryPrice, signal.stopLoss, quote.current),
+          });
         }
       }
       return;
@@ -163,6 +175,11 @@ async function resolveOne(signal: ReturnType<typeof getPendingSignals>[0]): Prom
         hitTarget,
         hitStop,
         outcome,
+        // R contra el precio de resolución que este sitio persiste (price30d, el mismo del
+        // que sale returnAfter30d) — mantiene r_multiple consistente con el retorno de la fila.
+        rMultiple: price30d != null
+          ? computeRMultiple(signal.action as 'BUY' | 'SELL', signal.entryPrice, signal.stopLoss, price30d)
+          : null,
       });
 
       console.log(`[SignalResolver] ✓ ${signal.symbol} (${signal.signalDate}) → ${outcome.toUpperCase()} | 30d return: ${returnAfter30d != null ? (returnAfter30d > 0 ? '+' : '') + returnAfter30d + '%' : 'N/A'}`);
