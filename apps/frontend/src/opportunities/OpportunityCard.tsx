@@ -219,12 +219,14 @@ const actionConfig: Record<SignalAction, { label: string; emoji: string; borderC
     description: 'Ya lo tenes. No hay senal para comprar mas ni para vender.',
   },
   SELL: {
-    label: 'VENDER',
+    // "BAJISTA" (no "VENDER") — esto es la lectura del motor, no tu orden.
+    // "VENDER" queda reservado a la pestaña Hoy, que decide por tu stop dinámico.
+    label: 'BAJISTA',
     emoji: '↓',
     borderColor: 'border-l-red-500',
     bgClass: 'bg-red-500/20',
     textClass: 'text-red-400',
-    description: 'El analisis sugiere reducir o cerrar esta posicion.',
+    description: 'El motor ve deterioro técnico. Es análisis, no una orden — tu decisión de vender está en "Hoy" (la toma tu stop dinámico).',
   },
 };
 
@@ -362,7 +364,18 @@ export function OpportunityCard({ opportunity, forceExpanded = false }: { opport
             <span className="text-xs text-muted-foreground font-mono">
               ${opportunity.currentPrice.toFixed(2)}
             </span>
-            <WatchlistButton symbol={opportunity.symbol} />
+            <WatchlistButton
+              symbol={opportunity.symbol}
+              entry={{
+                price: opportunity.currentPrice,
+                action: opportunity.action,
+                score: opportunity.opportunityScore,
+                confidence: opportunity.confidence,
+                targetPrice: opportunity.tradeLevels?.takeProfit ?? null,
+                stopLoss: opportunity.tradeLevels?.stopLoss ?? null,
+                thesis: opportunity.tradeLevels?.entryReason ?? opportunity.simpleReasoning ?? null,
+              }}
+            />
           </div>
 
           {/* Scores: Señal + Entrada */}

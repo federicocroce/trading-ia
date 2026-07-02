@@ -47,9 +47,15 @@ function edgeWinOf(samples: BarSample[]): number {
 /** Parte los samples (con fecha) en PERIODS ventanas cronológicas iguales y devuelve el edge de cada una. */
 function edgePerPeriod(samples: DatedSample[]): number[] {
   if (samples.length === 0) return Array(PERIODS).fill(0);
-  const dates = samples.map((s) => Date.parse(s.date));
-  const min = Math.min(...dates);
-  const span = Math.max(...dates) - min || 1;
+  // Pase único: el spread Math.min(...dates) revienta el stack con universos grandes (~180k samples).
+  let min = Infinity;
+  let max = -Infinity;
+  for (const s of samples) {
+    const t = Date.parse(s.date);
+    if (t < min) min = t;
+    if (t > max) max = t;
+  }
+  const span = max - min || 1;
   const buckets: DatedSample[][] = Array.from({ length: PERIODS }, () => []);
   for (const s of samples) {
     const idx = Math.min(PERIODS - 1, Math.floor(((Date.parse(s.date) - min) / span) * PERIODS));

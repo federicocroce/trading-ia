@@ -57,6 +57,14 @@ export interface PositionInput {
   target?: number | null;
   /** El motor marcó SELL hoy (ej. divergencia). Es advertencia, no orden. */
   engineWarnsSell?: boolean;
+  /**
+   * Cierre confirmado (última vela diaria cerrada) con el que se DECIDE VENDER.
+   * El backtest 7y muestra que decidir por cierre (no por toque intradiario) gana en 11/11
+   * y corta whipsaws. Si se omite, cae al comportamiento viejo (decide por currentPrice).
+   */
+  closePrice?: number;
+  /** Mercado en sesión: el currentPrice es spot provisional, un toque NO confirma venta. */
+  intraday?: boolean;
 }
 
 export interface PositionVerdict {
@@ -71,17 +79,32 @@ export interface PositionVerdict {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export function decidePositionVerb(input: PositionInput): PositionVerdict {
-  const { avgCost, currentPrice, trailingStop, target, engineWarnsSell } = input;
+  const { avgCost, currentPrice, trailingStop, target, engineWarnsSell, closePrice, intraday } = input;
   const gainPct = round2(((currentPrice - avgCost) / avgCost) * 100);
   const tgt = target ?? null;
+  // Se DECIDE por el cierre confirmado; el spot vivo solo informa gain%/aviso intradiario.
+  const decisionPrice = closePrice ?? currentPrice;
 
-  if (trailingStop != null && currentPrice <= trailingStop) {
+  if (trailingStop != null && decisionPrice <= trailingStop) {
+    const breach = closePrice != null ? 'Cerró bajo' : 'Tocó';
     return {
       verb: 'VENDER',
-      reason: `Tocó tu stop dinámico $${trailingStop} — el precio se dio vuelta. Salí para proteger ${gainPct >= 0 ? 'la ganancia' : 'capital'}.`,
+      reason: `${breach} tu stop dinámico $${trailingStop} — el precio se dio vuelta. Salí para proteger ${gainPct >= 0 ? 'la ganancia' : 'capital'}.`,
       stop: trailingStop,
       target: tgt,
       gainPct,
+    };
+  }
+
+  // En sesión, un toque del spot NO confirma venta: se avisa, pero el cierre decide.
+  if (intraday && trailingStop != null && currentPrice <= trailingStop) {
+    return {
+      verb: 'MANTENER',
+      reason: `Dejá correr. Tu stop está en $${trailingStop}${tgt != null ? ` y el objetivo es $${tgt}` : ''} — salís solo si CIERRA abajo.`,
+      stop: trailingStop,
+      target: tgt,
+      gainPct,
+      warning: `Intradiario tocó tu stop $${trailingStop}, pero todavía no cerró abajo. La venta se confirma solo si CIERRA bajo el stop — esperá el cierre.`,
     };
   }
 

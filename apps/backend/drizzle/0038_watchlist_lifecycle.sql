@@ -1,0 +1,22 @@
+CREATE TABLE `watchlist_items` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`symbol` text NOT NULL,
+	`added_at` text NOT NULL,
+	`source` text DEFAULT 'manual' NOT NULL,
+	`entry_price` real NOT NULL,
+	`entry_action` text DEFAULT 'manual' NOT NULL,
+	`entry_score` integer,
+	`entry_confidence` integer,
+	`target_price` real,
+	`stop_loss` real,
+	`thesis` text,
+	`horizon_days` integer DEFAULT 30 NOT NULL,
+	`status` text DEFAULT 'live' NOT NULL,
+	`last_price` real,
+	`last_return` real,
+	`last_evaluated_at` text,
+	`resolved_at` text,
+	`resolution_price` real,
+	`resolution_return` real,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL
+);

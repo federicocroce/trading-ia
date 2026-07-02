@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -10,6 +10,34 @@ import { usePipeline } from '@/pipeline/usePipeline';
 import { MacroRegimeWidget } from '@/macro/MacroRegimeWidget';
 import { useAiModeModal } from '@/shared/AiModeModal';
 import { PipelineConfig } from '@/intelligence/PipelineConfig';
+import { getMarketStatus } from '@/shared/marketStatus';
+
+function MarketStatusBadge() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  const market = getMarketStatus(now);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Badge
+          variant="outline"
+          className={`text-[9px] h-4 gap-1 cursor-help ${
+            market.open
+              ? 'border-green-500/40 text-green-400'
+              : 'border-muted-foreground/30 text-muted-foreground'
+          }`}
+        >
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${market.open ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground'}`} />
+          {market.label}
+        </Badge>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">{market.detail}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 const SECTOR_PRESETS: { label: string; value: string; sectors: string[] | undefined }[] = [
   { label: 'Todos', value: 'all', sectors: undefined },
@@ -46,6 +74,7 @@ export function Header() {
         <div className="flex items-center gap-2 shrink-0">
           <h1 className="text-base font-bold tracking-tight">Trading IA</h1>
           <Badge variant="secondary" className="text-[9px] h-4">ARG & Global</Badge>
+          <MarketStatusBadge />
         </div>
 
         <div className="flex items-center gap-2">

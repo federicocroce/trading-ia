@@ -297,6 +297,32 @@ export const missedOpportunities = sqliteTable('missed_opportunities', {
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 
+// --- Watchlist lifecycle (le da lado de cierre al watchlist `symbols`) ---
+export const watchlistItems = sqliteTable('watchlist_items', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  symbol: text('symbol').notNull(),
+  addedAt: text('added_at').notNull(),                  // ISO date del alta
+  source: text('source').notNull().default('manual'),   // 'recommendation' | 'manual'
+  // Snapshot al agregar
+  entryPrice: real('entry_price').notNull(),
+  entryAction: text('entry_action').notNull().default('manual'), // BUY | SELL | WATCH | HOLD | manual
+  entryScore: integer('entry_score'),
+  entryConfidence: integer('entry_confidence'),
+  targetPrice: real('target_price'),                    // de tradeLevels.takeProfit (nullable)
+  stopLoss: real('stop_loss'),                          // de tradeLevels.stopLoss (nullable)
+  thesis: text('thesis'),
+  horizonDays: integer('horizon_days').notNull().default(30),
+  // Estado del ciclo de vida
+  status: text('status').notNull().default('live'),     // live | triggered | invalidated | expired | archived
+  lastPrice: real('last_price'),
+  lastReturn: real('last_return'),
+  lastEvaluatedAt: text('last_evaluated_at'),
+  resolvedAt: text('resolved_at'),
+  resolutionPrice: real('resolution_price'),
+  resolutionReturn: real('resolution_return'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+});
+
 // --- Transactions (buy/sell history) ---
 export const transactions = sqliteTable('transactions', {
   id: integer('id').primaryKey({ autoIncrement: true }),

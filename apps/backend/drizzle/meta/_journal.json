@@ -267,6 +267,13 @@
       "when": 1786100000000,
       "tag": "0037_event_sector_reactions",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1786200000000,
+      "tag": "0038_watchlist_lifecycle",
+      "breakpoints": true
     }
   ]
 }

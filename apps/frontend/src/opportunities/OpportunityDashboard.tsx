@@ -311,7 +311,7 @@ export function OpportunityDashboard() {
               className={`text-[10px] cursor-pointer transition-all ${actionFilter === 'SELL' ? 'bg-red-500/40 text-red-300 ring-1 ring-red-500' : 'bg-red-500/20 text-red-400 hover:bg-red-500/30'}`}
               onClick={() => setActionFilter(actionFilter === 'SELL' ? null : 'SELL')}
             >
-              {sellCount} Vender
+              {sellCount} bajistas
             </Badge>
           )}
           {watchCount > 0 && (

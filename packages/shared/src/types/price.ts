@@ -8,6 +8,8 @@ export interface Price {
   change: number;
   changePercent: number;
   timestamp: number;
+  /** Estado de mercado de Yahoo: 'REGULAR' = en sesión (spot provisional), 'CLOSED'/'PRE'/'POST' = fuera. */
+  marketState?: string;
 }
 
 export interface TopMover {

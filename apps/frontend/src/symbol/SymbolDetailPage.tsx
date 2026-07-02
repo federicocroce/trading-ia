@@ -353,7 +353,7 @@ type SignalAction = 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
 
 const actionConfig: Record<SignalAction, { variant: 'default' | 'destructive' | 'secondary' | 'outline'; borderColor: string; label: string }> = {
   BUY: { variant: 'default', borderColor: 'border-l-green-500', label: 'COMPRAR' },
-  SELL: { variant: 'destructive', borderColor: 'border-l-red-500', label: 'VENDER' },
+  SELL: { variant: 'destructive', borderColor: 'border-l-red-500', label: 'BAJISTA' },
   HOLD: { variant: 'secondary', borderColor: 'border-l-gray-400', label: 'MANTENER' },
   WATCH: { variant: 'outline', borderColor: 'border-l-blue-500', label: 'OBSERVAR' },
 };

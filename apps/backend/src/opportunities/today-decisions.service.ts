@@ -4,7 +4,7 @@
  * dinámico, objetivo ya calculados ahí) + el precio en vivo. No recalcula nada por su cuenta,
  * así "Hoy" y "Oportunidades" muestran SIEMPRE los mismos números.
  */
-import type { Opportunity } from '@trading/shared';
+import type { Opportunity, Price } from '@trading/shared';
 import { getPortfolioPositions, getLatestOpportunityScan } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
 import { decidePositionVerb, type PortfolioVerb } from './today-decisions.js';
@@ -76,24 +76,37 @@ export async function getTodayDecisions(): Promise<TodayView> {
 
   // --- Cartera --- (precio en vivo; stop/objetivo/acción los toma del scan: fuente única)
   const heldSymbols = positions.map((p) => p.symbol);
-  const prices = new Map<string, number>();
+  const quoteBySym = new Map<string, Price>();
   if (heldSymbols.length > 0) {
     const quotes = await getQuotes(heldSymbols).catch(() => []);
-    for (const q of quotes) prices.set(q.symbol.toUpperCase(), q.current);
+    for (const q of quotes) quoteBySym.set(q.symbol.toUpperCase(), q);
   }
+
+  // Veredicto por CIERRE confirmado (no por toque intradiario). Gateado para validar forward:
+  // EXIT_ON_CLOSE=1 lo activa; por defecto OFF → comportamiento idéntico al actual.
+  const exitOnClose = process.env.EXIT_ON_CLOSE === '1' || process.env.EXIT_ON_CLOSE === 'true';
 
   const portfolio: TodayPosition[] = [];
   for (const p of positions) {
     if (p.avgCost <= 0) continue;
     const sym = p.symbol.toUpperCase();
     const opp = bySymbol.get(sym);
-    const currentPrice = prices.get(sym) ?? opp?.currentPrice ?? 0;
+    const q = quoteBySym.get(sym);
+    const currentPrice = q?.current ?? opp?.currentPrice ?? 0;
     if (currentPrice <= 0) continue;
 
     const trailingStop = opp?.trailingStop ?? null;
     const target = opp?.tradeLevels?.takeProfit ?? null;
     const engineAction = opp?.action;
-    const v = decidePositionVerb({ avgCost: p.avgCost, currentPrice, trailingStop, target, engineWarnsSell: engineAction === 'SELL' });
+
+    // En sesión (REGULAR) el spot es provisional → se decide por el último cierre (previousClose).
+    // Fuera de sesión, el regularMarketPrice ya es el cierre del día.
+    const intraday = exitOnClose && q?.marketState === 'REGULAR';
+    const closePrice = exitOnClose
+      ? (intraday ? (q && q.previousClose > 0 ? q.previousClose : currentPrice) : currentPrice)
+      : undefined;
+
+    const v = decidePositionVerb({ avgCost: p.avgCost, currentPrice, trailingStop, target, engineWarnsSell: engineAction === 'SELL', closePrice, intraday });
 
     portfolio.push({
       symbol: p.symbol,

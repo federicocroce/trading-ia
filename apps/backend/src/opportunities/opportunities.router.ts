@@ -21,6 +21,12 @@ import {
   resolveExpiredSignals,
 } from './signal-tracking.service.js';
 import { promoteToWatchlist, getDiscoveredTickers } from '../discovery/discovery-registry.js';
+import {
+  captureWatchlistEntry,
+  resolveWatchlistItems,
+  getWatchlistStatusList,
+  archiveWatchlistItem,
+} from './watchlist-tracking.service.js';
 import { getTodayDecisions } from './today-decisions.service.js';
 import {
   getAccuracyBySector,
@@ -163,9 +169,43 @@ export const opportunitiesRouter = router({
     }),
 
   addToWatchlist: publicProcedure
+    .input(z.object({
+      symbol: z.string(),
+      // Snapshot de la recomendación (opcional → alta manual). Backward-compatible.
+      entry: z.object({
+        price: z.number().optional(),
+        action: z.string().optional(),
+        score: z.number().nullish(),
+        confidence: z.number().nullish(),
+        targetPrice: z.number().nullish(),
+        stopLoss: z.number().nullish(),
+        thesis: z.string().nullish(),
+        horizonDays: z.number().optional(),
+      }).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const success = promoteToWatchlist(input.symbol);
+      const tracking = await captureWatchlistEntry(input.symbol, input.entry);
+      return { success, tracked: tracking.created };
+    }),
+
+  // --- Watchlist lifecycle ---
+
+  watchlistStatus: publicProcedure
+    .query(() => {
+      return getWatchlistStatusList();
+    }),
+
+  resolveWatchlist: publicProcedure
+    .mutation(async () => {
+      const resolved = await resolveWatchlistItems();
+      return { resolved };
+    }),
+
+  archiveWatchlistItem: publicProcedure
     .input(z.object({ symbol: z.string() }))
     .mutation(({ input }) => {
-      return { success: promoteToWatchlist(input.symbol) };
+      return archiveWatchlistItem(input.symbol);
     }),
 
   resolveSignals: publicProcedure

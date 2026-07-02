@@ -1716,3 +1716,83 @@ export function getEventReactions(eventType?: string): EventReactionRow[] {
     winRate: r.winRate, tStat: r.tStat, significant: r.significant, nEvents: r.nEvents,
   }));
 }
+
+// ---------------------------------------------------------------------------
+// Watchlist lifecycle — le da lado de cierre al watchlist `symbols`.
+// ---------------------------------------------------------------------------
+
+export type WatchlistItemRow = typeof schema.watchlistItems.$inferSelect;
+
+export function insertWatchlistItem(data: {
+  symbol: string;
+  addedAt: string;
+  source: 'recommendation' | 'manual';
+  entryPrice: number;
+  entryAction: string;
+  entryScore?: number | null;
+  entryConfidence?: number | null;
+  targetPrice?: number | null;
+  stopLoss?: number | null;
+  thesis?: string | null;
+  horizonDays?: number;
+}) {
+  return db.insert(schema.watchlistItems).values({
+    ...data,
+    status: 'live',
+  }).run();
+}
+
+/** Item activo (no archivado/resuelto) más reciente para un símbolo, o undefined. */
+export function getOpenWatchlistItem(symbol: string): WatchlistItemRow | undefined {
+  return db.select().from(schema.watchlistItems)
+    .where(and(
+      eq(schema.watchlistItems.symbol, symbol),
+      eq(schema.watchlistItems.status, 'live'),
+    ))
+    .orderBy(desc(schema.watchlistItems.id))
+    .limit(1)
+    .all()[0];
+}
+
+/** Items 'live' — los que el resolver tiene que evaluar. */
+export function getLiveWatchlistItems(): WatchlistItemRow[] {
+  return db.select().from(schema.watchlistItems)
+    .where(eq(schema.watchlistItems.status, 'live'))
+    .orderBy(asc(schema.watchlistItems.symbol))
+    .all();
+}
+
+/** Items visibles en el watchlist (todo menos archivados). */
+export function getActiveWatchlistItems(): WatchlistItemRow[] {
+  return db.select().from(schema.watchlistItems)
+    .where(sql`${schema.watchlistItems.status} != 'archived'`)
+    .orderBy(desc(schema.watchlistItems.addedAt))
+    .all();
+}
+
+/** Persiste una evaluación del resolver (precio/retorno + estado + resolución). */
+export function updateWatchlistItemEvaluation(id: number, data: {
+  status: string;
+  lastPrice: number;
+  lastReturn: number;
+  lastEvaluatedAt: string;
+  resolvedAt?: string | null;
+  resolutionPrice?: number | null;
+  resolutionReturn?: number | null;
+}) {
+  return db.update(schema.watchlistItems)
+    .set(data)
+    .where(eq(schema.watchlistItems.id, id))
+    .run();
+}
+
+/** Archiva (saca de la lista activa) el/los item(s) no archivados de un símbolo. */
+export function archiveWatchlistItemBySymbol(symbol: string) {
+  return db.update(schema.watchlistItems)
+    .set({ status: 'archived' })
+    .where(and(
+      eq(schema.watchlistItems.symbol, symbol),
+      sql`${schema.watchlistItems.status} != 'archived'`,
+    ))
+    .run();
+}

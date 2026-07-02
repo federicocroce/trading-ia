@@ -17,12 +17,52 @@ const YAHOO_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
 };
 
+// --- Global concurrency limiter for ALL Yahoo HTTP calls ---
+// Yahoo resets/throttles connections when hit with ~100+ simultaneous requests
+// from one IP. The "fetch failed" wall happens because getQuotes() fans out the
+// whole universe (~140 symbols) at once via Promise.allSettled, and the scan +
+// market-regime bursts pile on top. A single shared ceiling keeps every fan-out
+// under one limit instead of each blasting the universe in parallel — retries
+// then succeed because the burst is spread out, not because Yahoo "recovered".
+const _rawFetch = globalThis.fetch;
+const YAHOO_MAX_CONCURRENT = 6;
+let yahooActive = 0;
+const yahooQueue: Array<() => void> = [];
+
+function acquireSlot(): Promise<void> {
+  if (yahooActive < YAHOO_MAX_CONCURRENT) {
+    yahooActive++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => yahooQueue.push(resolve));
+}
+
+function releaseSlot(): void {
+  const next = yahooQueue.shift();
+  if (next) {
+    next(); // hand the slot directly to the next waiter (active count unchanged)
+  } else {
+    yahooActive--;
+  }
+}
+
+/** fetch() wrapper that bounds total concurrent Yahoo connections. */
+async function yfetch(input: string, init?: RequestInit): Promise<Response> {
+  await acquireSlot();
+  try {
+    return await _rawFetch(input, init);
+  } finally {
+    releaseSlot();
+  }
+}
+
 interface YahooChartResult {
   meta: {
     symbol: string;
     regularMarketPrice: number;
     previousClose: number;
     chartPreviousClose: number;
+    marketState?: string;
     fiftyTwoWeekHigh?: number;
     fiftyTwoWeekLow?: number;
     averageDailyVolume10Day?: number;
@@ -51,7 +91,7 @@ export async function getQuote(symbol: string): Promise<Price> {
   const url = `${YAHOO_BASE}/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
 
   const res = await withRetry(
-    () => fetch(url, { headers: YAHOO_HEADERS }),
+    () => yfetch(url, { headers: YAHOO_HEADERS }),
     `Yahoo:${symbol}`,
     { maxRetries: 2, baseDelayMs: 1000 },
   );
@@ -91,6 +131,7 @@ export async function getQuote(symbol: string): Promise<Price> {
     change,
     changePercent,
     timestamp: Date.now(),
+    marketState: meta.marketState,
   };
 }
 
@@ -119,7 +160,7 @@ export async function getHistoricalQuotes(
   interval: string = '1d',
 ): Promise<OHLC[]> {
   const url = `${YAHOO_BASE}/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}`;
-  const res = await fetch(url, { headers: YAHOO_HEADERS });
+  const res = await yfetch(url, { headers: YAHOO_HEADERS });
 
   if (!res.ok) {
     throw new Error(`Yahoo Finance HTTP ${res.status} for ${symbol} (historical)`);
@@ -198,7 +239,7 @@ export async function searchSymbols(query: string): Promise<Array<{
   flag: string;
 }>> {
   const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&quotesCount=8&newsCount=0`;
-  const res = await fetch(url, { headers: YAHOO_HEADERS });
+  const res = await yfetch(url, { headers: YAHOO_HEADERS });
 
   if (!res.ok) return [];
 
@@ -231,7 +272,7 @@ async function ensureCrumb(): Promise<{ crumb: string; cookie: string } | null> 
 
   try {
     // Step 1: Get cookie from Yahoo consent page
-    const consentRes = await fetch('https://fc.yahoo.com', {
+    const consentRes = await yfetch('https://fc.yahoo.com', {
       headers: YAHOO_HEADERS,
       redirect: 'manual',
     });
@@ -244,7 +285,7 @@ async function ensureCrumb(): Promise<{ crumb: string; cookie: string } | null> 
     }
 
     // Step 2: Get crumb using the cookie
-    const crumbRes = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
+    const crumbRes = await yfetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
       headers: { ...YAHOO_HEADERS, Cookie: cookie },
     });
 
@@ -403,7 +444,7 @@ export async function getFundamentals(symbol: string): Promise<FundamentalData> 
   if (auth) {
     try {
       const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}&crumb=${encodeURIComponent(auth.crumb)}`;
-      const res = await fetch(url, {
+      const res = await yfetch(url, {
         headers: { ...YAHOO_HEADERS, Cookie: auth.cookie },
       });
 
@@ -434,7 +475,7 @@ export async function getFundamentals(symbol: string): Promise<FundamentalData> 
   // Fallback: try without auth (may work for some endpoints)
   try {
     const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
-    const res = await fetch(url, { headers: YAHOO_HEADERS });
+    const res = await yfetch(url, { headers: YAHOO_HEADERS });
     if (res.ok) {
       const data = (await res.json()) as YahooQuoteSummary;
       const result = data.quoteSummary?.result?.[0];
@@ -458,7 +499,7 @@ export async function getFundamentals(symbol: string): Promise<FundamentalData> 
 async function getFundamentalsFromChart(symbol: string): Promise<FundamentalData> {
   try {
     const url = `${YAHOO_BASE}/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
-    const res = await fetch(url, { headers: YAHOO_HEADERS });
+    const res = await yfetch(url, { headers: YAHOO_HEADERS });
     const data = (await res.json()) as YahooResponse;
     const meta = data.chart.result?.[0]?.meta;
 
@@ -514,7 +555,7 @@ export async function getAssetProfile(symbol: string): Promise<YahooAssetProfile
   const tryFetch = async (baseUrl: string, headers: Record<string, string>): Promise<YahooAssetProfile | null> => {
     try {
       const url = `${baseUrl}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : ''}`;
-      const res = await fetch(url, { headers });
+      const res = await yfetch(url, { headers });
       if (!res.ok) return null;
 
       const data = (await res.json()) as any;
@@ -564,7 +605,7 @@ export async function getEarningsHistory(symbol: string): Promise<EarningsHistor
     try {
       const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : '';
       const url = `${baseUrl}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${crumbParam}`;
-      const res = await fetch(url, { headers });
+      const res = await yfetch(url, { headers });
       if (!res.ok) return null;
 
       const data = (await res.json()) as any;
@@ -610,7 +651,7 @@ export async function getInsiderTransactions(symbol: string): Promise<YahooInsid
     try {
       const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : '';
       const url = `${baseUrl}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${crumbParam}`;
-      const res = await fetch(url, { headers });
+      const res = await yfetch(url, { headers });
       if (!res.ok) return null;
 
       const data = (await res.json()) as any;
@@ -661,7 +702,7 @@ export async function getOptionsChain(symbol: string): Promise<OptionsExpiryData
     try {
       const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : '';
       const url = `${baseUrl}/v7/finance/options/${encodeURIComponent(symbol)}?straddle=false${crumbParam}`;
-      const res = await fetch(url, { headers });
+      const res = await yfetch(url, { headers });
       if (!res.ok) return null;
 
       const data = (await res.json()) as any;

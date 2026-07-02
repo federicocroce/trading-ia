@@ -55,3 +55,34 @@ describe('decidePositionVerb (let winners run, sell on real reversal)', () => {
     expect(r.stop).toBeNull();
   });
 });
+
+describe('decidePositionVerb — veredicto por CIERRE, no por toque intradiario', () => {
+  it('un toque intradiario NO vende: espera un cierre confirmado bajo el stop', () => {
+    // spot cayó al stop en el día, pero el último cierre sigue arriba → provisional, no venta
+    const r = decidePositionVerb({ avgCost: 100, currentPrice: 109, closePrice: 115, trailingStop: 110, intraday: true });
+    expect(r.verb).toBe('MANTENER');
+    expect(r.warning).toMatch(/intradiari|cierr/i);
+  });
+
+  it('VENDER cuando el cierre confirmado quedó en/bajo el stop', () => {
+    const r = decidePositionVerb({ avgCost: 100, currentPrice: 108, closePrice: 108, trailingStop: 110, intraday: false });
+    expect(r.verb).toBe('VENDER');
+  });
+
+  it('VENDER si ya cerró bajo el stop, aunque intradía rebote por encima', () => {
+    const r = decidePositionVerb({ avgCost: 100, currentPrice: 112, closePrice: 108, trailingStop: 110, intraday: true });
+    expect(r.verb).toBe('VENDER');
+  });
+
+  it('sin closePrice mantiene el comportamiento viejo (decide por currentPrice)', () => {
+    const r = decidePositionVerb({ avgCost: 100, currentPrice: 108, trailingStop: 110 });
+    expect(r.verb).toBe('VENDER');
+  });
+
+  it('el motivo dice "Tocó" en el camino spot y "Cerró" cuando decide por cierre', () => {
+    const spot = decidePositionVerb({ avgCost: 100, currentPrice: 108, trailingStop: 110 });
+    expect(spot.reason).toMatch(/Tocó/);
+    const close = decidePositionVerb({ avgCost: 100, currentPrice: 108, closePrice: 108, trailingStop: 110 });
+    expect(close.reason).toMatch(/Cerró/);
+  });
+});

@@ -11,6 +11,8 @@ import {
   type InstrumentFilter,
 } from '@/shared/instrumentType';
 import { ETF_CATEGORY_LABELS, ETF_CATEGORY_ORDER, type EtfCategory } from '@/etf/categories';
+import { useWatchlistStatusMap, isResolved } from '@/shared/useWatchlistStatus';
+import { WatchlistStatusBadge } from '@/shared/WatchlistStatusBadge';
 import { AddSymbolDialog } from './AddSymbolDialog';
 
 interface SidebarProps {
@@ -44,9 +46,12 @@ export function Sidebar({ open = true, onClose }: SidebarProps) {
   const { data: etfWatchlist } = trpc.etf.getWatchlist.useQuery(undefined, {
     staleTime: 5 * 60_000,
   });
-  const deleteMutation = trpc.portfolio.symbols.delete.useMutation({
+  const statusMap = useWatchlistStatusMap();
+  // Archivar = sacar del watchlist + marcar el item resuelto/archivado (consistencia).
+  const deleteMutation = trpc.opportunities.archiveWatchlistItem.useMutation({
     onSuccess: () => {
       utils.portfolio.symbols.list.invalidate();
+      utils.opportunities.watchlistStatus.invalidate();
       utils.prices.getAll.invalidate();
     },
   });
@@ -119,18 +124,26 @@ export function Sidebar({ open = true, onClose }: SidebarProps) {
 
   const renderRow = (stock: SymbolRow) => {
     const price = priceMap.get(stock.symbol);
+    const status = statusMap.get(stock.symbol);
+    const needsReview = status ? isResolved(status.status) : false;
     return (
       <div
         key={stock.symbol}
-        className="group flex items-center justify-between px-4 py-3 hover:bg-accent cursor-pointer transition-colors"
+        className={`group flex items-center justify-between px-4 py-3 hover:bg-accent cursor-pointer transition-colors ${
+          needsReview ? 'border-l-2 border-l-amber-500/60' : ''
+        }`}
         onClick={() => handleSymbolClick(stock.symbol)}
       >
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="text-xs">{stock.flag}</span>
             <span className="font-medium text-sm">{stock.symbol}</span>
           </div>
-          <span className="text-xs text-muted-foreground">{stock.name}</span>
+          {status ? (
+            <div className="mt-1"><WatchlistStatusBadge item={status} /></div>
+          ) : (
+            <span className="text-xs text-muted-foreground">{stock.name}</span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {price ? (
@@ -144,8 +157,11 @@ export function Sidebar({ open = true, onClose }: SidebarProps) {
             <div className="text-xs text-muted-foreground">...</div>
           )}
           <button
-            className="hidden group-hover:block text-muted-foreground hover:text-destructive text-xs p-1"
-            aria-label={`Eliminar ${stock.symbol}`}
+            className={`text-muted-foreground hover:text-destructive text-xs p-1 ${
+              needsReview ? 'block' : 'hidden group-hover:block'
+            }`}
+            aria-label={`Archivar ${stock.symbol}`}
+            title="Archivar (sacar del watchlist)"
             onClick={(e) => {
               e.stopPropagation();
               deleteMutation.mutate({ symbol: stock.symbol });
@@ -219,6 +235,17 @@ export function Sidebar({ open = true, onClose }: SidebarProps) {
         </div>
         <Separator />
         <div className="flex-1 overflow-y-auto min-h-0">
+          {(() => {
+            const reviewCount = (symbols ?? []).filter((s) => {
+              const st = statusMap.get(s.symbol);
+              return st && isResolved(st.status);
+            }).length;
+            return reviewCount > 0 ? (
+              <div className="mx-4 mt-3 mb-1 px-2 py-1.5 rounded border border-amber-500/40 bg-amber-500/10 text-[11px] text-amber-300">
+                {reviewCount} {reviewCount === 1 ? 'item resuelto' : 'items resueltos'} · revisá y archivá (×)
+              </div>
+            ) : null;
+          })()}
           {symbols?.length === 0 && (
             <p className="text-xs text-muted-foreground p-4 text-center">
               Agrega simbolos a tu watchlist con el boton +

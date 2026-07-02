@@ -20,6 +20,7 @@ import { getIntelligence, getIntelligenceFromDB } from '../news/news-intelligenc
 import { analyzeSecondOrderEffects } from '../analysis/sector-correlation.service.js';
 import { persistDailyReport } from '../intelligence/daily-report.service.js';
 import { recordSignals, resolveExpiredSignals, recordMissedOpportunities } from './signal-tracking.service.js';
+import { resolveWatchlistItems } from './watchlist-tracking.service.js';
 import { isExcludedInstrument, isTradeable } from './tradeability.js';
 import { runUnifiedAnalysis } from '../intelligence/unified-analysis.service.js';
 import { getSectorForSymbolDynamic, getDiscoveredTickers, pruneExpiredDiscoveries } from '../discovery/discovery-registry.js';
@@ -986,6 +987,14 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
     if (resolved > 0) console.log(`[SignalTracking] ${resolved} señales resueltas`);
   } catch (err) {
     console.warn('[SignalTracking] Error:', err);
+  }
+
+  // Watchlist lifecycle: evaluar items 'live' y cerrar los que tocaron target/stop/horizonte
+  try {
+    const closed = await resolveWatchlistItems();
+    if (closed > 0) console.log(`[Watchlist] ${closed} items cerrados (triggered/invalidated/expired)`);
+  } catch (err) {
+    console.warn('[Watchlist] Error resolviendo items:', err);
   }
 
   // Track missed opportunities (WATCH/HOLD) for retrospective analysis
