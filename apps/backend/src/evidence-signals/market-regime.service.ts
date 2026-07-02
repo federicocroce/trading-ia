@@ -2,6 +2,8 @@ import { getHistoricalQuotes } from '../shared/yahoo.js';
 import type { MarketRegimeData, EvidenceMarketRegime } from '@trading/shared';
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+// TTL corto para regímenes degradados: reintentar pronto en vez de cachear la ceguera 1h.
+const DEGRADED_TTL_MS = 5 * 60 * 1000;
 
 let cachedRegime: MarketRegimeData | null = null;
 let cacheExpiresAt = 0;
@@ -44,15 +46,12 @@ export async function getMarketRegime(): Promise<MarketRegimeData> {
     const ohlc = await getHistoricalQuotes('SPY', '1y', '1d');
 
     if (ohlc.length < 50) {
-      const fallback: MarketRegimeData = {
-        regime: 'neutral',
-        spyPrice: 0,
-        sma200: 0,
-        priceVsSma200Pct: 0,
-        checkedAt: new Date().toISOString(),
-      };
+      // SPY nunca tiene <50 velas legítimamente en 1y — esto es respuesta truncada o
+      // rate-limit, o sea un fallo total de cómputo: degradar, no fingir neutral.
+      console.warn(`[MarketRegime] Insufficient SPY data (${ohlc.length} bars < 50) — degrading regime`);
+      const fallback = buildDegradedRegime(cachedRegime);
       cachedRegime = fallback;
-      cacheExpiresAt = Date.now() + CACHE_TTL_MS;
+      cacheExpiresAt = Date.now() + DEGRADED_TTL_MS;
       return fallback;
     }
 
@@ -62,15 +61,12 @@ export async function getMarketRegime(): Promise<MarketRegimeData> {
     const sma50 = computeSMA(closes, Math.min(50, closes.length));
 
     if (!sma200 || !sma50) {
-      const fallback: MarketRegimeData = {
-        regime: 'neutral',
-        spyPrice,
-        sma200: 0,
-        priceVsSma200Pct: 0,
-        checkedAt: new Date().toISOString(),
-      };
+      // Defensivo: con >=50 closes computeSMA(min(period, length)) no devuelve null,
+      // pero si alguna vez pasa es un fallo de cómputo — degradar igual que el catch.
+      console.warn('[MarketRegime] SMA computation failed — degrading regime');
+      const fallback = buildDegradedRegime(cachedRegime);
       cachedRegime = fallback;
-      cacheExpiresAt = Date.now() + CACHE_TTL_MS;
+      cacheExpiresAt = Date.now() + DEGRADED_TTL_MS;
       return fallback;
     }
 
@@ -117,9 +113,8 @@ export async function getMarketRegime(): Promise<MarketRegimeData> {
   } catch (err) {
     console.warn('[MarketRegime] Failed to compute regime:', (err as Error).message);
     const fallback = buildDegradedRegime(cachedRegime);
-    // TTL corto para reintentar pronto en vez de cachear la ceguera todo el TTL normal.
     cachedRegime = fallback;
-    cacheExpiresAt = Date.now() + 5 * 60 * 1000;
+    cacheExpiresAt = Date.now() + DEGRADED_TTL_MS;
     return fallback;
   }
 }

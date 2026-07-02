@@ -32,4 +32,12 @@ describe('buildDegradedRegime — fail-safe sin datos', () => {
     expect(res.degraded).toBe(true);
     expect(res.spyPrice).toBe(0);
   });
+
+  it('es idempotente: un previo ya degradado (fallo repetido) queda degradado y conserva el régimen', () => {
+    const prev = { regime: 'bear' as const, spyPrice: 520, sma200: 540, priceVsSma200Pct: -3.7, checkedAt: '2026-07-01T12:00:00Z', degraded: true };
+    const res = buildDegradedRegime(prev);
+    expect(res.regime).toBe('bear');
+    expect(res.degraded).toBe(true);
+    expect(res.spyPrice).toBe(520);
+  });
 });
