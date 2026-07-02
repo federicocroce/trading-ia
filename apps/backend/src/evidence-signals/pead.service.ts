@@ -50,13 +50,14 @@ function countConsecutiveBeats(history: EarningsHistoryEntry[]): number {
  * Validates that price actually moved up post-earnings.
  * This catches "beat EPS but sold off on guidance cut" cases — those are NOT PEAD candidates.
  *
- * Returns confirmed=true when ohlcHistory is empty (data unavailable) to avoid false negatives.
+ * Fail-closed: sin datos de precio NO se confirma la dirección. Una señal PEAD
+ * sin confirmación de precio no es señal.
  */
-function validatePriceDirection(
+export function validatePriceDirection(
   announcementDate: string,
   ohlcHistory: OHLC[],
 ): { confirmed: boolean; changePct: number | null } {
-  if (!ohlcHistory.length) return { confirmed: true, changePct: null };
+  if (!ohlcHistory.length) return { confirmed: false, changePct: null };
 
   const announcementTs = new Date(announcementDate).getTime();
 
@@ -64,7 +65,7 @@ function validatePriceDirection(
     .filter((c) => new Date(c.date).getTime() < announcementTs)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
 
-  if (!preEarnings) return { confirmed: true, changePct: null };
+  if (!preEarnings) return { confirmed: false, changePct: null };
 
   // Max close within 5 trading days after announcement (7 calendar days covers weekends)
   const postWindow = ohlcHistory
@@ -74,7 +75,7 @@ function validatePriceDirection(
     })
     .slice(0, 5);
 
-  if (!postWindow.length) return { confirmed: true, changePct: null };
+  if (!postWindow.length) return { confirmed: false, changePct: null };
 
   const maxPostClose = Math.max(...postWindow.map((c) => c.close));
   const changePct = Math.round(((maxPostClose - preEarnings.close) / preEarnings.close) * 10000) / 100;
