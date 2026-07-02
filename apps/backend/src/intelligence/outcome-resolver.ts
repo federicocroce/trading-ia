@@ -222,12 +222,6 @@ export function resolveTrackedSignal(
       : none;
   }
 
-  // Sanity: datos incoherentes (split sin ajustar) — nunca resolver win/loss con esto.
-  const last = after.at(-1)!;
-  if (Math.abs(pctChange(input.entryPrice, last.close)) > maxPlausible) {
-    return { ...none, outcome: 'invalid', resolutionPrice: last.close, resolvedDate: last.date };
-  }
-
   // Niveles coherentes con la dirección; si no lo son, se ignoran.
   const target =
     input.targetPrice != null && (isShort ? input.targetPrice < input.entryPrice : input.targetPrice > input.entryPrice)
@@ -237,6 +231,12 @@ export function resolveTrackedSignal(
       ? input.stopLoss : null;
 
   for (const c of after) {
+    // Sanity por vela: candle incoherente con el entry (split sin ajustar / feed
+    // roto) invalida el tracking entero — nunca resolver win/loss con datos corruptos.
+    if (Math.abs(pctChange(input.entryPrice, c.close)) > maxPlausible) {
+      return { ...none, outcome: 'invalid', resolutionPrice: c.close, resolvedDate: c.date };
+    }
+
     const hitTarget = target != null && (isShort ? c.low <= target : c.high >= target);
     const hitStop = stop != null && (isShort ? c.high >= stop : c.low <= stop);
 
@@ -259,6 +259,7 @@ export function resolveTrackedSignal(
 
   if (daysBetween(input.signalDate, asOfDate) < horizonDays) return none;
 
+  const last = after.at(-1)!;
   const ret = pctChange(input.entryPrice, last.close);
   const dirRet = isShort ? -ret : ret;
   const outcome: SignalOutcome =

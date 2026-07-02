@@ -119,14 +119,14 @@ describe('resolveCausalOutcome', () => {
 });
 
 describe('resolveTrackedSignal', () => {
-  const candle = (date: string, close: number, high = close, low = close) => ({ date, high, low, close });
+  const mkCandle = (date: string, close: number, high = close, low = close) => ({ date, high, low, close });
 
   it('WATCH que colapsa es LOSS, no win (caso SDOT)', () => {
     // SDOT: WATCH a $24.58, target $60.33, stop $0.75 — cayó a $6.77
     const input: TrackedSignalInput = {
       action: 'WATCH', entryPrice: 24.58, targetPrice: 60.33, stopLoss: 0.75, signalDate: '2026-06-11',
     };
-    const candles = [candle('2026-06-16', 21.5), candle('2026-06-23', 9.25), candle('2026-07-11', 6.77)];
+    const candles = [mkCandle('2026-06-16', 21.5), mkCandle('2026-06-23', 9.25), mkCandle('2026-07-11', 6.77)];
     const res = resolveTrackedSignal(input, candles, '2026-07-12');
     expect(res.outcome).toBe('loss');
     expect(res.hitTarget).toBe(false);
@@ -136,7 +136,7 @@ describe('resolveTrackedSignal', () => {
     const input: TrackedSignalInput = {
       action: 'BUY', entryPrice: 100, targetPrice: 120, stopLoss: 92, signalDate: '2026-06-01',
     };
-    const candles = [candle('2026-06-05', 95, 96, 90), candle('2026-06-20', 118)];
+    const candles = [mkCandle('2026-06-05', 95, 96, 90), mkCandle('2026-06-20', 118)];
     const res = resolveTrackedSignal(input, candles, '2026-06-21');
     expect(res.outcome).toBe('loss');
     expect(res.hitStop).toBe(true);
@@ -147,7 +147,7 @@ describe('resolveTrackedSignal', () => {
     const input: TrackedSignalInput = {
       action: 'BUY', entryPrice: 100, targetPrice: 110, stopLoss: 92, signalDate: '2026-06-01',
     };
-    const candles = [candle('2026-06-03', 104), candle('2026-06-08', 109, 111, 107)];
+    const candles = [mkCandle('2026-06-03', 104), mkCandle('2026-06-08', 109, 111, 107)];
     const res = resolveTrackedSignal(input, candles, '2026-06-10');
     expect(res.outcome).toBe('win');
     expect(res.hitTarget).toBe(true);
@@ -158,7 +158,7 @@ describe('resolveTrackedSignal', () => {
     const input: TrackedSignalInput = {
       action: 'BUY', entryPrice: 100, targetPrice: 108, stopLoss: 94, signalDate: '2026-06-01',
     };
-    const candles = [candle('2026-06-02', 100, 109, 93)];
+    const candles = [mkCandle('2026-06-02', 100, 109, 93)];
     const res = resolveTrackedSignal(input, candles, '2026-06-03');
     expect(res.outcome).toBe('loss');
   });
@@ -167,16 +167,17 @@ describe('resolveTrackedSignal', () => {
     const input: TrackedSignalInput = {
       action: 'SELL', entryPrice: 100, targetPrice: null, stopLoss: null, signalDate: '2026-06-01',
     };
-    const candles = [candle('2026-07-02', 90)];
+    const candles = [mkCandle('2026-07-02', 90)];
     const res = resolveTrackedSignal(input, candles, '2026-07-02');
     expect(res.outcome).toBe('win');
+    expect(res.resolutionReturn).toBeCloseTo(10);
   });
 
   it('sin hits y dentro del horizonte queda PENDING', () => {
     const input: TrackedSignalInput = {
       action: 'BUY', entryPrice: 100, targetPrice: 120, stopLoss: 90, signalDate: '2026-06-25',
     };
-    const candles = [candle('2026-06-28', 101)];
+    const candles = [mkCandle('2026-06-28', 101)];
     const res = resolveTrackedSignal(input, candles, '2026-06-30');
     expect(res.outcome).toBe('pending');
   });
@@ -185,7 +186,7 @@ describe('resolveTrackedSignal', () => {
     const input: TrackedSignalInput = {
       action: 'BUY', entryPrice: 100, targetPrice: null, stopLoss: null, signalDate: '2026-05-01',
     };
-    const candles = [candle('2026-06-05', 101)];
+    const candles = [mkCandle('2026-06-05', 101)];
     const res = resolveTrackedSignal(input, candles, '2026-06-10');
     expect(res.outcome).toBe('neutral');
   });
@@ -194,7 +195,7 @@ describe('resolveTrackedSignal', () => {
     const input: TrackedSignalInput = {
       action: 'BUY', entryPrice: 16.21, targetPrice: null, stopLoss: null, signalDate: '2026-06-13',
     };
-    const candles = [candle('2026-07-15', 72.0)]; // +344% — el caso real de SDOT en la DB
+    const candles = [mkCandle('2026-07-15', 72.0)]; // +344% — el caso real de SDOT en la DB
     const res = resolveTrackedSignal(input, candles, '2026-07-16');
     expect(res.outcome).toBe('invalid');
   });
@@ -203,10 +204,36 @@ describe('resolveTrackedSignal', () => {
     const input: TrackedSignalInput = {
       action: 'BUY', entryPrice: 100, targetPrice: 80, stopLoss: null, signalDate: '2026-05-01',
     };
-    const candles = [candle('2026-05-10', 95, 96, 79)];
+    const candles = [mkCandle('2026-05-10', 95, 96, 79)];
     // Si NO se ignorara, current <= 80 en low daría hitTarget=win con el precio cayendo
     const res = resolveTrackedSignal(input, candles, '2026-06-05');
     expect(res.outcome).toBe('loss');
     expect(res.hitTarget).toBe(false);
+  });
+
+  it('hit legítimo temprano gana aunque una vela posterior esté corrupta', () => {
+    const input: TrackedSignalInput = {
+      action: 'BUY', entryPrice: 16.21, targetPrice: 20, stopLoss: null, signalDate: '2026-06-13',
+    };
+    const candles = [mkCandle('2026-06-20', 21, 22, 20), mkCandle('2026-07-15', 72)];
+    const res = resolveTrackedSignal(input, candles, '2026-07-16');
+    expect(res.outcome).toBe('win');
+  });
+
+  it('vela corrupta ANTES de cualquier hit invalida el tracking (falso hit por split)', () => {
+    const input: TrackedSignalInput = {
+      action: 'BUY', entryPrice: 16.21, targetPrice: 46.4, stopLoss: null, signalDate: '2026-06-13',
+    };
+    const candles = [mkCandle('2026-06-18', 72, 72, 70)];
+    const res = resolveTrackedSignal(input, candles, '2026-06-19');
+    expect(res.outcome).toBe('invalid');
+  });
+
+  it('sin velas posteriores y horizonte vencido es invalid', () => {
+    const input: TrackedSignalInput = {
+      action: 'BUY', entryPrice: 100, targetPrice: null, stopLoss: null, signalDate: '2026-01-01',
+    };
+    const res = resolveTrackedSignal(input, [], '2026-03-01');
+    expect(res.outcome).toBe('invalid');
   });
 });
