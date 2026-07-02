@@ -1090,10 +1090,11 @@ export function computeTradeLevels(
 
   // Setup inválido: si aún clampeado (MAX_STOP_ATR_MULT x ATR) el riesgo excede el % máximo
   // del precio de entrada, el trade no es operable — degradar la acción en el caller.
-  // Default 30%: consistente con el propio clamp (3x ATR); un ATR% > ~10% del precio (activos
-  // muy volátiles, ver caso test "riesgo > MAX_SETUP_RISK_PCT") ya lo empuja a invalid incluso
-  // sin haber tocado el clamp de soportes/resistencias.
-  const MAX_SETUP_RISK_PCT = envNumber('MAX_SETUP_RISK_PCT', 30); // % del entry
+  // Ambas protecciones aplican EN SERIE: el clamp acota el stop, y el cap de riesgo marca
+  // invalid lo que sigue siendo inoperable. Un setup que arriesga >10% del precio por trade
+  // no es swing trading — con volatilidad extrema (ATR ≳ 3.3% del precio) el stop clampeado
+  // a 3x ATR ya supera el 10% y el setup queda invalid aunque el clamp haya actuado.
+  const MAX_SETUP_RISK_PCT = envNumber('MAX_SETUP_RISK_PCT', 10); // % del entry
   const riskPct = entryPrice > 0 ? (risk / entryPrice) * 100 : 0;
   const setupQuality: 'valid' | 'invalid' = riskPct > MAX_SETUP_RISK_PCT ? 'invalid' : 'valid';
   const setupWarning = setupQuality === 'invalid'

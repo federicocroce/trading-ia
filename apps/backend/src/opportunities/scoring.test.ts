@@ -82,12 +82,20 @@ describe('scoreToAction', () => {
 // Reverse splits / colapsos tipo SDOT dejan "soportes" del clustering a -90% del entry.
 // Sin clamp, el stop estructural es absurdo y el setup queda como si fuera operable.
 describe('computeTradeLevels — clamp de riesgo (caso SDOT)', () => {
-  it('stop estructural absurdo se clampea a 3x ATR', () => {
-    // SDOT-like: precio 24.58, ATR 2.0, "soporte" del chart destruido en 0.77
+  it('stop estructural absurdo se clampea a 3x ATR Y el setup queda invalid (vol extrema)', () => {
+    // SDOT-like: precio 24.58, ATR 2.0 (8% del precio), "soporte" del chart destruido en 0.77
     const tech = mkTech({ currentPrice: 24.58, atr14: 2.0, supports: [{ price: 0.77, touches: 3 }], resistances: [] });
     const levels = computeTradeLevels(tech, 'BUY')!;
     // stop clampeado: nunca más lejos que 3x ATR del entry
     expect(levels.entryPrice - levels.stopLoss).toBeLessThanOrEqual(3 * 2.0 + 0.01);
+    expect(levels.setupQuality).toBe('invalid'); // riesgo ~24% > 10%: no operable aunque el stop esté clampeado
+  });
+
+  it('clamp con volatilidad normal queda valid (el clamp salva el setup)', () => {
+    // ATR 2% del precio; soporte absurdo en 50 → clamp a 3xATR = riesgo 6% → operable
+    const tech = mkTech({ currentPrice: 100, atr14: 2.0, supports: [{ price: 50, touches: 2 }], resistances: [{ price: 112, touches: 3 }] });
+    const levels = computeTradeLevels(tech, 'BUY')!;
+    expect(levels.entryPrice - levels.stopLoss).toBeLessThanOrEqual(6.01);
     expect(levels.setupQuality).toBe('valid');
   });
 
