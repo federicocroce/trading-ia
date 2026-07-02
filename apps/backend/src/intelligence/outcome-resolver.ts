@@ -155,3 +155,116 @@ export function resolveCausalOutcome(
   const correct = (direction === 'positive' && movedUp) || (direction === 'negative' && !movedUp);
   return { outcome: correct ? 'correct' : 'incorrect', resolutionPrice: lastClose, resolutionReturn: ret };
 }
+
+// ---------------------------------------------------------------------------
+// 3) Señales trackeadas (signal_tracking) — reemplaza la lógica rota que
+//    evaluaba WATCH/HOLD como shorts (caso SDOT: win automático cayendo -72%).
+// ---------------------------------------------------------------------------
+
+export type SignalOutcome = 'win' | 'loss' | 'neutral' | 'pending' | 'invalid';
+
+export interface TrackedSignalInput {
+  action: 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
+  entryPrice: number;
+  targetPrice?: number | null;
+  stopLoss?: number | null;
+  signalDate: string; // YYYY-MM-DD
+}
+
+export interface TrackedSignalOpts {
+  /** Días para resolución definitiva por horizonte. */
+  horizonDays?: number;
+  /** Banda (%) dentro de la cual el resultado es neutral. */
+  neutralBandPct?: number;
+  /** Retorno absoluto (%) por encima del cual los datos se consideran rotos (splits). */
+  maxPlausibleReturnPct?: number;
+}
+
+export interface TrackedSignalResolution {
+  outcome: SignalOutcome;
+  resolutionPrice: number | null;
+  resolutionReturn: number | null; // % a favor de la dirección de la señal
+  hitTarget: boolean;
+  hitStop: boolean;
+  resolvedDate: string | null;
+}
+
+/**
+ * Resuelve una señal trackeada caminando las velas POSTERIORES a la fecha de señal.
+ * Reglas:
+ *   - SOLO SELL se mide como short. BUY/HOLD/WATCH son tesis alcistas.
+ *   - Target/stop incoherentes con la dirección se ignoran (defensa vs niveles absurdos).
+ *   - Stop y target en la misma vela ⇒ conservador: loss (asumimos stop-first).
+ *   - Retorno implausible ⇒ invalid (split sin ajustar / feed roto), nunca win/loss.
+ */
+export function resolveTrackedSignal(
+  input: TrackedSignalInput,
+  candles: PriceCandle[],
+  asOfDate: string,
+  opts: TrackedSignalOpts = {},
+): TrackedSignalResolution {
+  const horizonDays = opts.horizonDays ?? 30;
+  const neutralBandPct = opts.neutralBandPct ?? 2;
+  const maxPlausible = opts.maxPlausibleReturnPct ?? 200;
+
+  const isShort = input.action === 'SELL';
+  const none: TrackedSignalResolution = {
+    outcome: 'pending', resolutionPrice: null, resolutionReturn: null,
+    hitTarget: false, hitStop: false, resolvedDate: null,
+  };
+
+  const after = candles
+    .filter((c) => c.date > input.signalDate)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (after.length === 0) {
+    return daysBetween(input.signalDate, asOfDate) >= horizonDays
+      ? { ...none, outcome: 'invalid' } // horizonte vencido y sin datos = no evaluable
+      : none;
+  }
+
+  // Sanity: datos incoherentes (split sin ajustar) — nunca resolver win/loss con esto.
+  const last = after.at(-1)!;
+  if (Math.abs(pctChange(input.entryPrice, last.close)) > maxPlausible) {
+    return { ...none, outcome: 'invalid', resolutionPrice: last.close, resolvedDate: last.date };
+  }
+
+  // Niveles coherentes con la dirección; si no lo son, se ignoran.
+  const target =
+    input.targetPrice != null && (isShort ? input.targetPrice < input.entryPrice : input.targetPrice > input.entryPrice)
+      ? input.targetPrice : null;
+  const stop =
+    input.stopLoss != null && (isShort ? input.stopLoss > input.entryPrice : input.stopLoss < input.entryPrice)
+      ? input.stopLoss : null;
+
+  for (const c of after) {
+    const hitTarget = target != null && (isShort ? c.low <= target : c.high >= target);
+    const hitStop = stop != null && (isShort ? c.high >= stop : c.low <= stop);
+
+    if (hitStop) {
+      // stop-first también cuando la misma vela toca ambos (conservador)
+      const ret = pctChange(input.entryPrice, stop!);
+      return {
+        outcome: 'loss', resolutionPrice: stop!, resolutionReturn: isShort ? -ret : ret,
+        hitTarget: false, hitStop: true, resolvedDate: c.date,
+      };
+    }
+    if (hitTarget) {
+      const ret = pctChange(input.entryPrice, target!);
+      return {
+        outcome: 'win', resolutionPrice: target!, resolutionReturn: isShort ? -ret : ret,
+        hitTarget: true, hitStop: false, resolvedDate: c.date,
+      };
+    }
+  }
+
+  if (daysBetween(input.signalDate, asOfDate) < horizonDays) return none;
+
+  const ret = pctChange(input.entryPrice, last.close);
+  const dirRet = isShort ? -ret : ret;
+  const outcome: SignalOutcome =
+    dirRet > neutralBandPct ? 'win' : dirRet < -neutralBandPct ? 'loss' : 'neutral';
+  return {
+    outcome, resolutionPrice: last.close, resolutionReturn: dirRet,
+    hitTarget: false, hitStop: false, resolvedDate: last.date,
+  };
+}
