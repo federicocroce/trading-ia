@@ -194,9 +194,15 @@ export function resolveFinalVerdict(opts: {
   }
 
   if (llmAction && llmAction !== finalAction) {
-    trace.push(`llm:${llmAction}${llmReason ? ` (${llmReason.slice(0, 60)})` : ''}`);
-    finalAction = llmAction;
-    source = 'llm';
+    // Defensa en profundidad: el LLM solo puede degradar, nunca subir la acción.
+    const gated = applyLlmAction(finalAction, llmAction) as SignalAction;
+    if (gated !== finalAction) {
+      trace.push(`llm:${llmAction}${llmReason ? ` (${llmReason.slice(0, 60)})` : ''}`);
+      finalAction = gated;
+      source = 'llm';
+    } else {
+      trace.push(`llm:sugirió ${llmAction} — bloqueado (solo degrada)`);
+    }
   } else if (llmAction) {
     trace.push(`llm:confirma`);
   }

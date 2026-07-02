@@ -49,3 +49,23 @@ describe('applyLlmAction — el LLM solo puede degradar', () => {
     expect(applyLlmAction('BUY', 'YOLO')).toBe('BUY');
   });
 });
+
+describe('resolveFinalVerdict — gate del LLM dentro de la cadena', () => {
+  it('bloquea upgrade del llmAction (WATCH → BUY queda en WATCH)', () => {
+    const v = resolveFinalVerdict({
+      algoAction: 'WATCH', algoScore: 40, smartAction: 'WATCH',
+      llmAction: 'BUY', llmReason: 'narrativa entusiasta',
+    });
+    expect(v.finalAction).toBe('WATCH');
+    expect(v.source).not.toBe('llm');
+    expect(v.trace.some(t => t.includes('bloqueado'))).toBe(true);
+  });
+  it('permite degradar via llmAction (BUY → WATCH, source=llm)', () => {
+    const v = resolveFinalVerdict({
+      algoAction: 'BUY', algoScore: 64, smartAction: 'BUY',
+      llmAction: 'WATCH', llmReason: 'riesgo narrativo',
+    });
+    expect(v.finalAction).toBe('WATCH');
+    expect(v.source).toBe('llm');
+  });
+});
