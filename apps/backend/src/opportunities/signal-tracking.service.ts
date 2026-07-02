@@ -64,6 +64,13 @@ export function recordSignals(opportunities: Opportunity[]): number {
   return recorded;
 }
 
+/** Fecha YYYY-MM-DD `days` días después de `ymd` (UTC). */
+function isoDaysAfter(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
 /**
  * Resuelve señales pendientes caminando las velas diarias posteriores a la señal
  * (path-aware: un stop tocado en el camino es loss aunque después rebote).
@@ -72,17 +79,22 @@ export function recordSignals(opportunities: Opportunity[]): number {
 export async function resolveExpiredSignals(): Promise<number> {
   const pending = getPendingSignals();
   const asOfDate = new Date().toISOString().split('T')[0];
-  const candleCache = new Map<string, PriceCandle[]>();
+  const candleCache = new Map<string, PriceCandle[] | null>();
   let resolved = 0;
 
   for (const signal of pending) {
     try {
       let candles = candleCache.get(signal.symbol);
-      if (!candles) {
-        const ohlc = await getHistoricalQuotes(signal.symbol, '1y', '1d');
-        candles = ohlc.map((c) => ({ date: c.date, high: c.high, low: c.low, close: c.close }));
+      if (candles === undefined) {
+        try {
+          const ohlc = await getHistoricalQuotes(signal.symbol, '1y', '1d');
+          candles = ohlc.map((c) => ({ date: c.date, high: c.high, low: c.low, close: c.close }));
+        } catch {
+          candles = null; // símbolo sin datos: no reintentar en esta corrida
+        }
         candleCache.set(signal.symbol, candles);
       }
+      if (!candles) continue;
 
       const input: TrackedSignalInput = {
         action: signal.action as TrackedSignalInput['action'],
@@ -98,16 +110,22 @@ export async function resolveExpiredSignals(): Promise<number> {
       // resolutionReturn viene "a favor de la señal"; en DB guardamos retorno crudo del precio.
       const rawReturn = res.resolutionReturn == null ? null : (isShort ? -res.resolutionReturn : res.resolutionReturn);
 
+      // Checkpoint real a 7 días desde las velas (si la señal cerró antes del día 7, queda null).
+      const day7 = isoDaysAfter(signal.signalDate, 7);
+      const candle7 = candles.find((c) => c.date >= day7) ?? null;
+      const priceAfter7d = candle7?.close ?? null;
+      const returnAfter7d = candle7 ? ((candle7.close - signal.entryPrice) / signal.entryPrice) * 100 : null;
+
       resolveSignal(signal.id, {
-        priceAfter7d: signal.priceAfter7d ?? res.resolutionPrice,
+        priceAfter7d,
         priceAfter30d: res.resolutionPrice,
-        returnAfter7d: signal.returnAfter7d ?? rawReturn,
+        returnAfter7d,
         returnAfter30d: rawReturn,
         hitTarget: res.hitTarget,
         hitStop: res.hitStop,
         outcome: res.outcome,
       });
-      resolved++;
+      if (res.outcome !== 'invalid') resolved++;
     } catch {
       // Sin histórico disponible: se reintenta en la próxima corrida del cron.
     }
