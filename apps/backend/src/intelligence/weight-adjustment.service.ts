@@ -75,7 +75,7 @@ export function shouldGenerateProposal(): boolean {
   const allResolved = db.select().from(signalTracking)
     .where(gte(signalTracking.resolvedAt, since))
     .all()
-    .filter(s => s.outcome && s.outcome !== 'pending');
+    .filter(s => s.outcome && s.outcome !== 'pending' && s.outcome !== 'invalid');
 
   return allResolved.length >= MIN_SIGNALS;
 }
@@ -84,10 +84,11 @@ export function generateWeightProposal(): { id: number } | null {
   if (!shouldGenerateProposal()) return null;
 
   const signals = db.select().from(signalTracking).all()
-    .filter(s => s.outcome && s.outcome !== 'pending' && s.techScore != null && s.fundScore != null && s.sentScore != null);
+    .filter(s => s.outcome && s.outcome !== 'pending' && s.outcome !== 'invalid' && s.techScore != null && s.fundScore != null && s.sentScore != null);
 
   if (signals.length < MIN_SIGNALS) return null;
 
+  // 'invalid' ya está excluido de `signals` arriba — lo que llega acá es win/loss/neutral.
   const outcomeVal = (o: string | null) => o === 'win' ? 1 : o === 'loss' ? 0 : 0.5;
 
   const stSignals = signals.filter(s => s.shortTermScore != null);

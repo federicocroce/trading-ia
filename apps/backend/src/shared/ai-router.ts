@@ -15,7 +15,17 @@ import { askGemini, askGeminiFlash, isGeminiAvailable } from './gemini.js';
 import { withTimeout } from './with-timeout.js';
 
 let _runAiMode: 'cloud' | 'local' = 'cloud';
-const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? 90_000);
+
+/**
+ * Lee un env var numérico en el momento de uso, no al cargar el módulo: con ESM los imports
+ * se hoistean antes que el `dotenv.config()` de index.ts corra, así que un `const X = Number(...)`
+ * a nivel de módulo captura el valor ANTES de que la env var exista y queda inerte para siempre.
+ * También filtra `Number('')` (que da 0, no NaN) y otros valores no positivos.
+ */
+function envNumber(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
 
 export function setRunAiMode(mode: 'cloud' | 'local'): void {
   _runAiMode = mode;
@@ -56,7 +66,8 @@ async function tryProvider(
   validateJSON: boolean,
 ): Promise<string | null> {
   try {
-    const raw = await withTimeout(fn(), LLM_TIMEOUT_MS, name);
+    const timeoutMs = envNumber('LLM_TIMEOUT_MS', 90_000);
+    const raw = await withTimeout(fn(), timeoutMs, name);
     if (!raw) return null;
 
     const cleaned = extractJSON(raw);

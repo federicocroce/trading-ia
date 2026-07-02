@@ -956,7 +956,7 @@ export function getAccuracyBySector(): Array<{ sector: string; total: number; wi
     avgReturn7d: sql<number>`avg(${signalTracking.returnAfter7d})`,
   })
   .from(signalTracking)
-  .where(sql`${signalTracking.outcome} IS NOT NULL AND ${signalTracking.outcome} != 'pending' AND ${signalTracking.sector} IS NOT NULL`)
+  .where(sql`${signalTracking.outcome} IS NOT NULL AND ${signalTracking.outcome} != 'pending' AND ${signalTracking.outcome} != 'invalid' AND ${signalTracking.sector} IS NOT NULL`)
   .groupBy(signalTracking.sector)
   .all();
 
@@ -978,7 +978,7 @@ export function getAccuracyByConfidenceTier(): Array<{ tier: string; total: numb
     avgReturn7d: sql<number>`avg(${signalTracking.returnAfter7d})`,
   })
   .from(signalTracking)
-  .where(sql`${signalTracking.outcome} IS NOT NULL AND ${signalTracking.outcome} != 'pending'`)
+  .where(sql`${signalTracking.outcome} IS NOT NULL AND ${signalTracking.outcome} != 'pending' AND ${signalTracking.outcome} != 'invalid'`)
   .groupBy(sql`case when ${signalTracking.confidence} >= 70 then 'high' when ${signalTracking.confidence} >= 50 then 'medium' else 'low' end`)
   .all();
 
@@ -999,7 +999,7 @@ export function getAccuracyByScoreRange(): Array<{ range: string; total: number;
     avgReturn7d: sql<number>`avg(${signalTracking.returnAfter7d})`,
   })
   .from(signalTracking)
-  .where(sql`${signalTracking.outcome} IS NOT NULL AND ${signalTracking.outcome} != 'pending'`)
+  .where(sql`${signalTracking.outcome} IS NOT NULL AND ${signalTracking.outcome} != 'pending' AND ${signalTracking.outcome} != 'invalid'`)
   .groupBy(sql`case when ${signalTracking.opportunityScore} >= 72 then '72+' when ${signalTracking.opportunityScore} >= 62 then '62-71' when ${signalTracking.opportunityScore} >= 52 then '52-61' else '<52' end`)
   .all();
 
@@ -1020,7 +1020,7 @@ export function getDimensionCorrelation(): { techAccuracy: number; fundAccuracy:
     returnAfter7d: signalTracking.returnAfter7d,
   })
   .from(signalTracking)
-  .where(sql`${signalTracking.outcome} IS NOT NULL AND ${signalTracking.outcome} != 'pending' AND ${signalTracking.techScore} IS NOT NULL`)
+  .where(sql`${signalTracking.outcome} IS NOT NULL AND ${signalTracking.outcome} != 'pending' AND ${signalTracking.outcome} != 'invalid' AND ${signalTracking.techScore} IS NOT NULL`)
   .all();
 
   let techCorrect = 0, fundCorrect = 0, sentCorrect = 0, total = 0;

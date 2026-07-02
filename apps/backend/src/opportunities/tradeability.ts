@@ -28,27 +28,31 @@ export function isTradeable(meta: { name?: string | null; instrumentType?: strin
 // Barrera de calidad: bajo estos umbrales el riesgo de pump-and-dump / iliquidez
 // real supera cualquier edge del análisis. Dato faltante = NO pasa (fail-closed):
 // si no sabemos cuánto vale la empresa, no la recomendamos.
+// Lee el env var en el momento de uso, no al cargar el módulo: con ESM los imports se
+// hoistean antes que el `dotenv.config()` de index.ts corra, así que un `const X = envNumber(...)`
+// a nivel de módulo captura el valor ANTES de que la env var exista y queda inerte para siempre.
+// También filtra `Number('')` (que da 0, no NaN) y otros valores no positivos.
 function envNumber(name: string, fallback: number): number {
   const n = Number(process.env[name]);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
-const MIN_MARKET_CAP = envNumber('MIN_MARKET_CAP_USD', 500_000_000);
-const MIN_QUALITY_PRICE = envNumber('MIN_QUALITY_PRICE_USD', 5);
 
 export function meetsQualityBar(meta: {
   marketCap?: number | null;
   currentPrice?: number | null;
   instrumentType?: string | null;
 }): boolean {
+  const minMarketCap = envNumber('MIN_MARKET_CAP_USD', 500_000_000);
+  const minQualityPrice = envNumber('MIN_QUALITY_PRICE_USD', 5);
   // Cripto: market cap y precio tienen otra semántica; el riesgo se gestiona aparte.
   if (meta.instrumentType === 'crypto') return true;
   // ETFs y commodity-ETFs (GLD/SLV/USO...): Yahoo no reporta marketCap de fondos —
   // exigir solo precio (la liquidez ya la cubre isTradeable).
   if (meta.instrumentType === 'etf' || meta.instrumentType === 'commodity') {
-    return meta.currentPrice != null && meta.currentPrice >= MIN_QUALITY_PRICE;
+    return meta.currentPrice != null && meta.currentPrice >= minQualityPrice;
   }
   // Acciones (y tipo desconocido: fail-closed como acción)
-  if (meta.marketCap == null || meta.marketCap < MIN_MARKET_CAP) return false;
-  if (meta.currentPrice == null || meta.currentPrice < MIN_QUALITY_PRICE) return false;
+  if (meta.marketCap == null || meta.marketCap < minMarketCap) return false;
+  if (meta.currentPrice == null || meta.currentPrice < minQualityPrice) return false;
   return true;
 }

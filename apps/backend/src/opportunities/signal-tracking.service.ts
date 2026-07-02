@@ -111,10 +111,16 @@ export async function resolveExpiredSignals(): Promise<number> {
       const rawReturn = res.resolutionReturn == null ? null : (isShort ? -res.resolutionReturn : res.resolutionReturn);
 
       // Checkpoint real a 7 días desde las velas (si la señal cerró antes del día 7, queda null).
-      const day7 = isoDaysAfter(signal.signalDate, 7);
-      const candle7 = candles.find((c) => c.date >= day7) ?? null;
-      const priceAfter7d = candle7?.close ?? null;
-      const returnAfter7d = candle7 ? ((candle7.close - signal.entryPrice) / signal.entryPrice) * 100 : null;
+      // Si el outcome es 'invalid' la serie está corrupta (p.ej. split roto): los 7d quedan
+      // null — mismo criterio que el backfill (reresolve-signal-tracking.ts).
+      let priceAfter7d: number | null = null;
+      let returnAfter7d: number | null = null;
+      if (res.outcome !== 'invalid') {
+        const day7 = isoDaysAfter(signal.signalDate, 7);
+        const candle7 = candles.find((c) => c.date >= day7) ?? null;
+        priceAfter7d = candle7?.close ?? null;
+        returnAfter7d = candle7 ? ((candle7.close - signal.entryPrice) / signal.entryPrice) * 100 : null;
+      }
 
       resolveSignal(signal.id, {
         priceAfter7d,

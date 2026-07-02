@@ -76,3 +76,20 @@ describe('meetsQualityBar — barrera anti small-cap basura', () => {
     expect(meetsQualityBar({ marketCap: null, currentPrice: 50, instrumentType: null })).toBe(false);
   });
 });
+
+describe('meetsQualityBar — env lazy (MIN_QUALITY_PRICE_USD se lee por invocación, no al cargar el módulo)', () => {
+  it('respeta un override de MIN_QUALITY_PRICE_USD seteado en runtime', () => {
+    const prev = process.env.MIN_QUALITY_PRICE_USD;
+    process.env.MIN_QUALITY_PRICE_USD = '100';
+    try {
+      // Con el default (5) $50 pasaría; con el override en runtime (100) no —
+      // si el read fuera eager (a nivel de módulo) este test fallaría porque ya
+      // habría capturado el default antes de llegar acá.
+      expect(meetsQualityBar({ marketCap: 2_000_000_000, currentPrice: 50 })).toBe(false);
+      expect(meetsQualityBar({ marketCap: 2_000_000_000, currentPrice: 150 })).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.MIN_QUALITY_PRICE_USD;
+      else process.env.MIN_QUALITY_PRICE_USD = prev;
+    }
+  });
+});
