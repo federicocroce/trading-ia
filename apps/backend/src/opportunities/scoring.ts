@@ -1106,7 +1106,11 @@ export function computeTradeLevels(
   let suggestedAmount: number | undefined;
   let sizingReason: string | undefined;
 
-  if (portfolioValue && portfolioValue > 0 && (action === 'BUY' || action === 'WATCH') && entryPrice > 0) {
+  if (setupQuality === 'invalid') {
+    // Sin sizing: recomendar cantidad sobre un setup no operable es contradictorio.
+    sizingReason = 'Sin sizing sugerido: setup inválido (riesgo excede el máximo)';
+    // suggestedQuantity/suggestedAmount quedan undefined
+  } else if (portfolioValue && portfolioValue > 0 && (action === 'BUY' || action === 'WATCH') && entryPrice > 0) {
     // Max 20% del portfolio por activo, ajustado por R/R
     const maxPct = riskRewardRatio >= 2 ? 0.20 : riskRewardRatio >= 1 ? 0.10 : 0;
     if (maxPct > 0) {
@@ -1648,8 +1652,12 @@ export function buildAlgorithmicOpportunity(
   const setupInvalidDegraded = result.tradeLevels?.setupQuality === 'invalid' && result.action === 'BUY';
   if (setupInvalidDegraded) {
     result.action = 'WATCH';
+    // Reemplazar el reasoning: el texto de BUY ("buen momento para entrar") sería contradictorio
+    // en una card WATCH + "no operar". Corre ANTES de resolveFinalVerdict, que lee
+    // simpleReasoning para el smartReason del trace — así el trace también queda coherente.
+    result.simpleReasoning = `Setup no operable: ${result.tradeLevels?.setupWarning ?? 'riesgo excede el máximo'}. Observar — no entrar hasta que el riesgo del setup se normalice.`;
     if (result.tradeLevels?.setupWarning) {
-      result.risks = [result.tradeLevels.setupWarning, ...result.risks].slice(0, 2);
+      result.risks = [result.tradeLevels.setupWarning, ...result.risks].slice(0, 3);
     }
   }
 

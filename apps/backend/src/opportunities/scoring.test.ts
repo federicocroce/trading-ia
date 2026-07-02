@@ -107,6 +107,13 @@ describe('computeTradeLevels — clamp de riesgo (caso SDOT)', () => {
     expect(levels.setupWarning).toContain('riesgo');
   });
 
+  it('setup invalid no sugiere sizing', () => {
+    const tech = mkTech({ currentPrice: 10, atr14: 2.5, supports: [], resistances: [] });
+    const levels = computeTradeLevels(tech, 'BUY', 100_000)!;
+    expect(levels.setupQuality).toBe('invalid');
+    expect(levels.suggestedQuantity).toBeUndefined();
+  });
+
   it('setup normal sigue valid sin cambios', () => {
     const tech = mkTech({ currentPrice: 100, atr14: 2, supports: [{ price: 96, touches: 4 }], resistances: [{ price: 110, touches: 3 }] });
     const levels = computeTradeLevels(tech, 'BUY')!;
