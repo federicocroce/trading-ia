@@ -21,7 +21,7 @@ import { analyzeSecondOrderEffects } from '../analysis/sector-correlation.servic
 import { persistDailyReport } from '../intelligence/daily-report.service.js';
 import { recordSignals, resolveExpiredSignals, recordMissedOpportunities } from './signal-tracking.service.js';
 import { resolveWatchlistItems } from './watchlist-tracking.service.js';
-import { isExcludedInstrument, isTradeable } from './tradeability.js';
+import { isExcludedInstrument, isTradeable, meetsQualityBar } from './tradeability.js';
 import { applyLlmAction } from './verdicts.service.js';
 import { runUnifiedAnalysis } from '../intelligence/unified-analysis.service.js';
 import { getSectorForSymbolDynamic, getDiscoveredTickers, pruneExpiredDiscoveries } from '../discovery/discovery-registry.js';
@@ -792,7 +792,10 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
     // saca lo que ya tenés en cartera (eso siempre se muestra para que decidas).
     .filter((o) =>
       positionMap.has(o.symbol) ||
-      isTradeable({ name: o.classification?.name, instrumentType: o.classification?.instrumentType, avgDollarVolume: o.avgDollarVolume }),
+      (
+        isTradeable({ name: o.classification?.name, instrumentType: o.classification?.instrumentType, avgDollarVolume: o.avgDollarVolume }) &&
+        meetsQualityBar({ marketCap: fundMap.get(o.symbol)?.data.marketCap, currentPrice: o.currentPrice })
+      ),
     )
     .sort((a, b) => b.opportunityScore - a.opportunityScore);
 
