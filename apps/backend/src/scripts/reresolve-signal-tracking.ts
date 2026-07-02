@@ -3,6 +3,8 @@
  * (resolveTrackedSignal). Necesario porque la lógica anterior evaluaba WATCH/HOLD
  * como shorts → ~2.300 wins falsos que además contaminaron el calibrador de pesos.
  *
+ * Idempotente: re-corridas sanean filas afectadas por outages transitorios de Yahoo.
+ *
  * Uso: npm run db:reresolve-signals --workspace=apps/backend
  */
 import 'dotenv/config';
@@ -14,6 +16,7 @@ import {
   resolveTrackedSignal,
   type TrackedSignalInput,
   type PriceCandle,
+  type SignalOutcome,
 } from '../intelligence/outcome-resolver.js';
 
 /** Fecha YYYY-MM-DD `days` días después de `ymd` (UTC). Copiado de signal-tracking.service.ts. */
@@ -21,6 +24,22 @@ function isoDaysAfter(ymd: string, days: number): string {
   const d = new Date(`${ymd}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().split('T')[0];
+}
+
+/** Fetch de velas con 1 reintento (2s de espera) — fallo transitorio ≠ deslistado. */
+async function fetchCandles(symbol: string): Promise<PriceCandle[] | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const ohlc = await getHistoricalQuotes(symbol, '1y', '1d');
+      return ohlc
+        .map((c) => ({ date: c.date, high: c.high, low: c.low, close: c.close }))
+        // No asumir el orden en que Yahoo devuelve las velas.
+        .sort((a, b) => a.date.localeCompare(b.date));
+    } catch {
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+  return null; // símbolo deslistado o sin datos tras 2 intentos
 }
 
 async function main() {
@@ -33,69 +52,77 @@ async function main() {
   let processed = 0;
 
   for (const signal of all) {
-    let candles = candleCache.get(signal.symbol);
-    if (candles === undefined) {
-      try {
-        const ohlc = await getHistoricalQuotes(signal.symbol, '1y', '1d');
-        candles = ohlc
-          .map((c) => ({ date: c.date, high: c.high, low: c.low, close: c.close }))
-          // No asumir el orden en que Yahoo devuelve las velas.
-          .sort((a, b) => a.date.localeCompare(b.date));
-      } catch {
-        candles = null; // símbolo deslistado o sin datos
-      }
-      candleCache.set(signal.symbol, candles);
-    }
-
-    let outcome: string;
-    let update: Record<string, unknown> = {};
-    if (!candles) {
-      outcome = 'invalid';
-    } else {
-      const input: TrackedSignalInput = {
-        action: signal.action as TrackedSignalInput['action'],
-        entryPrice: signal.entryPrice,
-        targetPrice: signal.targetPrice,
-        stopLoss: signal.stopLoss,
-        signalDate: signal.signalDate,
-      };
-      const res = resolveTrackedSignal(input, candles, asOfDate);
-      outcome = res.outcome;
-      const isShort = signal.action === 'SELL';
-      const rawReturn = res.resolutionReturn == null ? null : (isShort ? -res.resolutionReturn : res.resolutionReturn);
-
-      // Checkpoint real a 7 días desde las velas (mismo criterio que resolveExpiredSignals).
-      let priceAfter7d: number | null = null;
-      let returnAfter7d: number | null = null;
-      if (outcome !== 'invalid') {
-        const day7 = isoDaysAfter(signal.signalDate, 7);
-        const candle7 = candles.find((c) => c.date >= day7) ?? null;
-        priceAfter7d = candle7?.close ?? null;
-        returnAfter7d = candle7 ? ((candle7.close - signal.entryPrice) / signal.entryPrice) * 100 : null;
+    try {
+      let candles = candleCache.get(signal.symbol);
+      if (candles === undefined) {
+        candles = await fetchCandles(signal.symbol);
+        candleCache.set(signal.symbol, candles);
       }
 
-      update = {
-        hitTarget: res.hitTarget,
-        hitStop: res.hitStop,
-        returnAfter30d: rawReturn,
-        priceAfter30d: res.resolutionPrice,
-        priceAfter7d,
-        returnAfter7d,
-        resolvedAt: outcome === 'pending' ? null : new Date().toISOString(),
-      };
-    }
+      let outcome: SignalOutcome;
+      let update: Record<string, unknown>;
+      if (!candles) {
+        // Sin datos: limpiar TODOS los campos de resolución — nunca retener basura pre-backfill.
+        outcome = 'invalid';
+        update = {
+          hitTarget: null,
+          hitStop: null,
+          returnAfter30d: null,
+          priceAfter30d: null,
+          priceAfter7d: null,
+          returnAfter7d: null,
+          resolvedAt: new Date().toISOString(),
+        };
+      } else {
+        const input: TrackedSignalInput = {
+          action: signal.action as TrackedSignalInput['action'],
+          entryPrice: signal.entryPrice,
+          targetPrice: signal.targetPrice,
+          stopLoss: signal.stopLoss,
+          signalDate: signal.signalDate,
+        };
+        const res = resolveTrackedSignal(input, candles, asOfDate);
+        outcome = res.outcome;
+        const isShort = signal.action === 'SELL';
+        const rawReturn = res.resolutionReturn == null ? null : (isShort ? -res.resolutionReturn : res.resolutionReturn);
 
-    // Serie corrupta (deslistado o split sin ajustar) → nunca persistir checkpoints de 7d.
-    if (outcome === 'invalid') {
-      update.priceAfter7d = null;
-      update.returnAfter7d = null;
-    }
+        // Checkpoint real a 7 días desde las velas (mismo criterio que resolveExpiredSignals).
+        // Si el outcome es 'invalid' la serie está corrupta: los 7d quedan null.
+        let priceAfter7d: number | null = null;
+        let returnAfter7d: number | null = null;
+        if (outcome !== 'invalid') {
+          const day7 = isoDaysAfter(signal.signalDate, 7);
+          const candle7 = candles.find((c) => c.date >= day7) ?? null;
+          priceAfter7d = candle7?.close ?? null;
+          returnAfter7d = candle7 ? ((candle7.close - signal.entryPrice) / signal.entryPrice) * 100 : null;
+        }
 
-    db.update(schema.signalTracking)
-      .set({ outcome, ...update })
-      .where(eq(schema.signalTracking.id, signal.id))
-      .run();
-    counts[outcome] = (counts[outcome] ?? 0) + 1;
+        // resolvedAt estable: solo re-timestampear si el outcome CAMBIÓ (weight-adjustment
+        // usa resolvedAt >= since; una re-corrida no debe disparar propuestas artificiales).
+        const changed = outcome !== signal.outcome;
+        update = {
+          hitTarget: res.hitTarget,
+          hitStop: res.hitStop,
+          returnAfter30d: rawReturn,
+          priceAfter30d: res.resolutionPrice,
+          priceAfter7d,
+          returnAfter7d,
+          resolvedAt: outcome === 'pending'
+            ? null
+            : (changed ? new Date().toISOString() : (signal.resolvedAt ?? new Date().toISOString())),
+        };
+      }
+
+      db.update(schema.signalTracking)
+        .set({ outcome, ...update })
+        .where(eq(schema.signalTracking.id, signal.id))
+        .run();
+      counts[outcome] = (counts[outcome] ?? 0) + 1;
+    } catch (err) {
+      // Una fila rota no debe matar el proceso entero.
+      counts['error'] = (counts['error'] ?? 0) + 1;
+      console.error(`[Backfill] error en señal id=${signal.id} (${signal.symbol}):`, err);
+    }
 
     processed++;
     if (processed % 25 === 0) {
