@@ -25,6 +25,7 @@ import { computePortfolioAdjustment } from './portfolio-risk.service.js';
 import { factorsForSymbol } from './risk-factor-map.js';
 import { anticipatoryUpgrade } from './anticipatory-alerts.js';
 import { computeConfluencePercent } from './confluence.js';
+import { envNumber } from '../shared/env-number.js';
 
 // --- Normalización a escala 0-100 ---
 
@@ -938,7 +939,7 @@ function buildSimpleReasoning(
 
 // --- Trade Levels (entry / stop-loss / take-profit) ---
 
-function computeTradeLevels(
+export function computeTradeLevels(
   tech: TechnicalSummary | undefined,
   action: SignalAction,
   portfolioValue?: number,
@@ -951,6 +952,12 @@ function computeTradeLevels(
   const atr = ind.atr14 ?? price * 0.03; // fallback 3% si no hay ATR
   const supports = ind.supports ?? [];
   const resistances = ind.resistances ?? [];
+
+  // Clamp de riesgo: un "soporte" de un chart roto (reverse split, colapso tipo SDOT) puede
+  // quedar a -90% del entry. El stop NUNCA queda más lejos que MAX_STOP_ATR_MULT x ATR,
+  // sea cual sea lo que diga el clustering de soportes/resistencias.
+  const MAX_STOP_ATR_MULT = 3;
+  const maxStopDistance = atr * MAX_STOP_ATR_MULT;
 
   let entryPrice: number;
   let stopLoss: number;
@@ -978,6 +985,11 @@ function computeTradeLevels(
     } else {
       stopLoss = Math.round((entryPrice - atr * 1.5) * 100) / 100;
       stopReason = `1.5x ATR ($${atr.toFixed(2)}) debajo de entrada`;
+    }
+
+    if (entryPrice - stopLoss > maxStopDistance) {
+      stopLoss = Math.round((entryPrice - maxStopDistance) * 100) / 100;
+      stopReason = `Clamp: stop estructural demasiado lejano — ajustado a ${MAX_STOP_ATR_MULT}x ATR ($${atr.toFixed(2)})`;
     }
 
     // Target: buscar resistencia que de un R/R minimo de 1.5
@@ -1017,6 +1029,11 @@ function computeTradeLevels(
       stopReason = `1.5x ATR arriba (para cortar perdida si sube)`;
     }
 
+    if (stopLoss - entryPrice > maxStopDistance) {
+      stopLoss = Math.round((entryPrice + maxStopDistance) * 100) / 100;
+      stopReason = `Clamp: stop estructural demasiado lejano — ajustado a ${MAX_STOP_ATR_MULT}x ATR ($${atr.toFixed(2)})`;
+    }
+
     // Target: buscar soporte que de buen R/R
     const sellRisk = Math.abs(stopLoss - entryPrice);
     const sellMinTarget = entryPrice - sellRisk * 1.5;
@@ -1048,6 +1065,12 @@ function computeTradeLevels(
     stopReason = supports[0]
       ? `Debajo de soporte $${supports[0].price.toFixed(2)}`
       : `1.5x ATR debajo de precio actual`;
+
+    if (entryPrice - stopLoss > maxStopDistance) {
+      stopLoss = Math.round((entryPrice - maxStopDistance) * 100) / 100;
+      stopReason = `Clamp: stop estructural demasiado lejano — ajustado a ${MAX_STOP_ATR_MULT}x ATR ($${atr.toFixed(2)})`;
+    }
+
     takeProfit = resistances[0]
       ? Math.round(resistances[0].price * 100) / 100
       : Math.round((price + atr * 2.5) * 100) / 100;
@@ -1064,6 +1087,18 @@ function computeTradeLevels(
   const risk = Math.abs(entryPrice - stopLoss);
   const reward = Math.abs(takeProfit - entryPrice);
   const riskRewardRatio = risk > 0 ? Math.round((reward / risk) * 100) / 100 : 0;
+
+  // Setup inválido: si aún clampeado (MAX_STOP_ATR_MULT x ATR) el riesgo excede el % máximo
+  // del precio de entrada, el trade no es operable — degradar la acción en el caller.
+  // Default 30%: consistente con el propio clamp (3x ATR); un ATR% > ~10% del precio (activos
+  // muy volátiles, ver caso test "riesgo > MAX_SETUP_RISK_PCT") ya lo empuja a invalid incluso
+  // sin haber tocado el clamp de soportes/resistencias.
+  const MAX_SETUP_RISK_PCT = envNumber('MAX_SETUP_RISK_PCT', 30); // % del entry
+  const riskPct = entryPrice > 0 ? (risk / entryPrice) * 100 : 0;
+  const setupQuality: 'valid' | 'invalid' = riskPct > MAX_SETUP_RISK_PCT ? 'invalid' : 'valid';
+  const setupWarning = setupQuality === 'invalid'
+    ? `riesgo del setup ${riskPct.toFixed(1)}% > máximo ${MAX_SETUP_RISK_PCT}% — no operar`
+    : undefined;
 
   // Position sizing basado en portfolio value y risk/reward
   let suggestedQuantity: number | undefined;
@@ -1095,6 +1130,7 @@ function computeTradeLevels(
     entryPrice, stopLoss, takeProfit, riskRewardRatio,
     entryReason, stopReason, targetReason,
     suggestedQuantity, suggestedAmount, sizingReason,
+    setupQuality, setupWarning,
   };
 }
 
@@ -1598,6 +1634,24 @@ export function buildAlgorithmicOpportunity(
     }
   }
 
+  // === SETUP INVÁLIDO: riesgo inaceptable (aún clampeado) degrada BUY a WATCH ===
+  // Señal sin trade operable no es señal (caso SDOT: "soporte" a -90% del entry). Corre DESPUÉS
+  // de todos los overrides bullish (smartAction, safety post-conflictos, anticipatoryUpgrade) —
+  // ninguno puede pisarla — y ANTES de convictionTier/actionCondition/entryScore para que esos
+  // campos reflejen la acción final en vez de quedar con framing de BUY mientras action ya es
+  // WATCH (buildActionCondition tiene texto muy distinto por rama de acción).
+  // No recalculamos tradeLevels: la rama BUY/WATCH de computeTradeLevels usa la misma fórmula
+  // para ambas acciones, así que stopLoss/setupQuality ya son correctos.
+  // SignalAction hoy no incluye STRONG_BUY (packages/shared/src/types/signal.ts) — si se agrega
+  // en el futuro, sumar esa rama a la condición de abajo.
+  const setupInvalidDegraded = result.tradeLevels?.setupQuality === 'invalid' && result.action === 'BUY';
+  if (setupInvalidDegraded) {
+    result.action = 'WATCH';
+    if (result.tradeLevels?.setupWarning) {
+      result.risks = [result.tradeLevels.setupWarning, ...result.risks].slice(0, 2);
+    }
+  }
+
   // Compute conviction tier based on final state
   const hasBullishDivergence = tech?.divergences?.some(d => d.type === 'bullish') ?? false;
   const finalHasConflicts = (result.signalConflicts?.length ?? 0) > 0;
@@ -1631,6 +1685,16 @@ export function buildAlgorithmicOpportunity(
     portfolioAdjustment,
     // llmAction y llmReason se inyectan después en unified-analysis si aplica
   });
+
+  // resolveFinalVerdict ya registra el cambio de acción como `smart:WATCH (...)` (smartAction
+  // !== algoAction), pero esa es la etiqueta genérica de heurísticas de trade-levels/divergencias.
+  // Un setup con riesgo inaceptable es una regla dura (misma categoría que applyAxisVetos), así
+  // que anotamos el trace explícitamente en formato `veto:` para que quede distinguible en logs
+  // y en el frontend — mismo mecanismo que usa la capa LLM en opportunities.service.ts (mutar
+  // trace/finalAction directamente en vez de agregar un parámetro más a resolveFinalVerdict).
+  if (setupInvalidDegraded) {
+    result.verdict.trace.push(`veto:setup_invalido (${result.tradeLevels?.setupWarning})`);
+  }
 
   return result;
 }

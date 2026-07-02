@@ -6,6 +6,8 @@
  * Puro y testeable. La parte de I/O (volumen) la calcula el scan y la pasa acá.
  */
 
+import { envNumber } from '../shared/env-number.js';
+
 // Nombres que delatan renta fija / MLP / preferida / fondo de renta (no swing).
 const EXCLUDE_NAME = /\b(bonds?|treasur\w*|high[\s-]?yield|municipal|aggregate bond|income fund|preferred|depositary|master limited|\bl\.?p\.?\b|\bmlp\b|partners l\.?p)\b/i;
 
@@ -28,15 +30,6 @@ export function isTradeable(meta: { name?: string | null; instrumentType?: strin
 // Barrera de calidad: bajo estos umbrales el riesgo de pump-and-dump / iliquidez
 // real supera cualquier edge del análisis. Dato faltante = NO pasa (fail-closed):
 // si no sabemos cuánto vale la empresa, no la recomendamos.
-// Lee el env var en el momento de uso, no al cargar el módulo: con ESM los imports se
-// hoistean antes que el `dotenv.config()` de index.ts corra, así que un `const X = envNumber(...)`
-// a nivel de módulo captura el valor ANTES de que la env var exista y queda inerte para siempre.
-// También filtra `Number('')` (que da 0, no NaN) y otros valores no positivos.
-function envNumber(name: string, fallback: number): number {
-  const n = Number(process.env[name]);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-
 export function meetsQualityBar(meta: {
   marketCap?: number | null;
   currentPrice?: number | null;

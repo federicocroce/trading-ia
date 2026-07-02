@@ -49,6 +49,9 @@ export interface TradeLevels {
   suggestedQuantity?: number;
   suggestedAmount?: number;
   sizingReason?: string;
+  /** 'invalid' = el riesgo del setup excede el máximo tolerable; no operar, la acción se degrada. */
+  setupQuality?: 'valid' | 'invalid';
+  setupWarning?: string;
 }
 
 export interface SignalConflict {
