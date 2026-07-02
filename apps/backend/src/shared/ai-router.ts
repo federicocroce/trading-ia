@@ -12,8 +12,10 @@ import { askGroq, askGroqLight } from './groq.js';
 import { askOpenRouter } from './openrouter.js';
 import { askLMStudio } from './lmstudio.js';
 import { askGemini, askGeminiFlash, isGeminiAvailable } from './gemini.js';
+import { withTimeout } from './with-timeout.js';
 
 let _runAiMode: 'cloud' | 'local' = 'cloud';
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? 90_000);
 
 export function setRunAiMode(mode: 'cloud' | 'local'): void {
   _runAiMode = mode;
@@ -54,7 +56,7 @@ async function tryProvider(
   validateJSON: boolean,
 ): Promise<string | null> {
   try {
-    const raw = await fn();
+    const raw = await withTimeout(fn(), LLM_TIMEOUT_MS, name);
     if (!raw) return null;
 
     const cleaned = extractJSON(raw);
