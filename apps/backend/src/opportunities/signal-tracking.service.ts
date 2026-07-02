@@ -7,7 +7,12 @@ import {
   getSignalAccuracyStats,
   insertMissedOpportunity,
 } from '../db/repository.js';
-import { getQuote } from '../shared/yahoo.js';
+import { getHistoricalQuotes } from '../shared/yahoo.js';
+import {
+  resolveTrackedSignal,
+  type TrackedSignalInput,
+  type PriceCandle,
+} from '../intelligence/outcome-resolver.js';
 
 /**
  * Registra señales BUY/SELL de un scan para tracking posterior.
@@ -60,68 +65,51 @@ export function recordSignals(opportunities: Opportunity[]): number {
 }
 
 /**
- * Resuelve señales pendientes comparando el precio actual vs el precio de entrada.
- * Se ejecuta periódicamente (ej: al arrancar el scan diario).
+ * Resuelve señales pendientes caminando las velas diarias posteriores a la señal
+ * (path-aware: un stop tocado en el camino es loss aunque después rebote).
+ * Cachea el histórico por símbolo dentro de la corrida para no repetir fetches.
  */
 export async function resolveExpiredSignals(): Promise<number> {
   const pending = getPendingSignals();
-  const now = new Date();
+  const asOfDate = new Date().toISOString().split('T')[0];
+  const candleCache = new Map<string, PriceCandle[]>();
   let resolved = 0;
 
   for (const signal of pending) {
-    const signalDate = new Date(signal.signalDate);
-    const daysSince = Math.floor((now.getTime() - signalDate.getTime()) / (1000 * 60 * 60 * 24));
-
-    // Necesitamos al menos 7 días para evaluar
-    if (daysSince < 7) continue;
-
     try {
-      const quote = await getQuote(signal.symbol);
-      if (!quote || quote.current <= 0) continue;
-
-      const currentPrice = quote.current;
-      const entryPrice = signal.entryPrice;
-      const returnPct = ((currentPrice - entryPrice) / entryPrice) * 100;
-
-      const isBuy = signal.action === 'BUY';
-      const returnForAction = isBuy ? returnPct : -returnPct; // SELL gana si baja
-
-      // Check target/stop hits
-      let hitTarget = false;
-      let hitStop = false;
-
-      if (isBuy) {
-        if (signal.targetPrice && currentPrice >= signal.targetPrice) hitTarget = true;
-        if (signal.stopLoss && currentPrice <= signal.stopLoss) hitStop = true;
-      } else {
-        if (signal.targetPrice && currentPrice <= signal.targetPrice) hitTarget = true;
-        if (signal.stopLoss && currentPrice >= signal.stopLoss) hitStop = true;
+      let candles = candleCache.get(signal.symbol);
+      if (!candles) {
+        const ohlc = await getHistoricalQuotes(signal.symbol, '1y', '1d');
+        candles = ohlc.map((c) => ({ date: c.date, high: c.high, low: c.low, close: c.close }));
+        candleCache.set(signal.symbol, candles);
       }
 
-      // Determine outcome
-      let outcome: string;
-      if (hitTarget) outcome = 'win';
-      else if (hitStop) outcome = 'loss';
-      else if (returnForAction > 2) outcome = 'win';
-      else if (returnForAction < -2) outcome = 'loss';
-      else outcome = 'neutral';
+      const input: TrackedSignalInput = {
+        action: signal.action as TrackedSignalInput['action'],
+        entryPrice: signal.entryPrice,
+        targetPrice: signal.targetPrice,
+        stopLoss: signal.stopLoss,
+        signalDate: signal.signalDate,
+      };
+      const res = resolveTrackedSignal(input, candles, asOfDate);
+      if (res.outcome === 'pending') continue;
 
-      // Si pasaron 30+ días, resolver definitivamente
-      const is30d = daysSince >= 30;
+      const isShort = signal.action === 'SELL';
+      // resolutionReturn viene "a favor de la señal"; en DB guardamos retorno crudo del precio.
+      const rawReturn = res.resolutionReturn == null ? null : (isShort ? -res.resolutionReturn : res.resolutionReturn);
 
       resolveSignal(signal.id, {
-        priceAfter7d: daysSince >= 7 && daysSince < 30 ? currentPrice : signal.priceAfter7d,
-        priceAfter30d: is30d ? currentPrice : null,
-        returnAfter7d: daysSince >= 7 && daysSince < 30 ? returnPct : signal.returnAfter7d,
-        returnAfter30d: is30d ? returnPct : null,
-        hitTarget,
-        hitStop,
-        outcome: is30d || hitTarget || hitStop ? outcome : 'pending',
+        priceAfter7d: signal.priceAfter7d ?? res.resolutionPrice,
+        priceAfter30d: res.resolutionPrice,
+        returnAfter7d: signal.returnAfter7d ?? rawReturn,
+        returnAfter30d: rawReturn,
+        hitTarget: res.hitTarget,
+        hitStop: res.hitStop,
+        outcome: res.outcome,
       });
-
-      if (is30d || hitTarget || hitStop) resolved++;
+      resolved++;
     } catch {
-      // Skip on error, retry next time
+      // Sin histórico disponible: se reintenta en la próxima corrida del cron.
     }
   }
 
