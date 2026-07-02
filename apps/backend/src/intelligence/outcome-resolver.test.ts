@@ -3,6 +3,7 @@ import {
   resolveAlertOutcome,
   resolveCausalOutcome,
   resolveTrackedSignal,
+  computeRMultiple,
   type PriceCandle,
   type AlertResolutionInput,
   type TrackedSignalInput,
@@ -235,5 +236,22 @@ describe('resolveTrackedSignal', () => {
     };
     const res = resolveTrackedSignal(input, [], '2026-03-01');
     expect(res.outcome).toBe('invalid');
+  });
+});
+
+describe('computeRMultiple', () => {
+  it('long que sale en target 2R da +2', () => {
+    expect(computeRMultiple('BUY', 100, 95, 110)).toBeCloseTo(2);
+  });
+  it('long que sale en el stop da -1', () => {
+    expect(computeRMultiple('BUY', 100, 95, 95)).toBeCloseTo(-1);
+  });
+  it('short gana cuando baja', () => {
+    expect(computeRMultiple('SELL', 100, 105, 90)).toBeCloseTo(2);
+  });
+  it('sin stop válido devuelve null (no se puede medir riesgo)', () => {
+    expect(computeRMultiple('BUY', 100, null, 110)).toBeNull();
+    expect(computeRMultiple('BUY', 100, 100, 110)).toBeNull(); // stop == entry
+    expect(computeRMultiple('BUY', 100, 120, 110)).toBeNull(); // stop incoherente
   });
 });

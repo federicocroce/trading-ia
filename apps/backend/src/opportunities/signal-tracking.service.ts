@@ -10,6 +10,7 @@ import {
 import { getHistoricalQuotes } from '../shared/yahoo.js';
 import {
   resolveTrackedSignal,
+  computeRMultiple,
   type TrackedSignalInput,
   type PriceCandle,
 } from '../intelligence/outcome-resolver.js';
@@ -130,6 +131,9 @@ export async function resolveExpiredSignals(): Promise<number> {
         hitTarget: res.hitTarget,
         hitStop: res.hitStop,
         outcome: res.outcome,
+        rMultiple: res.resolutionPrice != null && res.outcome !== 'invalid'
+          ? computeRMultiple(signal.action as any, signal.entryPrice, signal.stopLoss, res.resolutionPrice)
+          : null,
       });
       if (res.outcome !== 'invalid') resolved++;
     } catch {

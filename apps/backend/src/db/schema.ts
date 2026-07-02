@@ -246,6 +246,8 @@ export const signalTracking = sqliteTable('signal_tracking', {
   whoWasRight: text('who_was_right'),                   // 'algo' | 'llm' | 'both' | 'neither' | 'pending' — resuelto post-outcome
   evidenceScore: integer('evidence_score'),             // 4to eje del composite
   macroDelta: integer('macro_delta'),                   // ajuste macro aplicado (-15..+15)
+  // R-múltiplo: retorno medido en unidades de riesgo (entry→stop). Expectancy real del sistema.
+  rMultiple: real('r_multiple'),
 });
 
 // --- Historical price cache (1 day TTL daily, 1 week TTL weekly) ---

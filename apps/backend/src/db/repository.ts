@@ -901,6 +901,7 @@ export function resolveSignal(id: number, data: {
   hitTarget?: boolean | null;
   hitStop?: boolean | null;
   outcome: string;
+  rMultiple?: number | null;
 }) {
   return db.update(schema.signalTracking)
     .set({ ...data, resolvedAt: new Date().toISOString() })
@@ -936,6 +937,15 @@ export function getSignalAccuracyStats() {
     ? all.reduce((sum, s) => sum + (s.returnAfter30d ?? 0), 0) / total
     : 0;
 
+  // R-múltiplo: expectancy real del sistema, medida en unidades de riesgo asumido.
+  // Solo cuenta filas con rMultiple calculable (requiere stop válido); no todas las
+  // señales resueltas lo tienen, por eso el sample size es independiente de `total`.
+  const rValues = all.map(s => s.rMultiple).filter((r): r is number => r != null);
+  const rSampleSize = rValues.length;
+  const avgR = rSampleSize > 0
+    ? Math.round((rValues.reduce((sum, r) => sum + r, 0) / rSampleSize) * 100) / 100
+    : 0;
+
   return {
     total,
     wins,
@@ -944,6 +954,9 @@ export function getSignalAccuracyStats() {
     winRate: total > 0 ? Math.round((wins / total) * 100) : 0,
     avgReturn7d: Math.round(avgReturn7d * 100) / 100,
     avgReturn30d: Math.round(avgReturn30d * 100) / 100,
+    avgR,
+    expectancyR: avgR,
+    rSampleSize,
   };
 }
 

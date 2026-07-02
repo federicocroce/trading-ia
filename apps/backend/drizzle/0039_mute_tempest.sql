@@ -1,0 +1,1 @@
+ALTER TABLE `signal_tracking` ADD `r_multiple` real;

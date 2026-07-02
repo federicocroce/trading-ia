@@ -269,3 +269,22 @@ export function resolveTrackedSignal(
     hitTarget: false, hitStop: false, resolvedDate: last.date,
   };
 }
+
+/**
+ * R-múltiplo: retorno medido en unidades de riesgo asumido (distancia entry→stop).
+ * +2R = ganaste el doble de lo que arriesgabas. Es la métrica de expectancy real:
+ * un sistema con 37% de aciertos y salidas a +2R es rentable; % de aciertos solo, no dice nada.
+ */
+export function computeRMultiple(
+  action: 'BUY' | 'SELL' | 'HOLD' | 'WATCH',
+  entryPrice: number,
+  stopLoss: number | null | undefined,
+  resolutionPrice: number,
+): number | null {
+  if (stopLoss == null || entryPrice <= 0) return null;
+  const isShort = action === 'SELL';
+  const risk = isShort ? stopLoss - entryPrice : entryPrice - stopLoss;
+  if (risk <= 0) return null; // stop incoherente con la dirección
+  const move = isShort ? entryPrice - resolutionPrice : resolutionPrice - entryPrice;
+  return Math.round((move / risk) * 100) / 100;
+}

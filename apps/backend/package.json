@@ -18,7 +18,8 @@
     "db:studio": "drizzle-kit studio",
     "db:add-tx": "tsx src/db/add-transaction.ts",
     "db:import-buenbit": "tsx src/db/import-buenbit.ts",
-    "db:reresolve-signals": "tsx src/scripts/reresolve-signal-tracking.ts"
+    "db:reresolve-signals": "tsx src/scripts/reresolve-signal-tracking.ts",
+    "db:backfill-r": "tsx src/scripts/backfill-r-multiple.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

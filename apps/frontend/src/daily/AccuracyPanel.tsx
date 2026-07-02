@@ -15,6 +15,56 @@ function returnColor(val: number) {
   return 'text-muted-foreground';
 }
 
+function expectancyColor(r: number) {
+  if (r > 0) return 'text-green-400';
+  if (r < 0) return 'text-red-400';
+  return 'text-muted-foreground';
+}
+
+function OverallAccuracySection() {
+  const { data, isLoading } = trpc.opportunities.accuracyStats.useQuery(undefined, {
+    staleTime: 5 * 60_000,
+  });
+
+  if (isLoading || !data || data.total === 0) return null;
+
+  return (
+    <div className="space-y-1.5">
+      <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-medium">
+        Resultado global ({data.total} senales BUY/SELL)
+      </span>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="text-center rounded-md bg-muted/30 py-1.5 px-2">
+          <span className="text-[9px] text-muted-foreground block">Win rate</span>
+          <span className={`text-sm font-mono font-bold ${winRateColor(data.winRate)}`}>
+            {data.winRate}%
+          </span>
+        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="text-center cursor-help rounded-md bg-muted/30 py-1.5 px-2">
+              <span className="text-[9px] text-muted-foreground block">Expectancy</span>
+              {data.rSampleSize > 0 ? (
+                <span className={`text-sm font-mono font-bold ${expectancyColor(data.expectancyR)}`}>
+                  {data.expectancyR > 0 ? '+' : ''}{data.expectancyR}R
+                </span>
+              ) : (
+                <span className="text-sm font-mono font-bold text-muted-foreground">N/D</span>
+              )}
+              <span className="text-[8px] text-muted-foreground block">por senal</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            Retorno promedio medido en unidades de riesgo asumido (R = distancia entry-stop).
+            Un sistema con win rate bajo puede ser rentable si el R promedio es positivo.
+            Muestra: {data.rSampleSize} senales con stop valido.
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    </div>
+  );
+}
+
 function DimensionSection() {
   const { data, isLoading } = trpc.opportunities.dimensionCorrelation.useQuery(undefined, {
     staleTime: 5 * 60_000,
@@ -242,6 +292,7 @@ export function AccuracyPanel() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <OverallAccuracySection />
         <DimensionSection />
         <ConfidenceTierSection />
         <SectorAccuracySection />
