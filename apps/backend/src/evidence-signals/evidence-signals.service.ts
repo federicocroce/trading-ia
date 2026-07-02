@@ -211,10 +211,14 @@ async function computeEvidenceSignal(symbol: string, peadOverride?: PeadOverride
     currentPrice,
   );
 
-  // Hard prerequisite: bear regime blocks all LONG signals (SPY < SMA200)
+  // Hard prerequisite: bear regime blocks all LONG signals (SPY < SMA200).
+  // A degraded regime (fail-safe: régimen no pudo calcularse con datos frescos) blocks
+  // LONGs too — perder el bloqueo bear en silencio por un fallo de fetch es peor que
+  // ser conservador de más.
   // ETFs are exempt since they can serve as hedges / sector shorts context
   const regime = lastMarketRegime?.regime ?? 'neutral';
-  const bearBlock = !isEtf && regime === 'bear';
+  const regimeDegraded = lastMarketRegime?.degraded ?? false;
+  const bearBlock = !isEtf && (regime === 'bear' || regimeDegraded);
   const peadActive = bearBlock ? false : pead.active;
   const insiderActive = bearBlock ? false : insider.active;
   const optionsActive = optionsFlow.active;
@@ -398,8 +402,9 @@ async function runScan(forceRefresh: boolean) {
 
     // Fetch market regime first — used to context-weight signals
     lastMarketRegime = await getMarketRegime();
-    if (lastMarketRegime.regime === 'bear') {
-      console.warn(`[EvidenceSignals] ⚠️  BEAR MARKET: SPY ${lastMarketRegime.priceVsSma200Pct}% bajo SMA200. Señales LONG son de ALTO RIESGO.`);
+    if (lastMarketRegime.regime === 'bear' || lastMarketRegime.degraded) {
+      const motivo = lastMarketRegime.degraded ? 'regime degraded (sin datos)' : 'bear market';
+      console.warn(`[EvidenceSignals] ⚠️  BLOQUEO LONGS (${motivo}): SPY ${lastMarketRegime.priceVsSma200Pct}% bajo SMA200. Señales LONG son de ALTO RIESGO.`);
     }
 
     const portfolioSymbols = getAllSymbols()

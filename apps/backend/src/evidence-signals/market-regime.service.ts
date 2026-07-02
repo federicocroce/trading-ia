@@ -19,6 +19,23 @@ export function applyVixGate(spyRegime: EvidenceMarketRegime, vix: number): Evid
   return spyRegime;
 }
 
+/**
+ * Fail-safe cuando el régimen no puede calcularse: mejor stale que ciego.
+ * Devuelve el régimen previo marcado degraded, o un neutral degradado que los
+ * consumidores deben tratar como bloqueo de LONGs nuevos (no como neutral real).
+ */
+export function buildDegradedRegime(prev: MarketRegimeData | null): MarketRegimeData {
+  if (prev) return { ...prev, degraded: true };
+  return {
+    regime: 'neutral',
+    degraded: true,
+    spyPrice: 0,
+    sma200: 0,
+    priceVsSma200Pct: 0,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
 export async function getMarketRegime(): Promise<MarketRegimeData> {
   if (cachedRegime && Date.now() < cacheExpiresAt) return cachedRegime;
 
@@ -88,6 +105,7 @@ export async function getMarketRegime(): Promise<MarketRegimeData> {
       sma200: Math.round(sma200 * 100) / 100,
       priceVsSma200Pct,
       checkedAt: new Date().toISOString(),
+      degraded: false,
     };
 
     cachedRegime = result;
@@ -98,15 +116,10 @@ export async function getMarketRegime(): Promise<MarketRegimeData> {
     return result;
   } catch (err) {
     console.warn('[MarketRegime] Failed to compute regime:', (err as Error).message);
-    const fallback: MarketRegimeData = {
-      regime: 'neutral',
-      spyPrice: 0,
-      sma200: 0,
-      priceVsSma200Pct: 0,
-      checkedAt: new Date().toISOString(),
-    };
+    const fallback = buildDegradedRegime(cachedRegime);
+    // TTL corto para reintentar pronto en vez de cachear la ceguera todo el TTL normal.
     cachedRegime = fallback;
-    cacheExpiresAt = Date.now() + CACHE_TTL_MS;
+    cacheExpiresAt = Date.now() + 5 * 60 * 1000;
     return fallback;
   }
 }

@@ -105,6 +105,8 @@ export interface MarketRegimeData {
   sma200: number;
   priceVsSma200Pct: number;
   checkedAt: string;
+  /** true = el régimen no pudo calcularse con datos frescos (fallo de fetch). Tratarlo como bloqueo de LONGs nuevos. */
+  degraded?: boolean;
 }
 
 export interface EvidenceScanResult {
