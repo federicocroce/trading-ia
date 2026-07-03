@@ -1689,7 +1689,8 @@ export function buildAlgorithmicOpportunity(
     algoAction: algoActionPreVeto,
     algoScore: composite,
     smartAction: result.action,
-    smartReason: result.simpleReasoning?.split('.')[0],
+    // split('. ') y no split('.'): el reasoning de setup inválido trae decimales ("riesgo 24.4%")
+    smartReason: result.simpleReasoning?.split('. ')[0],
     veto: axisVeto,
     portfolioAdjustment,
     // llmAction y llmReason se inyectan después en unified-analysis si aplica
