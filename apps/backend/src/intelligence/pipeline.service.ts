@@ -35,6 +35,7 @@ import { detectRegime } from '../quant/regime-detector.service.js';
 import { rankMomentum } from '../quant/momentum-ranker.service.js';
 import { calibrateWeights } from '../quant/weight-calibrator.service.js';
 import { getAllTechnicalSummaries } from '../technical/technical-analysis.service.js';
+import { runMarketScreener } from '../discovery/market-screener.service.js';
 
 let _stageUnifiedAnalyses: Map<string, import('@trading/shared').UnifiedAssetAnalysis> | null = null;
 
@@ -568,6 +569,15 @@ async function runRemainingStages(runId: number): Promise<void> {
 
   const fundResult = await runFundamentalsStage(runId);
   recordStageArtifact(runId, 'fundamentals', fundResult);
+
+  // Market screener: candidatos operables de TODO el mercado (no solo watchlist/prensa)
+  // entran al universo de scan via discovered_symbols (source='screener'). No-bloqueante:
+  // sin stage propio en pipelineRuns — si falla, el scan sigue con el universo de siempre.
+  try {
+    await runMarketScreener();
+  } catch (err) {
+    console.warn('[pipeline] runMarketScreener failed (non-blocking):', (err as Error).message);
+  }
 
   if (!isAnalysisStageValid()) {
     const analysisResult = await runAnalysisStage(runId);

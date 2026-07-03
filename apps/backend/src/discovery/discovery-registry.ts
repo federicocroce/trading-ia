@@ -21,7 +21,7 @@ const EVICTION_BATCH_SIZE = 20;  // when at cap, evict bottom 20 by relevance to
  */
 export async function registerNovelTickers(
   tickers: string[],
-  source: 'finnhub' | 'yahoo' | 'llm',
+  source: 'finnhub' | 'yahoo' | 'llm' | 'screener',
 ): Promise<number> {
   // Already at max? Evict lowest-relevance to make room for new candidates.
   let current = getActiveDiscoveredSymbols();
