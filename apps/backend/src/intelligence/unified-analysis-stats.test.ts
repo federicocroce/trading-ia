@@ -10,6 +10,8 @@ vi.mock('../shared/ai-router.js', () => ({
 }));
 vi.mock('../db/repository.js', () => ({
   getPortfolioPositions: vi.fn(() => []),
+  getSymbol: vi.fn(() => undefined),
+  getActiveDiscoveredSymbols: vi.fn(() => []),
 }));
 vi.mock('./pipeline-artifacts.repository.js', () => ({
   saveUnifiedAnalysisBatch: vi.fn(),

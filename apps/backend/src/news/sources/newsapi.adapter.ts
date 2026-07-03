@@ -1,6 +1,7 @@
 import type { RawNewsArticle } from '@trading/shared';
 import type { NewsSourceAdapter } from './adapter.js';
 import { getActiveNewsSearchKeywords } from '../../db/repository.js';
+import { extractTickersFromText } from '../ticker-extraction.js';
 
 const NEWSAPI_BASE = 'https://newsapi.org/v2';
 
@@ -55,16 +56,24 @@ function buildQuery(symbols: string[]): string {
   return parts.join(' OR ');
 }
 
-function findRelatedSymbols(title: string, description: string | null, symbols: string[]): string[] {
-  const text = `${title} ${description ?? ''}`.toUpperCase();
-  return symbols.filter((s) => {
-    const variants = [s.toUpperCase()];
-    if (s === 'BTC-USD') variants.push('BTC', 'BITCOIN');
-    if (s === 'ETH-USD') variants.push('ETH', 'ETHEREUM');
-    if (s === 'XOM') variants.push('EXXON');
-    if (s === 'CVX') variants.push('CHEVRON');
-    return variants.some((v) => text.includes(v));
-  });
+// IMPORTANT: never uppercase the whole text before matching — that turns a word-boundary
+// regex into a de-facto substring match (the historical bug: "Broadband"/"Comcast" uppercased
+// contain "ROAD"/"CAST" as literal substrings, wrongly tagging unrelated tickers). Match
+// against the ORIGINAL, case-preserved text and require candidates to be real ALL-CAPS tokens
+// that belong to the known `symbols` universe. See ticker-extraction.ts for full rationale.
+export function findRelatedSymbols(title: string, description: string | null, symbols: string[]): string[] {
+  const text = `${title} ${description ?? ''}`;
+  const matched = new Set(extractTickersFromText(text, new Set(symbols)));
+
+  // Curated aliases for cases where the ticker itself never appears verbatim in the text.
+  // Whole-word, case-insensitive — safe because these are long, unambiguous words, not
+  // substrings of unrelated words.
+  if (symbols.includes('BTC-USD') && /\b(BTC|Bitcoin)\b/i.test(text)) matched.add('BTC-USD');
+  if (symbols.includes('ETH-USD') && /\b(ETH|Ethereum)\b/i.test(text)) matched.add('ETH-USD');
+  if (symbols.includes('XOM') && /\bExxon\b/i.test(text)) matched.add('XOM');
+  if (symbols.includes('CVX') && /\bChevron\b/i.test(text)) matched.add('CVX');
+
+  return symbols.filter((s) => matched.has(s));
 }
 
 function toRawArticle(article: NewsAPIArticle, symbols: string[]): RawNewsArticle | null {

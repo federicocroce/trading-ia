@@ -4,6 +4,7 @@ import { getPortfolioPositions } from '../db/repository.js';
 import { registerNovelTickers } from '../discovery/discovery-registry.js';
 import { isValidTickerFormat } from '../discovery/ticker-validator.js';
 import { getActiveDiscoveryQueries } from '../intelligence/config.repository.js';
+import { extractTickersFromText } from '../news/ticker-extraction.js';
 
 export interface WebSearchArticle {
   date: string;
@@ -40,8 +41,13 @@ async function searchWithFallback(query: string, searchDepth: 'basic' | 'advance
 }
 
 function extractTickers(text: string): string[] {
-  const matches = text.match(/\b[A-Z]{1,5}\b/g) ?? [];
-  return [...new Set(matches)].filter(isValidTickerFormat);
+  // No universe passed — this feeds discovery (registerNovelTickers), where the whole point is
+  // finding tickers not yet known anywhere. extractTickersFromText still applies word-boundary
+  // matching, the 1-2-letter-needs-$/()-context rule, and the expanded blocklist; the existing
+  // Yahoo-quote validation downstream (validateTickers) is the final gate. Previously this used
+  // a bare `\b[A-Z]{1,5}\b` regex with no context requirement for short tokens, which is exactly
+  // the class of false positive ("EL"/"AS"/"ON" as common words) documented in task 6's evidence.
+  return extractTickersFromText(text).filter(isValidTickerFormat);
 }
 
 export interface WebSearchStageResult {

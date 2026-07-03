@@ -2,6 +2,7 @@ import type { RawNewsArticle } from '@trading/shared';
 import type { NewsSourceAdapter } from './adapter.js';
 import { reportOk, reportError } from '../../shared/service-health.js';
 import { getActiveNewsSources } from '../../db/repository.js';
+import { extractTickersFromText } from '../ticker-extraction.js';
 
 // Fallback RSS feeds used only if the DB returns no active RSS sources.
 const DEFAULT_RSS_FEEDS = [
@@ -55,16 +56,22 @@ function extractSourceName(feedUrl: string, feedTitle?: string): string {
   }
 }
 
-function findRelatedSymbols(title: string, content: string | undefined, symbols: string[]): string[] {
-  const text = `${title} ${content ?? ''}`.toUpperCase();
-  return symbols.filter((s) => {
-    // Para crypto como BTC-USD, buscar tambien BTC y Bitcoin.
-    // TODO: alias names could be derived from the symbol name/description fields in DB.
-    const variants = [s.toUpperCase()];
-    if (s === 'BTC-USD') variants.push('BTC', 'BITCOIN');
-    if (s === 'ETH-USD') variants.push('ETH', 'ETHEREUM');
-    return variants.some((v) => text.includes(v));
-  });
+// IMPORTANT: never uppercase the whole text before matching — that turns a word-boundary
+// regex into a de-facto substring match (the historical bug: "Broadband"/"Comcast" uppercased
+// contain "ROAD"/"CAST" as literal substrings, wrongly tagging unrelated tickers). Match
+// against the ORIGINAL, case-preserved text and require candidates to be real ALL-CAPS tokens
+// that belong to the known `symbols` universe. See ticker-extraction.ts for full rationale.
+export function findRelatedSymbols(title: string, content: string | undefined, symbols: string[]): string[] {
+  const text = `${title} ${content ?? ''}`;
+  const matched = new Set(extractTickersFromText(text, new Set(symbols)));
+
+  // Curated aliases for cases where the ticker itself never appears verbatim in the text
+  // (e.g. "Bitcoin surges" should still tag BTC-USD). Whole-word, case-insensitive — safe
+  // because these are long, unambiguous words, not substrings of unrelated words.
+  if (symbols.includes('BTC-USD') && /\b(BTC|Bitcoin)\b/i.test(text)) matched.add('BTC-USD');
+  if (symbols.includes('ETH-USD') && /\b(ETH|Ethereum)\b/i.test(text)) matched.add('ETH-USD');
+
+  return symbols.filter((s) => matched.has(s));
 }
 
 async function fetchRSSFeed(feedUrl: string): Promise<RSSFeed | null> {

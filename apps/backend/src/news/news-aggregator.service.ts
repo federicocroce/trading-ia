@@ -3,6 +3,7 @@ import { getAvailableAdapters } from './sources/index.js';
 import { getAllSymbols, getWebSearchArticlesForDate, getPortfolioPositions } from '../db/repository.js';
 import { registerNovelTickers, getDiscoveredTickers } from '../discovery/discovery-registry.js';
 import { isValidTickerFormat } from '../discovery/ticker-validator.js';
+import { extractTickersFromText } from './ticker-extraction.js';
 
 // --- Deduplication ---
 
@@ -242,15 +243,17 @@ export async function aggregateNews(): Promise<AggregationResult> {
   // (since Yahoo broad-keyword search often returns empty relatedTickers).
   try {
     const allMentionedTickers = new Set<string>();
-    // Regex matches uppercase ticker patterns: 2-5 letters, optionally with -USD/-USDT for crypto
-    const TITLE_TICKER_REGEX = /\b([A-Z]{2,5}(?:-USD|-USDT)?)\b/g;
     for (const article of deduped) {
       // 1. Adapter-provided relatedSymbols
       for (const ticker of article.relatedSymbols) {
         if (isValidTickerFormat(ticker)) allMentionedTickers.add(ticker);
       }
-      // 2. Title regex extraction (catches tickers when adapter didn't tag them)
-      const titleMatches = article.title.match(TITLE_TICKER_REGEX) ?? [];
+      // 2. Title extraction (catches tickers when adapter didn't tag them). No universe
+      // passed — this path exists specifically to discover tickers NOT yet known anywhere,
+      // so the word-boundary + 1-2-letter-context + blocklist rules (extractTickersFromText)
+      // keep noise down, and registerNovelTickers' Yahoo-quote validation below is the final
+      // gate (mirrors the pre-existing behavior, just without the substring-match risk).
+      const titleMatches = extractTickersFromText(article.title);
       for (const ticker of titleMatches) {
         if (isValidTickerFormat(ticker)) allMentionedTickers.add(ticker);
       }

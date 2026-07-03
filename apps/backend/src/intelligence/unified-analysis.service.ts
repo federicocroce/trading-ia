@@ -19,10 +19,11 @@ import type {
 } from '@trading/shared';
 import { UNIFIED_ASSET_ANALYSIS_PROMPT } from '@trading/shared';
 import { callAIWithModel } from '../shared/ai-router.js';
-import { getPortfolioPositions } from '../db/repository.js';
+import { getPortfolioPositions, getSymbol } from '../db/repository.js';
 import type { SentimentInput } from '../opportunities/scoring.js';
 import { saveUnifiedAnalysisBatch, saveUnifiedAnalysisResults } from './pipeline-artifacts.repository.js';
 import { filterActionableTriggers, dropUnrealisticPriceTriggers } from './trigger-validation.js';
+import { getClassificationForSymbol } from '../discovery/discovery-registry.js';
 
 type PortfolioPosition = { symbol: string; quantity: number; avgCost: number };
 
@@ -43,11 +44,26 @@ function modelNameToProvider(name: string): UnifiedAssetAnalysis['generatedBy'] 
 }
 
 /**
+ * Resolves the real company/asset name for a symbol, for identity grounding in the LLM card.
+ * Tries the DB watchlist/portfolio symbols table first (covers curated symbols), then the
+ * classification cache / discovered-symbols table (covers organically discovered tickers).
+ * Falls back to the bare symbol if no name is known anywhere — never throws, since this is a
+ * display concern and must not abort an entire analysis batch on an unexpected DB error.
+ */
+function resolveCompanyName(symbol: string): string {
+  try {
+    return getSymbol(symbol)?.name ?? getClassificationForSymbol(symbol)?.name ?? symbol;
+  } catch {
+    return symbol;
+  }
+}
+
+/**
  * Builds a compact asset card for LLM input.
  * One line per dimension. No redundant text.
  * Target: ~150-200 tokens per asset.
  */
-function buildCompactCard(
+export function buildCompactCard(
   opp: Opportunity,
   positions: PortfolioPosition[],
   tech?: TechnicalSummary,
@@ -61,8 +77,11 @@ function buildCompactCard(
   const w = tech?.weekly;
   const f = fund?.data;
 
-  // Header: símbolo, precio, acción algorítmica, score, portfolio
-  let header = `${opp.symbol} $${opp.currentPrice.toFixed(2)} | algoAction=${opp.action} score=${opp.opportunityScore}/100`;
+  // Header: símbolo, nombre real (identidad — evita que el LLM le atribuya el símbolo a otra
+  // empresa, ver ticker-extraction.ts / caso ROAD-Liberty Broadband), precio, acción
+  // algorítmica, score, portfolio.
+  const companyName = resolveCompanyName(opp.symbol);
+  let header = `${opp.symbol} (${companyName}) $${opp.currentPrice.toFixed(2)} | algoAction=${opp.action} score=${opp.opportunityScore}/100`;
   if (pos) {
     const pnl = ((opp.currentPrice - pos.avgCost) / pos.avgCost * 100).toFixed(1);
     header += ` | portfolio ${pos.quantity.toFixed(0)}acc @$${pos.avgCost.toFixed(2)} P&L${pnl}%`;
