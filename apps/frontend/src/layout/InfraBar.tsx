@@ -201,10 +201,10 @@ export function InfraBar() {
   const reportDetail = todayRun?.stages.report.detail;
 
   // Para reporte: usamos el market report timestamp si existe
-  const { data: marketReport } = trpc.intelligence.marketReport.useQuery(undefined, {
+  const { data: marketReportResponse } = trpc.intelligence.marketReport.useQuery(undefined, {
     refetchInterval: 60_000,
   });
-  const reportTs = marketReport ? Date.now() : null; // si hay reporte de hoy, está fresco
+  const reportTs = marketReportResponse?.report ? Date.now() : null; // si hay reporte de hoy, está fresco
 
   const openModal = () => setModalOpen(true);
 

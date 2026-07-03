@@ -6,6 +6,7 @@ import { getMarketDigest } from '../opportunities/opportunities.service.js';
 import { getCachedMarketReport, getCachedMarketReportByDate } from './market-report.service.js';
 import { getStoredSectorReports } from './sector-report.service.js';
 import { getSectorImpactMap } from './sector-impact-map.service.js';
+import { getLatestOpportunityScan } from '../db/repository.js';
 import {
   checkOrRunPipeline,
   rerunPipelineStage,
@@ -44,11 +45,23 @@ export const intelligenceRouter = router({
   }),
 
   marketDigest: publicProcedure.query(() => {
-    return getMarketDigest();
+    const digest = getMarketDigest();
+    const latestScan = getLatestOpportunityScan();
+    return {
+      digest,
+      latestScanAt: latestScan?.scannedAt ? new Date(latestScan.scannedAt).getTime() : null,
+      reportGeneratedAt: digest?.generatedAt ?? null,
+    };
   }),
 
   marketReport: publicProcedure.query(() => {
-    return getCachedMarketReport();
+    const report = getCachedMarketReport();
+    const latestScan = getLatestOpportunityScan();
+    return {
+      report,
+      latestScanAt: latestScan?.scannedAt ? new Date(latestScan.scannedAt).getTime() : null,
+      reportGeneratedAt: report?.generatedAt ?? null,
+    };
   }),
 
   reportDates: publicProcedure.query(() => {
@@ -65,8 +78,14 @@ export const intelligenceRouter = router({
   reportsByDate: publicProcedure
     .input(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
     .query(({ input }) => {
+      const report = getCachedMarketReportByDate(input.date);
+      const latestScan = getLatestOpportunityScan();
       return {
-        marketReport: getCachedMarketReportByDate(input.date),
+        marketReport: {
+          report,
+          latestScanAt: latestScan?.scannedAt ? new Date(latestScan.scannedAt).getTime() : null,
+          reportGeneratedAt: report?.generatedAt ?? null,
+        },
         dailyReport: getStoredDailyReportByDate(input.date),
         date: input.date,
       };
