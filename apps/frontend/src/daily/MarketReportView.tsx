@@ -127,7 +127,7 @@ export function MarketReportView({ date }: { date?: string }) {
   const today = new Date().toISOString().slice(0, 10);
   const isHistorical = date !== undefined && date !== today;
 
-  const { data: todayReportResponse } = trpc.intelligence.marketReport.useQuery(undefined, {
+  const { data: todayReport } = trpc.intelligence.marketReport.useQuery(undefined, {
     staleTime: 10 * 60_000,
     enabled: !isHistorical,
   });
@@ -145,7 +145,7 @@ export function MarketReportView({ date }: { date?: string }) {
     staleTime: 30 * 60_000,
   });
 
-  const report = isHistorical ? historicalData?.marketReport?.report : todayReportResponse?.report;
+  const report = isHistorical ? historicalData?.marketReport : todayReport;
 
   const { run, isRunning } = usePipeline();
   const { selectMode, modal } = useAiModeModal();

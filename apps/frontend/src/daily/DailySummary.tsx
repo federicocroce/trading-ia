@@ -577,18 +577,16 @@ const moodConfig = {
 };
 
 function MarketDigestPanel() {
-  const { data: digestResponse } = trpc.intelligence.marketDigest.useQuery(undefined, {
+  const { data: digest } = trpc.intelligence.marketDigest.useQuery(undefined, {
     staleTime: 5 * 60_000,
   });
   const { run, isRunning } = usePipeline();
   const { selectMode, modal } = useAiModeModal();
 
-  const digest = digestResponse?.digest;
-  const latestScanAt = digestResponse?.latestScanAt;
-  const reportGeneratedAt = digestResponse?.reportGeneratedAt;
-
-  // Check staleness: report is stale if latest scan is more than 30 min newer than report
-  const isStale = latestScanAt && reportGeneratedAt && latestScanAt > reportGeneratedAt + (30 * 60 * 1000);
+  // Staleness: hay un scan intradía > 30 min más nuevo que el reporte — las acciones
+  // por símbolo pueden haber cambiado sin que este digest lo refleje.
+  const latestScanAt = digest?.latestScanAt;
+  const isStale = latestScanAt != null && digest != null && latestScanAt > digest.generatedAt + 30 * 60 * 1000;
 
   if (!digest) {
     return (
@@ -636,10 +634,10 @@ function MarketDigestPanel() {
 
   return (
     <>
-    {isStale && latestScanAt && reportGeneratedAt && (
+    {isStale && latestScanAt != null && (
       <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2">
         <p className="text-[10px] text-amber-300">
-          Este reporte es de las {formatTime(reportGeneratedAt)} — hay un scan más nuevo ({formatTime(latestScanAt)}). Las acciones por símbolo pueden haber cambiado; mirá <span className="text-foreground font-semibold">Oportunidades</span>.
+          Este reporte es de las {formatTime(digest.generatedAt)} — hay un scan más nuevo ({formatTime(latestScanAt)}). Las acciones por símbolo pueden haber cambiado; mirá <span className="text-foreground font-semibold">Oportunidades</span>.
         </p>
       </div>
     )}

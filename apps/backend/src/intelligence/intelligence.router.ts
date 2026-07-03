@@ -46,21 +46,23 @@ export const intelligenceRouter = router({
 
   marketDigest: publicProcedure.query(() => {
     const digest = getMarketDigest();
+    if (!digest) return null;
+    // Campo ADITIVO: el shape original del digest se mantiene; latestScanAt permite
+    // al frontend detectar staleness (scan intradía más nuevo que el reporte).
     const latestScan = getLatestOpportunityScan();
     return {
-      digest,
+      ...digest,
       latestScanAt: latestScan?.scannedAt ? new Date(latestScan.scannedAt).getTime() : null,
-      reportGeneratedAt: digest?.generatedAt ?? null,
     };
   }),
 
   marketReport: publicProcedure.query(() => {
     const report = getCachedMarketReport();
+    if (!report) return null;
     const latestScan = getLatestOpportunityScan();
     return {
-      report,
+      ...report,
       latestScanAt: latestScan?.scannedAt ? new Date(latestScan.scannedAt).getTime() : null,
-      reportGeneratedAt: report?.generatedAt ?? null,
     };
   }),
 
@@ -80,12 +82,9 @@ export const intelligenceRouter = router({
     .query(({ input }) => {
       const report = getCachedMarketReportByDate(input.date);
       const latestScan = getLatestOpportunityScan();
+      const latestScanAt = latestScan?.scannedAt ? new Date(latestScan.scannedAt).getTime() : null;
       return {
-        marketReport: {
-          report,
-          latestScanAt: latestScan?.scannedAt ? new Date(latestScan.scannedAt).getTime() : null,
-          reportGeneratedAt: report?.generatedAt ?? null,
-        },
+        marketReport: report ? { ...report, latestScanAt } : null,
         dailyReport: getStoredDailyReportByDate(input.date),
         date: input.date,
       };
