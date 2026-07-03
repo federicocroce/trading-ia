@@ -6,7 +6,7 @@ import { SHORT_TERM_WEIGHTS, MEDIUM_TERM_WEIGHTS } from './scoring.js';
 // Evidencia (relevamiento 2026-07-03, n=565): sentiment r=+0.03 (ruido), tech r=+0.24 (única señal),
 // fund r=-0.07. Sentiment queda simbólico (0.05) hasta que weight proposals demuestren edge.
 describe('pesos del score — invariantes', () => {
-  const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
+  const sum = (o: object) => Object.values(o).reduce((a: number, b) => a + Number(b), 0);
 
   it('DEFAULT_WEIGHTS (3 ejes) suman 1.0 en ambos horizontes', () => {
     expect(sum(DEFAULT_WEIGHTS.shortTerm)).toBeCloseTo(1.0, 3);
