@@ -54,18 +54,20 @@ export interface HorizonWeights {
   evidence: number;
 }
 
+// Pesos por horizonte: sentiment reducido a 0.05 (r=+0.03, ruido) con redistribución a técnico y evidencia.
+// Tech es la única señal real (r=+0.24), evidence mide confianza de señal.
 export const SHORT_TERM_WEIGHTS: HorizonWeights = {
-  technical: 0.35,
-  sentiment: 0.30,
-  evidence: 0.20,
-  fundamental: 0.15,
+  sentiment: 0.05,
+  technical: 0.45,
+  evidence: 0.30,
+  fundamental: 0.20,
 };
 
 export const MEDIUM_TERM_WEIGHTS: HorizonWeights = {
+  sentiment: 0.05,
+  technical: 0.35,
+  evidence: 0.25,
   fundamental: 0.35,
-  technical: 0.30,
-  evidence: 0.20,
-  sentiment: 0.15,
 };
 
 // --- Scoring ---

@@ -7,9 +7,12 @@ export interface ScoringWeights {
   mediumTerm: { technical: number; fundamental: number; sentiment: number };
 }
 
+// Pesos por evidencia empírica (relevamiento 2026-07-03, n=565 señales resueltas):
+// tech r=+0.24 (única señal real), sentiment r=+0.03 (ruido, p≈0.47), fund r=-0.07 (sin señal).
+// El sentiment queda simbólico (0.05) hasta que weight proposals con datos limpios demuestren edge.
 export const DEFAULT_WEIGHTS: ScoringWeights = {
-  shortTerm: { technical: 0.40, fundamental: 0.20, sentiment: 0.40 },
-  mediumTerm: { technical: 0.35, fundamental: 0.45, sentiment: 0.20 },
+  shortTerm: { technical: 0.70, sentiment: 0.05, fundamental: 0.25 },
+  mediumTerm: { technical: 0.50, sentiment: 0.05, fundamental: 0.45 },
 };
 
 let _cachedWeights: ScoringWeights | null = null;

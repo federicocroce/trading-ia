@@ -35,22 +35,6 @@ export const FUNDAMENTAL_WEIGHTS = {
   operatingMargin: { excellent: 5, good: 3, negative: -5 },
 } as const;
 
-// --- Composite Scoring Weights (used in scoring.ts) ---
-export const COMPOSITE_WEIGHTS = {
-  shortTerm: {
-    sentiment: 0.40,
-    technical: 0.40,
-    fundamental: 0.20,
-  },
-  mediumTerm: {
-    sentiment: 0.20,
-    technical: 0.35,
-    fundamental: 0.45,
-  },
-  // Swing trader: medium-term weighted more
-  compositeBlend: { shortTerm: 0.40, mediumTerm: 0.60 },
-} as const;
-
 // --- Action Thresholds ---
 export const ACTION_THRESHOLDS = {
   strongBuy: { minScore: 72, minConfidence: 70 },
