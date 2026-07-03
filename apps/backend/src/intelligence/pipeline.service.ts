@@ -30,6 +30,7 @@ import { runWebSearch } from '../web-search/web-search.service.js';
 import { generateWeightProposal, shouldGenerateProposal } from './weight-adjustment.service.js';
 import type { PipelineRun, StageResult, QuantContext, OpportunitySector } from '@trading/shared';
 import { getToday } from '../shared/date-utils.js';
+import { hasWebSearchKeys } from '../shared/env.js';
 import { detectRegime } from '../quant/regime-detector.service.js';
 import { rankMomentum } from '../quant/momentum-ranker.service.js';
 import { calibrateWeights } from '../quant/weight-calibrator.service.js';
@@ -114,7 +115,8 @@ async function runWebSearchStage(runId: number): Promise<StageResult> {
   // terminaba en status 'failed' → pausaba el run entero en waiting_user (línea ~625) y
   // generaba error spam en cada corrida (104/121 runs). Sin keys es una config esperada,
   // no una falla: se salta el stage explícitamente y se sigue con el resto del pipeline.
-  if (!process.env.TAVILY_API_KEY && !process.env.EXA_API_KEY) {
+  // hasWebSearchKeys (env.ts) es la misma fuente de verdad que usa el log de startup.
+  if (!hasWebSearchKeys()) {
     const sr: StageResult = {
       status: 'skipped',
       startedAt,

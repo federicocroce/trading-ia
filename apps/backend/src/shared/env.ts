@@ -54,6 +54,18 @@ export function getEnv(): Env {
   return _env;
 }
 
+const has = (v: string | undefined) => !!v && v.trim().length > 0;
+
+/**
+ * Fuente de verdad ÚNICA para "¿hay alguna key de búsqueda web?" (con trim: una key de
+ * solo espacios cuenta como NO configurada). La usan tanto el log de visibilidad al boot
+ * como el gate de runWebSearchStage en pipeline.service.ts — así nunca divergen.
+ * Lee process.env directo (no getEnv()) para no depender del orden de validateEnv().
+ */
+export function hasWebSearchKeys(): boolean {
+  return has(process.env.TAVILY_API_KEY) || has(process.env.EXA_API_KEY);
+}
+
 /**
  * Log de visibilidad de proveedores opcionales al arrancar. Nada de esto hace throw —
  * todos son opcionales — pero deja constancia clara de qué stages van a saltearse.
@@ -62,13 +74,12 @@ export function getEnv(): Env {
  */
 export function logProviderVisibility(): void {
   const env = getEnv();
-  const has = (v: string | undefined) => !!v && v.trim().length > 0;
 
   const tavilyOk = has(env.TAVILY_API_KEY);
   const exaOk = has(env.EXA_API_KEY);
   console.log(`[Env] Tavily: ${tavilyOk ? 'OK' : 'NO configurada'}${tavilyOk ? '' : ' — stage webSearch se salteará'}`);
   console.log(`[Env] Exa: ${exaOk ? 'OK' : 'NO configurada'}${exaOk ? '' : ' — stage webSearch se salteará'}`);
-  if (!tavilyOk && !exaOk) {
+  if (!hasWebSearchKeys()) {
     console.log('[Env] webSearch: sin ninguna key configurada — el stage se marcará como skipped (no failed).');
   }
 

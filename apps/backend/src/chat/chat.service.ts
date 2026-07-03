@@ -38,7 +38,15 @@ export function buildEngineActionsBlock(
   }
   if (bySymbol.size === 0) return null;
 
-  const list = [...bySymbol.entries()]
+  // Portfolio SIEMPRE primero, después el resto (que ya viene por score desc del scan) hasta
+  // llenar el cap. Sin esto, ≥20 BUY/SELL de score alto podían dejar afuera una posición real —
+  // justo el caso que el bloque existe para evitar (que el chat contradiga TUS posiciones).
+  const entries = [...bySymbol.entries()];
+  const ordered = [
+    ...entries.filter(([sym]) => portfolioSet.has(sym)),
+    ...entries.filter(([sym]) => !portfolioSet.has(sym)),
+  ];
+  const list = ordered
     .slice(0, cap)
     .map(([sym, action]) => `${sym}=${action}`)
     .join(', ');
