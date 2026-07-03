@@ -936,6 +936,11 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
         wouldNotDo: unified.wouldNotDo,
         generatedBy: unified.generatedBy as 'deepseek' | 'groq' | 'qwen' | 'algorithmic',
       };
+
+      // Sincronizar el unified con la acción GATEADA: el market report consume
+      // unified.action para suggestedWeight — sin esto, un upgrade bloqueado
+      // igual pesa como BUY en el reporte (bypass del gate detectado en review P0).
+      unified.action = (opp.verdict ? opp.verdict.finalAction : opp.action) as typeof unified.action;
     }
 
     // Exponer para STAGE 4 (market-report)
