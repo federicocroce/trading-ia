@@ -5,6 +5,7 @@ import { useNavigation } from '@/shared/navigation';
 
 const PORTFOLIO_VERB: Record<string, { label: string; cls: string; border: string }> = {
   VENDER: { label: 'VENDER', cls: 'bg-red-500/20 text-red-400', border: 'border-l-red-500' },
+  REVISAR: { label: 'REVISAR', cls: 'bg-amber-500/20 text-amber-400', border: 'border-l-amber-500' },
   MANTENER: { label: 'MANTENER', cls: 'bg-slate-500/20 text-slate-300', border: 'border-l-slate-600' },
 };
 

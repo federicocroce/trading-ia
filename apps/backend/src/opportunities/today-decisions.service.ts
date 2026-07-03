@@ -53,7 +53,7 @@ export interface TodayView {
   scanDate?: string;
 }
 
-const URGENCY: Record<PortfolioVerb, number> = { VENDER: 0, MANTENER: 1 };
+const URGENCY: Record<PortfolioVerb, number> = { VENDER: 0, REVISAR: 1, MANTENER: 2 };
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function pickReason(o: Opportunity): string {
@@ -106,7 +106,16 @@ export async function getTodayDecisions(): Promise<TodayView> {
       ? (intraday ? (q && q.previousClose > 0 ? q.previousClose : currentPrice) : currentPrice)
       : undefined;
 
-    const v = decidePositionVerb({ avgCost: p.avgCost, currentPrice, trailingStop, target, engineWarnsSell: engineAction === 'SELL', closePrice, intraday });
+    const v = decidePositionVerb({
+      avgCost: p.avgCost,
+      currentPrice,
+      trailingStop,
+      target,
+      engineWarnsSell: engineAction === 'SELL',
+      engineSellReason: engineAction === 'SELL' && opp ? pickReason(opp) || undefined : undefined,
+      closePrice,
+      intraday,
+    });
 
     portfolio.push({
       symbol: p.symbol,

@@ -21,13 +21,18 @@ import { TransactionDialog } from './TransactionDialog';
 import { SymbolHistoryDialog } from './SymbolHistoryDialog';
 
 type SignalAction = 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
+// La columna "Señal IA" también refleja el veredicto de "Hoy" (VENDER/REVISAR/MANTENER), que no
+// es un SignalAction del scan — se agrega 'REVISAR' acá para que el badge nunca lo esconda como
+// un MANTENER a secas (mismo doble discurso que el bug original de la vista Hoy).
+type BadgeAction = SignalAction | 'REVISAR';
 type ConvictionTier = 'strong' | 'standard' | 'speculative';
 
-const actionStyle: Record<SignalAction, { label: string; bg: string; text: string }> = {
+const actionStyle: Record<BadgeAction, { label: string; bg: string; text: string }> = {
   BUY: { label: 'COMPRAR', bg: 'bg-green-500/20', text: 'text-green-400' },
   SELL: { label: 'VENDER', bg: 'bg-red-500/20', text: 'text-red-400' },
   HOLD: { label: 'MANTENER', bg: 'bg-blue-500/20', text: 'text-blue-400' },
   WATCH: { label: 'OBSERVAR', bg: 'bg-yellow-500/20', text: 'text-yellow-400' },
+  REVISAR: { label: 'REVISAR', bg: 'bg-amber-500/20', text: 'text-amber-400' },
 };
 
 function RecommendationCell({
@@ -37,7 +42,7 @@ function RecommendationCell({
   convictionTier,
   reasoning,
 }: {
-  action: SignalAction;
+  action: BadgeAction;
   score: number;
   confidence: number;
   convictionTier?: ConvictionTier;
@@ -301,8 +306,10 @@ export function PortfolioTable() {
                       const opp = opportunityMap.get(pos.symbol);
                       const dec = todayMap.get(pos.symbol.toUpperCase());
                       if (!opp && !dec) return <span className="text-[9px] text-muted-foreground/40">—</span>;
-                      // La ACCIÓN es la decisión de "Hoy" (VENDER/MANTENER); el score queda como análisis del motor.
-                      const action: SignalAction = dec ? (dec.verb === 'VENDER' ? 'SELL' : 'HOLD') : (opp!.action as SignalAction);
+                      // La ACCIÓN es la decisión de "Hoy" (VENDER/REVISAR/MANTENER); el score queda como análisis del motor.
+                      const action: BadgeAction = dec
+                        ? (dec.verb === 'VENDER' ? 'SELL' : dec.verb === 'REVISAR' ? 'REVISAR' : 'HOLD')
+                        : (opp!.action as SignalAction);
                       return (
                         <RecommendationCell
                           action={action}

@@ -87,6 +87,33 @@ function normalizeMacroTheme(theme: string | null): string {
 // HELPERS
 // ============================================================
 
+/**
+ * El LLM puede meter un SELL suelto dentro de `topOpportunities` (caso real: NEM apareció ahí
+ * mientras el scan la marcaba SELL) — un "top opportunity" nunca puede ser una salida, sería el
+ * mismo doble discurso que el bug de la vista Hoy. Determinístico y posterior al parseo del LLM:
+ * si el símbolo tiene action SELL en el scan ACTUAL (no en lo que diga el propio item del LLM),
+ * se saca de `topOpportunities` y se convierte en warning con prefijo "SALIDA: ".
+ */
+export function moveSellsOutOfTopOpportunities(
+  topOpportunities: Array<{ symbol: string; action: string; narrative: string }>,
+  scanOpportunities: Array<{ symbol: string; action: string }>,
+): { topOpportunities: Array<{ symbol: string; action: string; narrative: string }>; sellWarnings: string[] } {
+  const sellTickers = new Set(
+    scanOpportunities
+      .filter((o) => o.action === 'SELL')
+      .map((o) => o.symbol.toUpperCase()),
+  );
+  if (sellTickers.size === 0) return { topOpportunities, sellWarnings: [] };
+
+  const sellWarnings: string[] = [];
+  const kept = topOpportunities.filter((o) => {
+    if (!sellTickers.has(o.symbol.toUpperCase())) return true;
+    sellWarnings.push(`SALIDA: ${o.symbol} — ${o.narrative || 'el motor recomienda salir según el scan actual'}`);
+    return false;
+  });
+  return { topOpportunities: kept, sellWarnings };
+}
+
 function normalizeScenarios(scenarios: MarketReport['scenarios']): MarketReport['scenarios'] {
   if (!scenarios || scenarios.length === 0) return scenarios;
 
@@ -400,6 +427,11 @@ export async function generateMarketReport(
     topOpportunities = topOpportunities.filter((o: { symbol: string }) => keepT(o.symbol));
     watching = watching.filter((w: { symbol: string }) => keepT(w.symbol));
 
+    // El LLM a veces mezcla SELLs dentro de topOpportunities (caso NEM) — nunca puede convivir
+    // un "top opportunity" con una salida. Se saca acá, determinístico, contra el scan actual.
+    const sellMove = moveSellsOutOfTopOpportunities(topOpportunities, digestInputs?.opportunities ?? []);
+    topOpportunities = sellMove.topOpportunities;
+
     // Build digest from same response
     const buyTickers = new Set(
       (digestInputs?.opportunities ?? [])
@@ -427,7 +459,7 @@ export async function generateMarketReport(
       portfolioImpact,
       topOpportunities,
       watching,
-      warnings: Array.isArray(p.warnings) ? p.warnings.slice(0, 3) : [],
+      warnings: [...sellMove.sellWarnings, ...(Array.isArray(p.warnings) ? p.warnings.slice(0, 3) : [])],
       marketMood: ['risk-on', 'risk-off', 'mixed'].includes(p.marketMood) ? p.marketMood : 'mixed',
       portfolioRecommendations: flaggedPortfolioRecs,
       marketRecommendations: flaggedMarketRecs,

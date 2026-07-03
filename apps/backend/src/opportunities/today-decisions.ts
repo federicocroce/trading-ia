@@ -1,15 +1,17 @@
 /**
  * Veredicto único por posición, con STOP DINÁMICO que se recalcula solo según el precio.
  *
- * Principio: dejá correr los ganadores. El stop SUBE atrás del precio (trailing chandelier);
- * mientras el precio esté por encima, MANTENER. Solo VENDER cuando el precio realmente se da
- * vuelta y toca ese stop. Una señal SELL del motor (ej. divergencia) NO te saca de un ganador:
- * es una advertencia; el stop decide.
+ * Jerarquía de decisión (tres niveles, en este orden):
+ *   1. Stop tocado (o cerrado abajo) ⇒ VENDER. Prioridad máxima, aunque el motor diga BUY.
+ *   2. Motor SELL sin stop tocado ⇒ REVISAR. El motor advierte (ej. divergencia) pero tu regla
+ *      dura (el stop) todavía no se activó — nunca se esconde como un MANTENER a secas: las
+ *      dos fuentes (motor + stop) quedan nombradas en el reason para que decidas vos.
+ *   3. Motor HOLD/BUY sin stop tocado ⇒ MANTENER. Dejá correr al ganador.
  *
  * Puro y testeable: sin DB ni red. La parte de I/O vive en today-decisions.service.ts.
  */
 
-export type PortfolioVerb = 'MANTENER' | 'VENDER';
+export type PortfolioVerb = 'MANTENER' | 'REVISAR' | 'VENDER';
 export type ScanAction = 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
 
 export interface Candle {
@@ -55,8 +57,10 @@ export interface PositionInput {
   trailingStop: number | null;
   /** Objetivo recalculado (resistencia o proyección). */
   target?: number | null;
-  /** El motor marcó SELL hoy (ej. divergencia). Es advertencia, no orden. */
+  /** El motor marcó SELL hoy (ej. divergencia). Es advertencia, no orden: el stop decide. */
   engineWarnsSell?: boolean;
+  /** Motivo del SELL del motor (ej. "divergencia bajista semanal"). Se nombra en el REVISAR. */
+  engineSellReason?: string;
   /**
    * Cierre confirmado (última vela diaria cerrada) con el que se DECIDE VENDER.
    * El backtest 7y muestra que decidir por cierre (no por toque intradiario) gana en 11/11
@@ -79,7 +83,7 @@ export interface PositionVerdict {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export function decidePositionVerb(input: PositionInput): PositionVerdict {
-  const { avgCost, currentPrice, trailingStop, target, engineWarnsSell, closePrice, intraday } = input;
+  const { avgCost, currentPrice, trailingStop, target, engineWarnsSell, engineSellReason, closePrice, intraday } = input;
   const gainPct = round2(((currentPrice - avgCost) / avgCost) * 100);
   const tgt = target ?? null;
   // Se DECIDE por el cierre confirmado; el spot vivo solo informa gain%/aviso intradiario.
@@ -108,12 +112,25 @@ export function decidePositionVerb(input: PositionInput): PositionVerdict {
     };
   }
 
-  const warning = engineWarnsSell
-    ? 'El motor ve deterioro (divergencia) — es una advertencia, no una orden. El stop decide.'
-    : undefined;
-
   if (trailingStop == null) {
+    // Sin stop no hay una regla dura con la que confrontar al motor — se avisa, no se decide.
+    const warning = engineWarnsSell
+      ? 'El motor ve deterioro (divergencia) — es una advertencia, no una orden. No pude recalcular el stop para confrontarla: revisá manualmente.'
+      : undefined;
     return { verb: 'MANTENER', reason: 'No pude recalcular el stop (faltan datos de precio). Mantené y revisá.', stop: null, target: tgt, gainPct, warning };
+  }
+
+  // Nivel 2 de la jerarquía: el motor advierte SELL pero el stop (regla dura) no se tocó.
+  // Ya no se degrada a un warning oculto dentro de un MANTENER — se nombra como REVISAR con
+  // ambas fuentes explícitas (el motivo del motor y el stop duro) para que la persona decida.
+  if (engineWarnsSell) {
+    return {
+      verb: 'REVISAR',
+      reason: `El motor recomienda salir${engineSellReason ? ` (${engineSellReason})` : ''}. Tu regla dura es el stop en $${trailingStop} — decidí: vender ya o ajustar el stop.`,
+      stop: trailingStop,
+      target: tgt,
+      gainPct,
+    };
   }
 
   return {
@@ -122,6 +139,5 @@ export function decidePositionVerb(input: PositionInput): PositionVerdict {
     stop: trailingStop,
     target: tgt,
     gainPct,
-    warning,
   };
 }

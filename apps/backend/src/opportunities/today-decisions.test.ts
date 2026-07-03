@@ -42,17 +42,62 @@ describe('decidePositionVerb (let winners run, sell on real reversal)', () => {
     expect(r.verb).toBe('VENDER');
   });
 
-  it('a model SELL does NOT force a sell on a winner — only warns', () => {
+  it('a model SELL on a winner no longer hides as MANTENER — surfaces as REVISAR', () => {
     // TSM: +12%, above its trailing stop, engine sees bearish divergence
     const r = decidePositionVerb({ avgCost: 376, currentPrice: 424, trailingStop: 400, engineWarnsSell: true });
-    expect(r.verb).toBe('MANTENER');
-    expect(r.warning).toBeTruthy();
+    expect(r.verb).toBe('REVISAR');
+    expect(r.reason).toContain('400');
   });
 
   it('falls back to MANTENER (no stop) when the trailing stop cannot be computed', () => {
     const r = decidePositionVerb({ avgCost: 100, currentPrice: 105, trailingStop: null });
     expect(r.verb).toBe('MANTENER');
     expect(r.stop).toBeNull();
+  });
+});
+
+describe('decidePositionVerb — jerarquía de decisión (REVISAR)', () => {
+  // mkInput: adapta el vocabulario del brief (engineAction) a la firma real de PositionInput,
+  // que ya modela "el motor advierte SELL" como un booleano (engineWarnsSell).
+  function mkInput(opts: {
+    engineAction: 'BUY' | 'SELL' | 'HOLD';
+    decisionPrice: number;
+    trailingStop: number | null;
+    avgCost?: number;
+  }) {
+    const { engineAction, decisionPrice, trailingStop, avgCost = 10 } = opts;
+    return {
+      avgCost,
+      currentPrice: decisionPrice,
+      trailingStop,
+      engineWarnsSell: engineAction === 'SELL',
+    };
+  }
+
+  it('motor SELL sin stop tocado ⇒ REVISAR (nunca MANTENER a secas)', () => {
+    // precio ARRIBA del trailing stop, engine action SELL (caso MARA 2026-07-02)
+    const d = decidePositionVerb(mkInput({ engineAction: 'SELL', decisionPrice: 13.37, trailingStop: 12.53 }));
+    expect(d.verb).toBe('REVISAR');
+    expect(d.reason).toContain('motor');
+    expect(d.reason).toContain('12.53'); // el stop duro sigue visible
+  });
+
+  it('motor HOLD/BUY sin stop tocado sigue MANTENER', () => {
+    const d = decidePositionVerb(mkInput({ engineAction: 'HOLD', decisionPrice: 100, trailingStop: 90 }));
+    expect(d.verb).toBe('MANTENER');
+  });
+
+  it('REVISAR nombra ambas fuentes: el motivo del motor y el stop duro', () => {
+    const d = decidePositionVerb({
+      avgCost: 10,
+      currentPrice: 13.37,
+      trailingStop: 12.53,
+      engineWarnsSell: true,
+      engineSellReason: 'divergencia bajista semanal',
+    });
+    expect(d.verb).toBe('REVISAR');
+    expect(d.reason).toContain('divergencia bajista semanal');
+    expect(d.reason).toContain('12.53');
   });
 });
 
