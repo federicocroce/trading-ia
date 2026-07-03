@@ -108,6 +108,24 @@ async function runWebSearchStage(runId: number): Promise<StageResult> {
   const today = getToday();
   const startedAt = new Date().toISOString();
   updatePipelineStage(runId, 'webSearch', { status: 'running', startedAt });
+
+  // Sin NINGUNA key de búsqueda web configurada, no tiene sentido llamar a los providers:
+  // ambos van a tirar "API_KEY not set" (ver web-search/tavily.ts, exa.ts). Antes esto
+  // terminaba en status 'failed' → pausaba el run entero en waiting_user (línea ~625) y
+  // generaba error spam en cada corrida (104/121 runs). Sin keys es una config esperada,
+  // no una falla: se salta el stage explícitamente y se sigue con el resto del pipeline.
+  if (!process.env.TAVILY_API_KEY && !process.env.EXA_API_KEY) {
+    const sr: StageResult = {
+      status: 'skipped',
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      detail: 'sin API keys de búsqueda web — configurá TAVILY_API_KEY en .env',
+      errors: [],
+    };
+    updatePipelineStage(runId, 'webSearch', sr);
+    return sr;
+  }
+
   try {
     const result = await runWebSearch(today);
 

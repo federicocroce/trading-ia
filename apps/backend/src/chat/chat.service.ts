@@ -1,6 +1,49 @@
-import { ANALYST_SYSTEM_PROMPT } from '@trading/shared';
+import { ANALYST_SYSTEM_PROMPT, type Opportunity } from '@trading/shared';
 import { chatWithClaude } from '../shared/claude.js';
 import { getPortfolio } from '../portfolio/portfolio.service.js';
+import { getLatestOpportunityScan } from '../db/repository.js';
+
+const ENGINE_ACTIONS_CAP = 20;
+
+/**
+ * Bloque de contexto con las acciones actuales del motor (último scan), para que el chat
+ * no contradiga libremente al resto de las superficies (Hoy, Oportunidades). Toma los
+ * símbolos con acción BUY/SELL del scan + los símbolos en cartera (con la acción que el
+ * motor les asigna, sea cual sea), cap ~20. Puro — testeable sin DB ni red.
+ */
+export function buildEngineActionsBlock(
+  scanOpportunitiesJson: string | null | undefined,
+  portfolioSymbols: string[],
+  cap: number = ENGINE_ACTIONS_CAP,
+): string | null {
+  if (!scanOpportunitiesJson) return null;
+
+  let opps: Array<Pick<Opportunity, 'symbol' | 'action'>>;
+  try {
+    const parsed = JSON.parse(scanOpportunitiesJson);
+    if (!Array.isArray(parsed)) return null;
+    opps = parsed;
+  } catch {
+    return null;
+  }
+
+  const portfolioSet = new Set(portfolioSymbols.map((s) => s.toUpperCase()));
+  const bySymbol = new Map<string, string>();
+  for (const o of opps) {
+    if (!o?.symbol || !o.action) continue;
+    const sym = o.symbol.toUpperCase();
+    if (o.action === 'BUY' || o.action === 'SELL' || portfolioSet.has(sym)) {
+      bySymbol.set(sym, o.action);
+    }
+  }
+  if (bySymbol.size === 0) return null;
+
+  const list = [...bySymbol.entries()]
+    .slice(0, cap)
+    .map(([sym, action]) => `${sym}=${action}`)
+    .join(', ');
+  return `ACCIONES ACTUALES DEL MOTOR (si las contradecís, decilo explícitamente y explicá por qué): ${list}`;
+}
 
 export async function chat(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>
@@ -37,10 +80,22 @@ export async function chat(
     }
   } catch { /* non-critical */ }
 
+  // Acciones actuales del motor (último scan) — sin esto el chat contradice libremente
+  // a "Hoy"/"Oportunidades", que sí leen del scan. Omitido si todavía no hay scan.
+  let engineActionsContext = '';
+  try {
+    const scan = getLatestOpportunityScan();
+    const block = buildEngineActionsBlock(
+      scan?.opportunities,
+      portfolio.positions.map((p) => p.symbol),
+    );
+    if (block) engineActionsContext = `\n\n${block}`;
+  } catch { /* non-critical */ }
+
   const enrichedSystem = `${ANALYST_SYSTEM_PROMPT}
 
 Estado actual del portfolio (valor total: $${portfolio.totalValue.toFixed(0)}, P&L: ${portfolio.totalPnlPercent >= 0 ? '+' : ''}${portfolio.totalPnlPercent.toFixed(1)}%):
-${portfolioContext}${marketContext}`;
+${portfolioContext}${marketContext}${engineActionsContext}`;
 
   const response = await chatWithClaude(messages, enrichedSystem);
   return { role: 'assistant' as const, content: response, timestamp: Date.now() };

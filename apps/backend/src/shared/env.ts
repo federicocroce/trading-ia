@@ -9,7 +9,19 @@ const envSchema = z.object({
   LMSTUDIO_MODEL: z.string().default('local-model'),
   ANTHROPIC_API_KEY: z.string().optional(),
   GROQ_API_KEY: z.string().optional(),
+  GROQ_API_KEY_1: z.string().optional(),
+  GROQ_API_KEY_2: z.string().optional(),
+  GROQ_API_KEY_3: z.string().optional(),
+  GROQ_API_KEY_4: z.string().optional(),
+  GOOGLE_AI_API_KEY_1: z.string().optional(),
+  GOOGLE_AI_API_KEY_2: z.string().optional(),
+  GOOGLE_AI_API_KEY_3: z.string().optional(),
+  GOOGLE_AI_API_KEY_4: z.string().optional(),
   OPENROUTER_API_KEY: z.string().optional(),
+
+  // Web search providers (stage webSearch se saltea sin ellas — ver runWebSearchStage)
+  TAVILY_API_KEY: z.string().optional(),
+  EXA_API_KEY: z.string().optional(),
 
   // Data sources
   FMP_API_KEY: z.string().optional(),
@@ -40,4 +52,29 @@ export function validateEnv(): Env {
 export function getEnv(): Env {
   if (!_env) throw new Error('Env not validated yet. Call validateEnv() first.');
   return _env;
+}
+
+/**
+ * Log de visibilidad de proveedores opcionales al arrancar. Nada de esto hace throw —
+ * todos son opcionales — pero deja constancia clara de qué stages van a saltearse.
+ * Evita el caso silencioso: semanas de "EXA_API_KEY not set" en logs de pipeline runs
+ * sin que nadie note que ninguna key estaba configurada.
+ */
+export function logProviderVisibility(): void {
+  const env = getEnv();
+  const has = (v: string | undefined) => !!v && v.trim().length > 0;
+
+  const tavilyOk = has(env.TAVILY_API_KEY);
+  const exaOk = has(env.EXA_API_KEY);
+  console.log(`[Env] Tavily: ${tavilyOk ? 'OK' : 'NO configurada'}${tavilyOk ? '' : ' — stage webSearch se salteará'}`);
+  console.log(`[Env] Exa: ${exaOk ? 'OK' : 'NO configurada'}${exaOk ? '' : ' — stage webSearch se salteará'}`);
+  if (!tavilyOk && !exaOk) {
+    console.log('[Env] webSearch: sin ninguna key configurada — el stage se marcará como skipped (no failed).');
+  }
+
+  const groqOk = has(env.GROQ_API_KEY_1) || has(env.GROQ_API_KEY_2) || has(env.GROQ_API_KEY_3) || has(env.GROQ_API_KEY_4) || has(env.GROQ_API_KEY);
+  console.log(`[Env] Groq: ${groqOk ? 'OK' : 'NO configurada'}${groqOk ? '' : ' — fallback a otros providers de IA'}`);
+
+  const geminiOk = has(env.GOOGLE_AI_API_KEY_1) || has(env.GOOGLE_AI_API_KEY_2) || has(env.GOOGLE_AI_API_KEY_3) || has(env.GOOGLE_AI_API_KEY_4);
+  console.log(`[Env] Gemini: ${geminiOk ? 'OK' : 'NO configurada'}${geminiOk ? '' : ' — fallback a otros providers de IA'}`);
 }

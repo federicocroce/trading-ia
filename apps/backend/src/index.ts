@@ -5,8 +5,9 @@ import { resolve } from 'path';
 dotenv.config({ path: resolve(process.cwd(), '../../.env') });
 dotenv.config(); // Also try local .env as fallback
 
-import { validateEnv } from './shared/env.js';
+import { validateEnv, logProviderVisibility } from './shared/env.js';
 validateEnv();
+logProviderVisibility();
 
 import { initDatabase } from './db/init.js';
 initDatabase();
