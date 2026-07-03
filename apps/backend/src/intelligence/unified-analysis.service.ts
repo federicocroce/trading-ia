@@ -341,7 +341,7 @@ export async function runUnifiedAnalysis(
         scoreBySymbol,
       });
     } catch (err) {
-      console.warn('[unified-analysis] Failed to persist per-symbol results:', (err as Error).message);
+      console.error('[Unified] persist failed:', (err as Error).message);
     }
   }
 
