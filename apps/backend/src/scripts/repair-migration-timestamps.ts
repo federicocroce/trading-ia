@@ -75,6 +75,15 @@ function main(): void {
   }
 
   // Ancla: el "when" más alto entre las entries NO futuras (preserva orden idx<->cronología).
+  //
+  // FRAGILIDAD LATENTE: esta lógica asume que las entries futuras son TRAILING —
+  // un bloque contiguo al final del journal (como en el caso real que motivó este
+  // script: idx 36-39). Si alguna vez hubiera una entry futura en el MEDIO del
+  // journal (con entries válidas después), asignar `anchor + N días` podría
+  // producir un `when` reparado MAYOR que el de entries posteriores válidas,
+  // invirtiendo el orden idx<->cronología que este script promete preservar.
+  // Si te encontrás con ese caso, no corras esto a ciegas: repensá el anclaje
+  // (p.ej. interpolar entre los vecinos válidos de cada entry futura).
   const nonFuture = journal.entries.filter((e) => e.when <= now).sort((a, b) => a.idx - b.idx);
   const anchor = nonFuture.length > 0
     ? nonFuture[nonFuture.length - 1].when

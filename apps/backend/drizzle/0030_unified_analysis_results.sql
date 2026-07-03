@@ -14,7 +14,6 @@ CREATE TABLE `unified_analysis_results` (
 	`macro_theme` text,
 	`generated_by` text NOT NULL,
 	`opportunity_score` integer,
-	`dedupe_key` text NOT NULL UNIQUE,
 	`created_at` text NOT NULL DEFAULT (datetime('now')),
 	FOREIGN KEY (`pipeline_run_id`) REFERENCES `pipeline_runs`(`id`) ON UPDATE no action ON DELETE no action
 );
