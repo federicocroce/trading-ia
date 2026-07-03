@@ -240,9 +240,10 @@ function TrackingHistory() {
                         <Badge className={`text-[8px] h-4 ${
                           s.outcome === 'win' ? 'bg-green-500/20 text-green-400'
                             : s.outcome === 'loss' ? 'bg-red-500/20 text-red-400'
+                            : s.outcome === 'invalid' ? 'bg-orange-500/20 text-orange-400'
                             : 'bg-gray-500/20 text-gray-400'
                         }`}>
-                          {s.outcome === 'win' ? 'GANO' : s.outcome === 'loss' ? 'PERDIO' : 'NEUTRAL'}
+                          {s.outcome === 'win' ? 'GANO' : s.outcome === 'loss' ? 'PERDIO' : s.outcome === 'invalid' ? 'INVÁLIDA' : 'NEUTRAL'}
                         </Badge>
                         {returnPct != null && (
                           <span className={`font-mono ${returnPct > 0 ? 'text-green-400' : 'text-red-400'}`}>

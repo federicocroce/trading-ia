@@ -662,6 +662,7 @@ export function OpportunityCard({ opportunity, forceExpanded = false }: { opport
                         step.startsWith('algo:') ? 'text-blue-300' :
                         step.startsWith('veto:') ? 'text-red-300' :
                         step.startsWith('smart:') ? 'text-yellow-300' :
+                        step.startsWith('llm:sugirió') ? 'text-amber-300' :
                         step.startsWith('llm:') ? 'text-green-300' : 'text-foreground'
                       }>{step}</span>
                     </span>

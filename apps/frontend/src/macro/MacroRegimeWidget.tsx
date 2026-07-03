@@ -30,18 +30,32 @@ export function MacroRegimeWidget() {
   const config = REGIME_CONFIG[data.regime];
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Badge variant="outline" className={`text-xs font-mono cursor-default ${config.className}`}>
-          {config.label}
-        </Badge>
-      </TooltipTrigger>
-      <TooltipContent>
-        <p className="text-xs max-w-[200px]">{config.tooltip}</p>
-        <p className="text-xs text-muted-foreground mt-1">
-          SPY ${data.spyPrice} · SMA200 ${data.sma200} · {data.priceVsSma200Pct > 0 ? '+' : ''}{data.priceVsSma200Pct}%
-        </p>
-      </TooltipContent>
-    </Tooltip>
+    <div className="flex items-center gap-2">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="outline" className={`text-xs font-mono cursor-default ${config.className}`}>
+            {config.label}
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p className="text-xs max-w-[200px]">{config.tooltip}</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            SPY ${data.spyPrice} · SMA200 ${data.sma200} · {data.priceVsSma200Pct > 0 ? '+' : ''}{data.priceVsSma200Pct}%
+          </p>
+        </TooltipContent>
+      </Tooltip>
+      {data.degraded && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="outline" className="text-xs font-mono cursor-default bg-amber-500/20 text-amber-400 border-amber-500/30">
+              SIN DATOS FRESCOS
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p className="text-xs max-w-[200px]">No se pudo calcular el régimen — LONGs nuevos bloqueados por seguridad.</p>
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </div>
   );
 }
