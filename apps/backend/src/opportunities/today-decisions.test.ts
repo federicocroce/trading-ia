@@ -99,6 +99,11 @@ describe('decidePositionVerb — jerarquía de decisión (REVISAR)', () => {
     expect(d.reason).toContain('divergencia bajista semanal');
     expect(d.reason).toContain('12.53');
   });
+
+  it('stop tocado Y motor SELL simultáneos ⇒ VENDER (nivel 1 pisa nivel 2)', () => {
+    const d = decidePositionVerb(mkInput({ engineAction: 'SELL', decisionPrice: 10, trailingStop: 10.5 }));
+    expect(d.verb).toBe('VENDER');
+  });
 });
 
 describe('decidePositionVerb — veredicto por CIERRE, no por toque intradiario', () => {

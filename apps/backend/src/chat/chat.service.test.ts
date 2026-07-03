@@ -14,10 +14,10 @@ describe('buildEngineActionsBlock (contexto del motor para el chat)', () => {
       { symbol: 'AAPL', action: 'WATCH' }, // ni BUY/SELL ni en portfolio → afuera
       { symbol: 'NVDA', action: 'HOLD' }, // en portfolio → entra aunque no sea BUY/SELL
     ]);
-    const block = buildEngineActionsBlock(scan, ['NVDA']);
+    const block = buildEngineActionsBlock(scan, ['NVDA'], undefined);
     // NVDA primero: las posiciones del portfolio van SIEMPRE antes que el resto del scan.
     expect(block).toBe(
-      'ACCIONES ACTUALES DEL MOTOR (si las contradecís, decilo explícitamente y explicá por qué): NVDA=HOLD, TSM=BUY, MARA=SELL',
+      'ACCIONES DEL MOTOR (scan del fecha desconocida, si las contradecís, decilo explícitamente y explicá por qué): NVDA=HOLD, TSM=BUY, MARA=SELL',
     );
   });
 
@@ -25,7 +25,7 @@ describe('buildEngineActionsBlock (contexto del motor para el chat)', () => {
     const scan = JSON.stringify(
       Array.from({ length: 25 }, (_, i) => ({ symbol: `SYM${i}`, action: 'BUY' })),
     );
-    const block = buildEngineActionsBlock(scan, [], 20);
+    const block = buildEngineActionsBlock(scan, [], undefined, 20);
     const entries = block!.split(': ')[1].split(', ');
     expect(entries).toHaveLength(20);
   });
@@ -38,7 +38,7 @@ describe('buildEngineActionsBlock (contexto del motor para el chat)', () => {
       { symbol: 'NVDA', action: 'HOLD' },
       { symbol: 'TSM', action: 'HOLD' },
     ];
-    const block = buildEngineActionsBlock(JSON.stringify(opps), ['NVDA', 'TSM'], 20)!;
+    const block = buildEngineActionsBlock(JSON.stringify(opps), ['NVDA', 'TSM'], undefined, 20)!;
     const entries = block.split(': ')[1].split(', ');
     expect(entries).toHaveLength(20);
     expect(entries).toContain('NVDA=HOLD');
@@ -46,6 +46,34 @@ describe('buildEngineActionsBlock (contexto del motor para el chat)', () => {
     // Portfolio primero, después el resto por orden del scan
     expect(entries[0]).toBe('NVDA=HOLD');
     expect(entries[1]).toBe('TSM=HOLD');
+  });
+
+  it('declara la fecha del scan en el encabezado, formateada en horario de Buenos Aires', () => {
+    const scan = JSON.stringify([{ symbol: 'TSM', action: 'BUY' }]);
+    // Scan reciente (hace 1 hora): no debe llevar la advertencia de scan viejo.
+    const scannedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const block = buildEngineActionsBlock(scan, [], scannedAt)!;
+    const expectedFecha = new Date(scannedAt).toLocaleString('es-AR', {
+      timeZone: 'America/Argentina/Buenos_Aires',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+    expect(block).toContain(`scan del ${expectedFecha}`);
+    expect(block).not.toContain('OJO: scan viejo');
+  });
+
+  it('marca el scan como viejo cuando tiene más de 24hs', () => {
+    const scan = JSON.stringify([{ symbol: 'TSM', action: 'BUY' }]);
+    const scannedAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    const block = buildEngineActionsBlock(scan, [], scannedAt)!;
+    expect(block).toContain('OJO: scan viejo, puede estar desactualizado');
+  });
+
+  it('sin scannedAt, declara "fecha desconocida" y no marca el scan como viejo', () => {
+    const scan = JSON.stringify([{ symbol: 'TSM', action: 'BUY' }]);
+    const block = buildEngineActionsBlock(scan, [], null)!;
+    expect(block).toContain('scan del fecha desconocida');
+    expect(block).not.toContain('OJO: scan viejo');
   });
 
   it('devuelve null si el scan no tiene ningún símbolo BUY/SELL ni de portfolio', () => {

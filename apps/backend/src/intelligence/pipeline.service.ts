@@ -112,10 +112,11 @@ async function runWebSearchStage(runId: number): Promise<StageResult> {
 
   // Sin NINGUNA key de búsqueda web configurada, no tiene sentido llamar a los providers:
   // ambos van a tirar "API_KEY not set" (ver web-search/tavily.ts, exa.ts). Antes esto
-  // terminaba en status 'failed' → pausaba el run entero en waiting_user (línea ~625) y
-  // generaba error spam en cada corrida (104/121 runs). Sin keys es una config esperada,
-  // no una falla: se salta el stage explícitamente y se sigue con el resto del pipeline.
-  // hasWebSearchKeys (env.ts) es la misma fuente de verdad que usa el log de startup.
+  // terminaba en status 'failed' → pausaba el run entero en waiting_user (línea ~625):
+  // sin keys, el stage generaba errores en cada corrida — skip explícito es más honesto
+  // que failed+retry. Sin keys es una config esperada, no una falla: se salta el stage
+  // explícitamente y se sigue con el resto del pipeline. hasWebSearchKeys (env.ts) es la
+  // misma fuente de verdad que usa el log de startup.
   if (!hasWebSearchKeys()) {
     const sr: StageResult = {
       status: 'skipped',
