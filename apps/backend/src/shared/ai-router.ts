@@ -2,7 +2,7 @@
  * AI Router — centralizes model selection based on task type.
  *
  * Rules:
- * - Reasoning (sectors, deep analysis, market digest): DeepSeek R1 → Groq → Qwen local
+ * - Reasoning (sectors, deep analysis, market digest): Gemini Pro → OpenRouter free → Groq → Qwen local
  * - Classification (sentiment, enrichment): Groq → OpenRouter → Qwen local
  * - Narrative (short summaries): Groq → Qwen local
  */
@@ -180,8 +180,11 @@ function getProviderChain(
     fn: () => askGeminiFlashWithUsage(userMessage, systemPrompt, maxTokens),
   };
 
-  const deepseek = {
-    name: 'DeepSeek R1 (OpenRouter)',
+  // Etiqueta honesta: la cadena free de OpenRouter ya no incluye DeepSeek R1 (no existe
+  // ningún R1 :free en el catálogo vivo — verificado 2026-07-02). El nombre se persiste en
+  // generatedBy/engine, así que no puede prometer un modelo que no corre.
+  const openRouterFree = {
+    name: 'OpenRouter (free)',
     fn: () => askOpenRouterWithUsage(userMessage, systemPrompt, maxTokens),
   };
 
@@ -208,16 +211,16 @@ function getProviderChain(
 
   switch (task) {
     case 'reasoning':
-      // Gemini Pro primero (mejor modelo, 100 req/day con 4 keys) → DeepSeek R1 → Groq 70B → Qwen
+      // Gemini Pro primero (mejor modelo, 100 req/day con 4 keys) → OpenRouter free → Groq 70B → Qwen
       return geminiAvailable
-        ? [geminiPro, deepseek, groq, qwen]
-        : [deepseek, groq, qwen];
+        ? [geminiPro, openRouterFree, groq, qwen]
+        : [openRouterFree, groq, qwen];
 
     case 'classification':
-      // Groq Light primero (confiable, rápido, multi-key) → Gemini Flash como backup → DeepSeek → Qwen
+      // Groq Light primero (confiable, rápido, multi-key) → Gemini Flash como backup → OpenRouter → Qwen
       return geminiAvailable
-        ? [groqLight, geminiFlash, deepseek, qwen]
-        : [groqLight, deepseek, qwen];
+        ? [groqLight, geminiFlash, openRouterFree, qwen]
+        : [groqLight, openRouterFree, qwen];
 
     case 'narrative':
       // Groq Light primero → Gemini Flash como backup → Qwen

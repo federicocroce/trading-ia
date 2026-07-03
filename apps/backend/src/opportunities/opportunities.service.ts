@@ -947,7 +947,7 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
     _lastUnifiedAnalyses = unifiedAnalyses;
 
     usedEngine = 'hybrid';
-    engineDetail = `Hibrido — scoring algoritmico + DeepSeek R1 análisis unificado (${unifiedAnalyses.size} activos)`;
+    engineDetail = `Hibrido — scoring algoritmico + LLM análisis unificado (${unifiedAnalyses.size} activos)`;
     console.log(`[opportunities] Análisis unificado: ${unifiedAnalyses.size}/${opportunities.length} activos`);
   } catch (err) {
     console.warn('[opportunities] Unified analysis failed (non-critical):', (err as Error).message?.slice(0, 100));

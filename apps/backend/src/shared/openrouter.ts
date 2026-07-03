@@ -13,16 +13,17 @@ function getClient(): OpenAI {
   return client;
 }
 
-// deepseek/deepseek-r1:free va primero: es el modelo que la etiqueta "DeepSeek R1 (OpenRouter)"
-// en ai-router.ts promete, y activa el doblado de maxTokens para reasoning (ver isReasoningModel
-// más abajo). meta-llama/llama-4-scout:free y google/gemma-4-31b-it:free se eliminaron — son IDs
-// inexistentes en OpenRouter que 404ean y degradan la cadena a los siguientes modelos.
+// Lista verificada contra el catálogo VIVO de OpenRouter (GET /api/v1/models) el 2026-07-02.
+// No existe ningún DeepSeek R1 ni r1-distill/qwq gratis hoy — los IDs anteriores
+// (deepseek/deepseek-r1:free, qwen/qwen3-235b-a22b:free, qwen/qwen3-30b-a3b:free,
+// meta-llama/llama-4-scout:free, google/gemma-4-31b-it:free, microsoft/phi-4-reasoning:free)
+// están muertos y 404ean. Orden: mejor generalista grande primero, reasoning como tercero,
+// llama-3.3-70b como fallback probado.
 const OPENROUTER_FREE_MODELS = [
-  'deepseek/deepseek-r1:free',
-  'qwen/qwen3-235b-a22b:free',
-  'qwen/qwen3-30b-a3b:free',
-  'meta-llama/llama-3.3-70b-instruct:free',
-  'microsoft/phi-4-reasoning:free',
+  'nvidia/nemotron-3-ultra-550b-a55b:free',              // 550B MoE, 1M ctx — mejor generalista free
+  'openai/gpt-oss-120b:free',                            // 120B, 131k ctx — fuerte, reasoning-capable
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',  // 30B reasoning, 256k ctx
+  'meta-llama/llama-3.3-70b-instruct:free',              // 70B, probado — fallback confiable
 ] as const;
 
 export interface OpenRouterResult {
@@ -50,10 +51,10 @@ export async function askOpenRouterWithUsage(
   for (const model of OPENROUTER_FREE_MODELS) {
     if (isExhausted('openrouter', model)) continue;
 
-    // Reasoning models (DeepSeek R1, etc.) use tokens for chain-of-thought before the JSON.
-    // Double the limit so the thinking block doesn't crowd out the actual response.
-    const isReasoningModel = model.includes('r1') || model.includes('deepseek');
-    const effectiveMaxTokens = isReasoningModel ? Math.min(maxTokens * 2, 16384) : maxTokens;
+    // Reasoning models use tokens for chain-of-thought before the JSON. Double the limit
+    // so the thinking block doesn't crowd out the actual response (capped at 16k).
+    const isReasoningModel = /r1|deepseek|reasoning|qwq/i.test(model);
+    const effectiveMaxTokens = isReasoningModel ? Math.min(maxTokens * 2, 16_000) : maxTokens;
 
     try {
       const response = await getClient().chat.completions.create({
@@ -79,9 +80,12 @@ export async function askOpenRouterWithUsage(
       const msg = (err as Error).message || '';
       const is429 = msg.includes('429') || msg.includes('rate_limit');
       const is404 = msg.includes('404') || msg.includes('No endpoints found') || msg.includes('not found');
+      // 400 por límite de contexto/max_tokens del modelo: probar el siguiente en vez de morir.
+      const isContextLimit = /max_tokens|context length/i.test(msg);
       const shouldRotate =
         is429 ||
         is404 ||
+        isContextLimit ||
         msg.includes('decommissioned') ||
         msg.includes('no longer supported') ||
         msg.includes('overloaded') ||

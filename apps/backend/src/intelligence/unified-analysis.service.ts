@@ -6,7 +6,7 @@
  *
  * Principios:
  * - Un análisis por activo, contexto completo
- * - Un solo modelo (DeepSeek R1 via callAI('reasoning'))
+ * - Una sola cadena de modelos (callAI('reasoning'): Gemini Pro → OpenRouter free → Groq → Qwen)
  * - Batches de 4 en paralelo (respeta rate limits de OpenRouter)
  * - Output coherente y comparable entre activos
  */
@@ -26,7 +26,7 @@ import { filterActionableTriggers, dropUnrealisticPriceTriggers } from './trigge
 
 type PortfolioPosition = { symbol: string; quantity: number; avgCost: number };
 
-const BATCH_SIZE = 4; // DeepSeek R1 vía OpenRouter: 4 en paralelo es seguro
+const BATCH_SIZE = 4; // OpenRouter free tier: 4 en paralelo es seguro
 
 let _lastRunStats: { analyzed: number; targets: number; abortedByQuota: boolean } | null = null;
 
