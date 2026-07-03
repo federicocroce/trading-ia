@@ -7,11 +7,14 @@
  */
 
 import { getEtfSymbols } from '../db/repository.js';
+import { getFundamentalSummary } from '../fundamental/fundamental-analysis.service.js';
+import { meetsQualityBar } from '../opportunities/tradeability.js';
 
 const EDGAR_HEADERS = { 'User-Agent': 'trading-dashboard/1.0 (federico@mundi.io)' };
 const NASDAQ_HEADERS = { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' };
 
 const SCREENER_CACHE_MS = 6 * 60 * 60 * 1000; // 6h
+const QUALITY_BAR_CONCURRENCY = 4; // fundamentals fetch limitado — misses de cache pegan a Yahoo
 
 let cachedUniverse: string[] | null = null;
 let universeExpiresAt = 0;
@@ -220,6 +223,33 @@ export async function getScreenedSymbols(portfolioSymbols: string[]): Promise<{
   ]);
   for (const s of universe) {
     if (!/^[A-Z]{1,5}$/.test(s)) universe.delete(s);
+  }
+
+  // Quality bar sobre los símbolos DINÁMICOS (NASDAQ beats + EDGAR): un micro-cap
+  // con insider buy sigue siendo un micro-cap — mismo vector SDOT, otro emisor.
+  // Los curados están exentos (son large caps por construcción, y el fetch masivo no aporta).
+  const curatedSet = new Set(CURATED_US_SYMBOLS);
+  const dynamicOnly = [...universe].filter((s) => !curatedSet.has(s));
+  const rejected: string[] = [];
+  for (let i = 0; i < dynamicOnly.length; i += QUALITY_BAR_CONCURRENCY) {
+    const batch = dynamicOnly.slice(i, i + QUALITY_BAR_CONCURRENCY);
+    const results = await Promise.allSettled(batch.map((symbol) => getFundamentalSummary(symbol)));
+    results.forEach((result, idx) => {
+      const symbol = batch[idx];
+      const summary = result.status === 'fulfilled' ? result.value : null;
+      const ok = summary != null && meetsQualityBar({
+        marketCap: summary.data.marketCap,
+        currentPrice: summary.data.currentPrice,
+        instrumentType: 'accion', // beats/EDGAR son siempre acciones US
+      });
+      if (!ok) {
+        universe.delete(symbol);
+        rejected.push(symbol);
+      }
+    });
+  }
+  if (rejected.length) {
+    console.log(`[Screener] Quality bar rechazó ${rejected.length} dinámicos: ${rejected.slice(0, 10).join(', ')}`);
   }
 
   cachedUniverse = [...universe];
