@@ -217,6 +217,10 @@ export const signalTracking = sqliteTable('signal_tracking', {
   resolvedAt: text('resolved_at'),
   // Portfolio context
   isPortfolioHold: integer('is_portfolio_hold', { mode: 'boolean' }).default(false),
+  // Setup quality (P1 clamp de riesgo): true si el setup fue invalidado por riesgo del stop
+  // > MAX_SETUP_RISK_PCT — incluye BUY degradados a WATCH (ver signal-tracking.service.ts).
+  // Permite medir después si el filtro salvó plata o costó upside.
+  setupInvalid: integer('setup_invalid', { mode: 'boolean' }),
   // Entry accuracy
   entryHit: integer('entry_hit', { mode: 'boolean' }),
   entryDeviation: real('entry_deviation'),

@@ -1,0 +1,1 @@
+ALTER TABLE `signal_tracking` ADD `setup_invalid` integer;

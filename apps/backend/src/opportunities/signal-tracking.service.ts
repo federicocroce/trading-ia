@@ -15,23 +15,38 @@ import {
   type PriceCandle,
 } from '../intelligence/outcome-resolver.js';
 
+/** Subconjunto de Opportunity que necesita el criterio de tracking (testeable sin fixture completo). */
+export type TrackableOpportunity = Pick<Opportunity, 'action' | 'timingView' | 'tradeLevels'>;
+
 /**
- * Registra señales BUY/SELL de un scan para tracking posterior.
- * Solo graba señales actionables (BUY o SELL) con confidence > 0.
+ * Decide si una oportunidad se registra para medir accuracy después.
+ * - BUY/SELL: siempre (señales actionables).
+ * - WATCH con timing activo (now/soon) y 2+ triggers: señales de anticipación.
+ * - WATCH con setup inválido (BUY degradado por el clamp de riesgo del P1): se trackea para
+ *   poder medir si el filtro salvó plata o costó upside — antes de esto quedaban fuera y el
+ *   filtro no era medible.
+ */
+export function shouldTrackSignal(opp: TrackableOpportunity): boolean {
+  if (opp.action === 'BUY' || opp.action === 'SELL') return true;
+  if (opp.action !== 'WATCH') return false;
+
+  const tv = opp.timingView;
+  const isWatchWithTiming = Boolean(
+    tv && (tv.timing === 'now' || tv.timing === 'soon') && tv.triggers.length >= 2,
+  );
+  const isDegradedSetup = opp.tradeLevels?.setupQuality === 'invalid';
+  return isWatchWithTiming || isDegradedSetup;
+}
+
+/**
+ * Registra señales de un scan para tracking posterior (ver `shouldTrackSignal` para el criterio).
  */
 export function recordSignals(opportunities: Opportunity[]): number {
   const today = new Date().toISOString().split('T')[0];
   let recorded = 0;
 
   for (const opp of opportunities) {
-    const isActionable = opp.action === 'BUY' || opp.action === 'SELL';
-    // También trackear WATCH con timing activo (now/soon) y 2+ triggers — señales de anticipación
-    const tv = (opp as any).timingView as { timing?: string; triggers?: unknown[]; confidence?: number } | undefined;
-    const isWatchWithTiming = opp.action === 'WATCH'
-      && tv && (tv.timing === 'now' || tv.timing === 'soon')
-      && Array.isArray(tv.triggers) && tv.triggers.length >= 2;
-
-    if (!isActionable && !isWatchWithTiming) continue;
+    if (!shouldTrackSignal(opp)) continue;
     if (opp.currentPrice <= 0) continue;
 
     try {
@@ -55,6 +70,7 @@ export function recordSignals(opportunities: Opportunity[]): number {
         mediumTermScore: opp.horizonScores?.mediumTerm ?? null,
         rsiAtSignal: null, // Would need to be passed from technical data
         predictedReturnMid: opp.shortTerm?.midPercent ?? null,
+        setupInvalid: opp.tradeLevels?.setupQuality === 'invalid',
       });
       recorded++;
     } catch {

@@ -43,21 +43,25 @@ function OverallAccuracySection() {
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="text-center cursor-help rounded-md bg-muted/30 py-1.5 px-2">
-              <span className="text-[9px] text-muted-foreground block">Expectancy</span>
-              {data.rSampleSize > 0 ? (
-                <span className={`text-sm font-mono font-bold ${expectancyColor(data.expectancyR)}`}>
-                  {data.expectancyR > 0 ? '+' : ''}{data.expectancyR}R
+              <span className="text-[9px] text-muted-foreground block">Expectancy (setups validos)</span>
+              {data.rCleanN > 0 ? (
+                <span className={`text-sm font-mono font-bold ${expectancyColor(data.expectancyRClean)}`}>
+                  {data.expectancyRClean > 0 ? '+' : ''}{data.expectancyRClean}R
                 </span>
               ) : (
                 <span className="text-sm font-mono font-bold text-muted-foreground">N/D</span>
               )}
-              <span className="text-[8px] text-muted-foreground block">por senal</span>
+              <span className="text-[8px] text-muted-foreground block">n={data.rCleanN}</span>
             </div>
           </TooltipTrigger>
           <TooltipContent>
-            Retorno promedio medido en unidades de riesgo asumido (R = distancia entry-stop).
-            Un sistema con win rate bajo puede ser rentable si el R promedio es positivo.
-            Muestra: {data.rSampleSize} senales con stop valido.
+            Retorno promedio medido en unidades de riesgo asumido (R = distancia entry-stop),
+            solo para senales con stop dentro del riesgo maximo tolerable (setup "limpio",
+            post-filtro). Un sistema con win rate bajo puede ser rentable si el R promedio es positivo.
+            <br />
+            Legacy (stop pre-filtro, riesgo mayor): {data.expectancyRLegacy > 0 ? '+' : ''}{data.expectancyRLegacy}R (n={data.rLegacyN}).
+            <br />
+            Global (todas las senales, mezcla ambas poblaciones): {data.expectancyR > 0 ? '+' : ''}{data.expectancyR}R (n={data.rSampleSize}).
           </TooltipContent>
         </Tooltip>
       </div>

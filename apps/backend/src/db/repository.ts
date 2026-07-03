@@ -2,6 +2,7 @@ import { eq, desc, gte, lt, asc, and, inArray, gt, sql, isNull } from 'drizzle-o
 import type { AnticipatoryAlert } from '@trading/shared';
 import { db, schema } from './index.js';
 import { missedOpportunities, signalTracking, etfWatchlist } from './schema.js';
+import { envNumber } from '../shared/env-number.js';
 
 // ==================== SYMBOLS ====================
 
@@ -851,6 +852,8 @@ export function insertSignalTracking(data: {
   verdictSource?: string | null;
   evidenceScore?: number | null;
   macroDelta?: number | null;
+  // Setup quality (P1 clamp de riesgo) — true si el setup fue invalidado por riesgo > máximo
+  setupInvalid?: boolean | null;
 }) {
   // Atomic upsert: delete pending + insert new in single transaction
   return db.transaction((trx) => {
@@ -916,6 +919,53 @@ export function getSignalTrackingHistory(limit: number = 100) {
     .all();
 }
 
+/** Fila mínima necesaria para segmentar por riesgo del stop (subconjunto de signalTracking). */
+export interface StopRiskRow {
+  entryPrice: number;
+  stopLoss: number | null;
+  rMultiple: number | null;
+}
+
+/**
+ * Segmenta filas resueltas en "clean" (stop dentro del riesgo máximo tolerable — el mundo
+ * post-clamp del P1) y "legacy" (stop >MAX_SETUP_RISK_PCT% del entry — señales pre-clamp).
+ * Mezclar ambas poblaciones comprime el expectancy promedio hacia 0: medido en el review del
+ * P1, 50.3% de las filas históricas tienen stop >10% con +0.032R clean vs -0.018R legacy.
+ *
+ * Decisión sobre stop null: se clasifica como "legacy", no se excluye. No hay evidencia de que
+ * ese trade respetara el límite de riesgo (no se puede afirmar "clean" sin nivel), y de todos
+ * modos no contamina el expectancy — `rMultiple` requiere `stopLoss` no-null
+ * (ver computeRMultiple en outcome-resolver.ts), así que una fila con stop null nunca aporta a
+ * `rCleanN` ni a `rLegacyN`; solo determina en qué bucket se cuenta si en el futuro se agregan
+ * métricas no-R sobre estos grupos.
+ */
+export function segmentByStopRisk<T extends StopRiskRow>(
+  rows: T[],
+  maxRiskPct: number = envNumber('MAX_SETUP_RISK_PCT', 10),
+): { clean: T[]; legacy: T[] } {
+  const clean: T[] = [];
+  const legacy: T[] = [];
+  for (const row of rows) {
+    const riskPct = row.stopLoss != null && row.entryPrice > 0
+      ? (Math.abs(row.entryPrice - row.stopLoss) / row.entryPrice) * 100
+      : null;
+    if (riskPct != null && riskPct <= maxRiskPct) {
+      clean.push(row);
+    } else {
+      legacy.push(row);
+    }
+  }
+  return { clean, legacy };
+}
+
+/** Expectancy (avgR redondeado a 2 decimales) + N sobre filas con rMultiple calculable. */
+export function computeExpectancy(rows: Array<{ rMultiple: number | null }>): { avg: number; n: number } {
+  const rValues = rows.map(r => r.rMultiple).filter((r): r is number => r != null);
+  const n = rValues.length;
+  const avg = n > 0 ? Math.round((rValues.reduce((sum, r) => sum + r, 0) / n) * 100) / 100 : 0;
+  return { avg, n };
+}
+
 export function getSignalAccuracyStats() {
   const all = db.select().from(schema.signalTracking)
     .where(
@@ -946,6 +996,13 @@ export function getSignalAccuracyStats() {
     ? Math.round((rValues.reduce((sum, r) => sum + r, 0) / rSampleSize) * 100) / 100
     : 0;
 
+  // Expectancy segmentada: separa setups "clean" (stop dentro del riesgo máximo del P1) de
+  // "legacy" (stop pre-clamp) — el global de arriba mezcla ambas poblaciones y comprime el
+  // promedio hacia 0 (ver segmentByStopRisk para el detalle).
+  const { clean, legacy } = segmentByStopRisk(all);
+  const cleanExpectancy = computeExpectancy(clean);
+  const legacyExpectancy = computeExpectancy(legacy);
+
   return {
     total,
     wins,
@@ -957,6 +1014,10 @@ export function getSignalAccuracyStats() {
     avgR,
     expectancyR: avgR,
     rSampleSize,
+    expectancyRClean: cleanExpectancy.avg,
+    rCleanN: cleanExpectancy.n,
+    expectancyRLegacy: legacyExpectancy.avg,
+    rLegacyN: legacyExpectancy.n,
   };
 }
 
