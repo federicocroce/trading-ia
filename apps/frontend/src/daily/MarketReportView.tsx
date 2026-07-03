@@ -466,13 +466,19 @@ export function MarketReportView({ date }: { date?: string }) {
                       </Badge>
                     </div>
                     <div className="space-y-0.5">
-                      {scenario.distribution.map((d, j) => (
-                        <div key={j} className="flex items-start gap-1 text-[9px]">
-                          <SymbolLink symbol={d.symbol} className="font-mono font-semibold shrink-0" />
-                          <span className="text-green-400 shrink-0">{d.weight}%</span>
-                          <span className="text-muted-foreground">— {d.reason}</span>
-                        </div>
-                      ))}
+                      {scenario.distribution.length > 0 ? (
+                        scenario.distribution.map((d, j) => (
+                          <div key={j} className="flex items-start gap-1 text-[9px]">
+                            <SymbolLink symbol={d.symbol} className="font-mono font-semibold shrink-0" />
+                            <span className="text-green-400 shrink-0">{d.weight}%</span>
+                            <span className="text-muted-foreground">— {d.reason}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-[9px] text-muted-foreground italic">
+                          {scenario.distributionNote ?? 'Sin distribución de activos.'}
+                        </p>
+                      )}
                     </div>
                   </div>
                 ))}

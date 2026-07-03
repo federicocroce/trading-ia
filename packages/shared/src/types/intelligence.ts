@@ -132,6 +132,9 @@ export interface MarketReportScenario {
   name: string;
   probability: number;
   distribution: Array<{ symbol: string; weight: number; reason: string }>;
+  // Poblado cuando el LLM no produjo pesos reales (todos en 0): distribution queda
+  // vacía y esto explica por qué, en vez de mostrar una tabla de 0% que parece dato.
+  distributionNote?: string;
 }
 
 export interface MarketReportTheme {
@@ -147,6 +150,10 @@ export interface TopImpactNewsItem {
   sectors: Array<{ name: string; direction: 'positive' | 'negative' | 'neutral' }>;
   confidence: 'high' | 'medium' | 'low';
   tickers: string[];
+  // Titular EXACTO (o fragmento) de una de las noticias provistas al prompt que
+  // respalda esta afirmación. Post-parse se descarta el item si no matchea ninguna
+  // headline real — evita que el LLM invente noticias (anti-hype/anti-alucinación).
+  sourceHeadline?: string;
 }
 
 export interface MarketReport {

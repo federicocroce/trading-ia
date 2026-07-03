@@ -907,6 +907,10 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
       opp.narrativeDigest = unified.narrative;
 
       // Actualizar verdict chain con capa LLM (Stage 5b) — el LLM solo puede degradar.
+      // blockedUpgrade: cuando el LLM sugiere subir la acción y el gate lo bloquea, la
+      // tesis bullish completa no puede seguir mostrándose junto a la acción gateada sin
+      // aclarar el bloqueo — sería doble discurso visible (WATCH + tesis de compra).
+      let blockedUpgrade = false;
       if (opp.verdict) {
         opp.verdict.layers.llmAction = unified.action;
         opp.verdict.layers.llmReason = unified.thesis.slice(0, 120);
@@ -919,6 +923,8 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
         } else if (unified.action !== opp.verdict.finalAction) {
           // El LLM quiso subir la acción: se registra pero NO se aplica.
           opp.verdict.trace.push(`llm:sugirió ${unified.action} — bloqueado (solo degrada)`);
+          blockedUpgrade = true;
+          opp.reasoning = `[Sugerencia ${unified.action} bloqueada por gate de riesgo — se mantiene ${gated}] ${unified.thesis}`;
         } else {
           opp.verdict.trace.push(`llm:confirma`);
         }
@@ -927,12 +933,14 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
         opp.action = applyLlmAction(opp.action, unified.action) as typeof opp.action;
       }
 
-      // deepAnalysis retrocompat (UI puede leerlo desde unifiedAnalysis.wouldDo)
+      // deepAnalysis retrocompat (UI puede leerlo desde unifiedAnalysis.wouldDo).
+      // unified.thesis cruda NO se toca — el market report la consume y ya pesa con la
+      // acción gateada (ver sync de unified.action más abajo).
       opp.deepAnalysis = {
         positives: unified.catalysts,
         concerns: unified.risks,
         recommendation: unified.thesis,
-        wouldDo: unified.wouldDo,
+        wouldDo: blockedUpgrade ? ['Ver por qué se bloqueó en la cadena de decisión'] : unified.wouldDo,
         wouldNotDo: unified.wouldNotDo,
         generatedBy: unified.generatedBy as 'deepseek' | 'groq' | 'qwen' | 'algorithmic',
       };

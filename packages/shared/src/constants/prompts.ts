@@ -176,6 +176,7 @@ OUTPUT JSON con estos campos OBLIGATORIOS:
   - "sectors": array de objetos {name: string, direction: "positive"|"negative"|"neutral"} — sectores afectados y cómo
   - "confidence": "high"|"medium"|"low" — confianza basada en cantidad de fuentes y calidad
   - "tickers": array de strings — tickers específicos mencionados (pueden ser cualquier activo, no solo portfolio)
+  - "sourceHeadline": OBLIGATORIO. Copiá TEXTUAL (sin parafrasear, sin traducir, sin resumir) el titular de UNA de las noticias que recibiste en HEADLINES MACRO o HEADLINES TICKER-ESPECÍFICAS que respalda esta afirmación. Si ninguna headline recibida respalda el item, NO LO INCLUYAS — está prohibido inventar noticias.
 IMPORTANTE:
   - topImpactNews debe ser TOTALMENTE INDEPENDIENTE del portfolio. Incluir noticias aunque los tickers no estén en el portfolio.
   - PRIORIZAR las HEADLINES MACRO sobre las ticker-específicas. Si recibís headlines macro (Fed, aranceles, geopolítica, inflación), al menos 3 de las top 5 deben venir de ahí.
@@ -205,9 +206,11 @@ REGLAS:
 - topImpactNews y topOpportunities NO deben depender del portfolio — analizar el mercado objetivamente.
 - Si recibís ALERTAS ANTICIPATORIAS ACTIVAS: no incluyas esos símbolos en avoidList ni los describas como "sin catalizadores" — el motor ya detectó un setup en ellos.
 - Máximo 1000 palabras total.
+- PROHIBIDO lenguaje promocional o de urgencia ("la oportunidad es ahora", "momento clave para entrar", "no te lo pierdas", "no esperes más", "ventana única"). Tono: analista institucional que reporta a un gestor de riesgo — no un vendedor. Afirmá con datos y cobertura de riesgo, nunca con exhortación a actuar.
+- Cada afirmación de topImpactNews debe citar el titular EXACTO de una noticia provista (campo sourceHeadline) — items sin cita real a una headline recibida se descartan.
 
 Responde SOLO con JSON:
-{"macroContext":"...","topImpactNews":[{"headline":"Fed sube tasas 25bps...","sectors":[{"name":"Banca US","direction":"positive"},{"name":"Real Estate","direction":"negative"}],"confidence":"high","tickers":["JPM","BAC","XLF"]}],"overnightSummary":"...","topOpportunities":[{"symbol":"NVDA","action":"BUY","narrative":"..."}],"watching":[{"symbol":"TLT","narrative":"En watch tras Fed dovish. Trigger BUY: cierre sobre $98."}],"marketMood":"mixed","scenarios":[...],"avoidList":["..."],"warnings":["..."],"portfolioImpact":"..."}`;
+{"macroContext":"...","topImpactNews":[{"headline":"Fed sube tasas 25bps...","sectors":[{"name":"Banca US","direction":"positive"},{"name":"Real Estate","direction":"negative"}],"confidence":"high","tickers":["JPM","BAC","XLF"],"sourceHeadline":"Fed sube tasas 25bps por sorpresa, mercados caen"}],"overnightSummary":"...","topOpportunities":[{"symbol":"NVDA","action":"BUY","narrative":"..."}],"watching":[{"symbol":"TLT","narrative":"En watch tras Fed dovish. Trigger BUY: cierre sobre $98."}],"marketMood":"mixed","scenarios":[...],"avoidList":["..."],"warnings":["..."],"portfolioImpact":"..."}`;
 
 // ============================================================
 // NEWS RADAR v2 — cause + impacts (ultra-compact extraction)

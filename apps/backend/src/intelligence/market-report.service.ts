@@ -114,7 +114,21 @@ export function moveSellsOutOfTopOpportunities(
   return { topOpportunities: kept, sellWarnings };
 }
 
-function normalizeScenarios(scenarios: MarketReport['scenarios']): MarketReport['scenarios'] {
+const DISTRIBUTION_NOTE_NO_WEIGHTS = 'sin asignación — el modelo no la produjo';
+
+/**
+ * 45% de los reports históricos traían escenarios con TODOS los distribution[].weight
+ * en 0 — no es "el modelo pesó todo por igual en cero", es que no produjo ninguna
+ * asignación real. Mostrar una tabla de 0% en todo se lee como dato cuando es ausencia
+ * de dato. `[]` (sin distribution) es distinto de `[]` (array vacío real): esta función
+ * solo detecta el primer caso — un array vacío no tiene "todos ceros", no hay nada que vaciar.
+ */
+export function hasAllZeroWeights(distribution: Array<{ weight: number }> | null | undefined): boolean {
+  if (!distribution || distribution.length === 0) return false;
+  return distribution.every(d => (d.weight ?? 0) === 0);
+}
+
+export function normalizeScenarios(scenarios: MarketReport['scenarios']): MarketReport['scenarios'] {
   if (!scenarios || scenarios.length === 0) return scenarios;
 
   const totalProb = scenarios.reduce((sum, s) => sum + (s.probability ?? 0), 0);
@@ -126,6 +140,15 @@ function normalizeScenarios(scenarios: MarketReport['scenarios']): MarketReport[
   }
 
   return scenarios.map(s => {
+    if (hasAllZeroWeights(s.distribution)) {
+      // Opción simple y honesta (vs. reconstruir pesos determinísticamente): vaciar y
+      // declarar la ausencia en vez de simular una ponderación que el modelo no dio.
+      return {
+        ...s,
+        distribution: [],
+        distributionNote: DISTRIBUTION_NOTE_NO_WEIGHTS,
+      };
+    }
     const totalWeight = (s.distribution ?? []).reduce((sum, d) => sum + (d.weight ?? 0), 0);
     if (totalWeight > 0 && Math.abs(totalWeight - 100) > 5) {
       return {
@@ -137,6 +160,27 @@ function normalizeScenarios(scenarios: MarketReport['scenarios']): MarketReport[
       };
     }
     return s;
+  });
+}
+
+/**
+ * Anti-hype: cada item de topImpactNews debe citar el titular EXACTO de una noticia
+ * provista al prompt (campo sourceHeadline). Match case-insensitive por substring en
+ * cualquier dirección — tolera que el LLM cite el titular completo o un fragmento, o
+ * que lo devuelva con texto propio alrededor de la cita ("Según X: <titular>").
+ * Una cita vacía o que no aparece en ninguna headline provista nunca matchea (evita
+ * falsos positivos triviales de substrings vacíos).
+ */
+export function matchesSourceHeadline(
+  sourceHeadline: string | null | undefined,
+  providedHeadlines: string[],
+): boolean {
+  const needle = sourceHeadline?.trim().toLowerCase();
+  if (!needle) return false;
+  return providedHeadlines.some(h => {
+    const hay = h.trim().toLowerCase();
+    if (!hay) return false;
+    return hay.includes(needle) || needle.includes(hay);
   });
 }
 
@@ -235,6 +279,10 @@ export async function generateMarketReport(
       tickerHeadlines.push(line);
     }
   }
+  // Exactamente las strings que van al userMsg del synthesis (mismo slice(0,10) de abajo) —
+  // es contra ESTO que se valida sourceHeadline, no contra el universo completo de noticias
+  // del día: si el LLM cita algo que no le mostramos, también es una cita inventada.
+  const providedHeadlines = [...macroHeadlines.slice(0, 10), ...tickerHeadlines.slice(0, 10)];
 
   // Build symbol metadata from DB
   const allDbSymbols = getAllSymbols();
@@ -392,8 +440,22 @@ export async function generateMarketReport(
             : [],
           confidence: ['high', 'medium', 'low'].includes(n.confidence) ? n.confidence : 'medium',
           tickers: Array.isArray(n.tickers) ? n.tickers : [],
+          sourceHeadline: typeof n.sourceHeadline === 'string' ? n.sourceHeadline : '',
         }))
       : [];
+    // Anti-hype/anti-alucinación: un item de topImpactNews sin cita real a una headline
+    // provista se descarta — evita noticias inventadas que suenan a "oportunidad".
+    const preCitationCount = topImpactNews.length;
+    topImpactNews = topImpactNews.filter((n) => {
+      const cited = matchesSourceHeadline(n.sourceHeadline, providedHeadlines);
+      if (!cited) {
+        console.warn(`[MarketReport] topImpactNews descartado — sourceHeadline no matchea ninguna headline provista: "${n.headline}" (cita: "${n.sourceHeadline}")`);
+      }
+      return cited;
+    });
+    if (preCitationCount !== topImpactNews.length) {
+      console.log(`[MarketReport] ${preCitationCount - topImpactNews.length}/${preCitationCount} topImpactNews descartados por falta de cita real (sourceHeadline)`);
+    }
     scenarios = Array.isArray(p.scenarios)
       ? p.scenarios.map((s: any) => ({
           name: s.name ?? '',
