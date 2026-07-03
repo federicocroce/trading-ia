@@ -16,7 +16,7 @@ export interface ScreenerQuote {
   marketCap: number | null;
   price: number;
   volume: number;
-  changePct: number;
+  changePct: number | null;
 }
 
 export function filterScreenerCandidates(
@@ -38,6 +38,9 @@ export function filterScreenerCandidates(
     if (!meetsQualityBar({ marketCap: quote.marketCap, currentPrice: quote.price, instrumentType: 'accion' })) {
       return false;
     }
+    // Fail-closed: sin dato de movimiento diario no podemos aplicar el anti-chase,
+    // así que no pasa (mismo criterio que marketCap null en la quality bar).
+    if (quote.changePct == null) return false;
     if (Math.abs(quote.changePct) > maxDayMovePct) return false;
     return true;
   });

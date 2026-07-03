@@ -17,6 +17,10 @@ describe('filterScreenerCandidates — embudo anti-humo', () => {
     const out = filterScreenerCandidates([q('NOCAP', { marketCap: null as unknown as number })]);
     expect(out).toEqual([]);
   });
+  it('rechaza changePct null (fail-closed: sin dato de movimiento no hay anti-chase)', () => {
+    const out = filterScreenerCandidates([q('NOMOVE', { changePct: null as unknown as number })]);
+    expect(out).toEqual([]);
+  });
   it('dedup por símbolo (aparece en gainers Y most_actives)', () => {
     const out = filterScreenerCandidates([q('DUP'), q('DUP')]);
     expect(out).toHaveLength(1);

@@ -43,7 +43,9 @@ function toScreenerQuote(q: YahooScreenerQuote): ScreenerQuote | null {
     marketCap: q.marketCap ?? null,
     price: q.regularMarketPrice,
     volume: q.regularMarketVolume ?? 0,
-    changePct: q.regularMarketChangePercent ?? 0,
+    // Fail-closed: NO defaultear a 0 — un changePct faltante disfrazado de "plano"
+    // pasaría el anti-chase del embudo. null explícito, igual que marketCap.
+    changePct: q.regularMarketChangePercent ?? null,
   };
 }
 
