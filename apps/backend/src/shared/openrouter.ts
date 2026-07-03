@@ -13,20 +13,38 @@ function getClient(): OpenAI {
   return client;
 }
 
+// deepseek/deepseek-r1:free va primero: es el modelo que la etiqueta "DeepSeek R1 (OpenRouter)"
+// en ai-router.ts promete, y activa el doblado de maxTokens para reasoning (ver isReasoningModel
+// más abajo). meta-llama/llama-4-scout:free y google/gemma-4-31b-it:free se eliminaron — son IDs
+// inexistentes en OpenRouter que 404ean y degradan la cadena a los siguientes modelos.
 const OPENROUTER_FREE_MODELS = [
+  'deepseek/deepseek-r1:free',
   'qwen/qwen3-235b-a22b:free',
   'qwen/qwen3-30b-a3b:free',
   'meta-llama/llama-3.3-70b-instruct:free',
-  'meta-llama/llama-4-scout:free',
-  'google/gemma-4-31b-it:free',
   'microsoft/phi-4-reasoning:free',
 ] as const;
+
+export interface OpenRouterResult {
+  content: string;
+  tokensInput?: number;
+  tokensOutput?: number;
+}
 
 export async function askOpenRouter(
   userMessage: string,
   systemPrompt: string,
   maxTokens: number = 4096,
 ): Promise<string> {
+  const result = await askOpenRouterWithUsage(userMessage, systemPrompt, maxTokens);
+  return result.content;
+}
+
+export async function askOpenRouterWithUsage(
+  userMessage: string,
+  systemPrompt: string,
+  maxTokens: number = 4096,
+): Promise<OpenRouterResult> {
   let lastError: Error | null = null;
 
   for (const model of OPENROUTER_FREE_MODELS) {
@@ -51,7 +69,11 @@ export async function askOpenRouter(
       const content = response.choices[0]?.message?.content ?? '';
       if (content) {
         console.log(`[openrouter] Success with model: ${model}`);
-        return content;
+        return {
+          content,
+          tokensInput: response.usage?.prompt_tokens,
+          tokensOutput: response.usage?.completion_tokens,
+        };
       }
     } catch (err) {
       const msg = (err as Error).message || '';

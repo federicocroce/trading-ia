@@ -18,6 +18,12 @@ const GEMINI_MODELS = [
 
 type GeminiModel = (typeof GEMINI_MODELS)[number];
 
+export interface GeminiResult {
+  content: string;
+  tokensInput?: number;
+  tokensOutput?: number;
+}
+
 interface GeminiAttempt {
   keyIndex: number;
   model: GeminiModel;
@@ -61,6 +67,15 @@ export async function askGemini(
   systemPrompt: string,
   maxTokens: number = 4096,
 ): Promise<string> {
+  const result = await askGeminiWithUsage(userMessage, systemPrompt, maxTokens);
+  return result.content;
+}
+
+export async function askGeminiWithUsage(
+  userMessage: string,
+  systemPrompt: string,
+  maxTokens: number = 4096,
+): Promise<GeminiResult> {
   const keys = getApiKeys();
 
   if (keys.length === 0) {
@@ -95,7 +110,11 @@ export async function askGemini(
       const content = result.response.text();
       if (content) {
         console.log(`[gemini] Success — model: ${model}, key: #${keyIndex + 1}`);
-        return content;
+        return {
+          content,
+          tokensInput: result.response.usageMetadata?.promptTokenCount,
+          tokensOutput: result.response.usageMetadata?.candidatesTokenCount,
+        };
       }
     } catch (err) {
       const msg = (err as Error).message || '';
@@ -134,6 +153,15 @@ export async function askGeminiFlash(
   systemPrompt: string,
   maxTokens: number = 4096,
 ): Promise<string> {
+  const result = await askGeminiFlashWithUsage(userMessage, systemPrompt, maxTokens);
+  return result.content;
+}
+
+export async function askGeminiFlashWithUsage(
+  userMessage: string,
+  systemPrompt: string,
+  maxTokens: number = 4096,
+): Promise<GeminiResult> {
   const keys = getApiKeys();
   if (keys.length === 0) throw new Error('No Gemini API keys configured (GOOGLE_AI_API_KEY_1..4)');
 
@@ -163,7 +191,11 @@ export async function askGeminiFlash(
       const content = result.response.text();
       if (content) {
         console.log(`[gemini-flash] Success — key: #${keyIndex + 1}`);
-        return content;
+        return {
+          content,
+          tokensInput: result.response.usageMetadata?.promptTokenCount,
+          tokensOutput: result.response.usageMetadata?.candidatesTokenCount,
+        };
       }
     } catch (err) {
       const msg = (err as Error).message || '';

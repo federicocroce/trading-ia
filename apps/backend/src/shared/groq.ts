@@ -33,12 +33,20 @@ export type GroqModel = (typeof GROQ_MODELS)[number];
 export interface GroqResult {
   content: string;
   model: GroqModel;
+  tokensInput?: number;
+  tokensOutput?: number;
 }
 
 const GROQ_LIGHT_MODELS = [
   'llama-3.1-8b-instant',
   'gemma2-9b-it',
 ] as const;
+
+export interface GroqLightResult {
+  content: string;
+  tokensInput?: number;
+  tokensOutput?: number;
+}
 
 export function isGroqAvailable(): boolean {
   return getApiKeys().length > 0;
@@ -58,6 +66,15 @@ export async function askGroqLight(
   systemPrompt: string,
   maxTokens: number = 2048,
 ): Promise<string> {
+  const result = await askGroqLightWithUsage(userMessage, systemPrompt, maxTokens);
+  return result.content;
+}
+
+export async function askGroqLightWithUsage(
+  userMessage: string,
+  systemPrompt: string,
+  maxTokens: number = 2048,
+): Promise<GroqLightResult> {
   const keys = getApiKeys();
   if (keys.length === 0) throw new Error('No Groq API keys configured');
 
@@ -82,7 +99,11 @@ export async function askGroqLight(
         const content = response.choices[0]?.message?.content ?? '';
         if (content) {
           console.log(`[groq-light] Success with model: ${model}, key: #${keyIndex + 1}`);
-          return content;
+          return {
+            content,
+            tokensInput: response.usage?.prompt_tokens,
+            tokensOutput: response.usage?.completion_tokens,
+          };
         }
       } catch (err) {
         const msg = (err as Error).message || '';
@@ -134,7 +155,12 @@ export async function askGroqWithRotation(
         const content = response.choices[0]?.message?.content ?? '';
         if (content) {
           console.log(`[groq] Success with model: ${model}, key: #${keyIndex + 1}`);
-          return { content, model };
+          return {
+            content,
+            model,
+            tokensInput: response.usage?.prompt_tokens,
+            tokensOutput: response.usage?.completion_tokens,
+          };
         }
       } catch (err) {
         const msg = (err as Error).message || '';

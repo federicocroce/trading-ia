@@ -162,11 +162,15 @@ async function analyzeBatch(
   let errorMsg: string | undefined;
   let rawResponse: string | undefined;
   let usedModel = 'reasoning';
+  let tokensInput: number | undefined;
+  let tokensOutput: number | undefined;
 
   try {
     const result2 = await callAIWithModel('reasoning', cards, UNIFIED_ASSET_ANALYSIS_PROMPT, 6144);
     rawResponse = result2.content;
     usedModel = result2.model ?? 'reasoning';
+    tokensInput = result2.tokensInput;
+    tokensOutput = result2.tokensOutput;
     const parsed = JSON.parse(result2.content);
 
     const generatedBy = modelNameToProvider(usedModel);
@@ -204,6 +208,11 @@ async function analyzeBatch(
     }
   }
 
+  const tokensLabel = tokensInput != null && tokensOutput != null
+    ? `${tokensInput} in / ${tokensOutput} out tokens`
+    : 'tokens n/a';
+  console.log(`[Unified] batch ${batchIndex}: ${tokensLabel} (${usedModel})`);
+
   if (pipelineRunId) {
     try {
       saveUnifiedAnalysisBatch({
@@ -211,6 +220,8 @@ async function analyzeBatch(
         batchIndex,
         assetsInput: batch.map(o => o.symbol),
         modelUsed: usedModel,
+        tokensInput,
+        tokensOutput,
         durationMs: Date.now() - batchStart,
         parsedOk,
         errorMsg,

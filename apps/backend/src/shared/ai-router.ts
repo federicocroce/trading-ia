@@ -8,10 +8,10 @@
  */
 
 import { jsonrepair } from 'jsonrepair';
-import { askGroq, askGroqLight } from './groq.js';
-import { askOpenRouter } from './openrouter.js';
+import { askGroqWithRotation, askGroqLightWithUsage } from './groq.js';
+import { askOpenRouterWithUsage } from './openrouter.js';
 import { askLMStudio } from './lmstudio.js';
-import { askGemini, askGeminiFlash, isGeminiAvailable } from './gemini.js';
+import { askGeminiWithUsage, askGeminiFlashWithUsage, isGeminiAvailable } from './gemini.js';
 import { withTimeout } from './with-timeout.js';
 import { envNumber } from './env-number.js';
 
@@ -50,17 +50,33 @@ function extractJSON(text: string): string {
   return text;
 }
 
+/**
+ * Providers that track token usage return this shape instead of a bare string.
+ * `tryProvider` accepts either — string-returning providers (e.g. local Qwen)
+ * simply produce a result with tokensInput/tokensOutput left undefined.
+ */
+interface ProviderResult {
+  content: string;
+  tokensInput?: number;
+  tokensOutput?: number;
+}
+
 async function tryProvider(
   name: string,
-  fn: () => Promise<string>,
+  fn: () => Promise<string | ProviderResult>,
   validateJSON: boolean,
-): Promise<string | null> {
+): Promise<ProviderResult | null> {
   try {
     const timeoutMs = envNumber('LLM_TIMEOUT_MS', 90_000);
     const raw = await withTimeout(fn(), timeoutMs, name);
     if (!raw) return null;
 
-    const cleaned = extractJSON(raw);
+    const rawContent = typeof raw === 'string' ? raw : raw.content;
+    const tokensInput = typeof raw === 'string' ? undefined : raw.tokensInput;
+    const tokensOutput = typeof raw === 'string' ? undefined : raw.tokensOutput;
+    if (!rawContent) return null;
+
+    let cleaned = extractJSON(rawContent);
 
     if (validateJSON) {
       try {
@@ -68,12 +84,12 @@ async function tryProvider(
       } catch {
         const repaired = jsonrepair(cleaned);
         JSON.parse(repaired); // throws if still invalid
-        return repaired;
+        cleaned = repaired;
       }
     }
 
     console.log(`[ai-router] ${name} OK`);
-    return cleaned;
+    return { content: cleaned, tokensInput, tokensOutput };
   } catch (err) {
     console.warn(`[ai-router] ${name} failed: ${(err as Error).message?.slice(0, 100)}`);
     return null;
@@ -94,27 +110,36 @@ export async function callAI(
 
   for (const { name, fn } of providers) {
     const result = await tryProvider(name, fn, true);
-    if (result) return result;
+    if (result) return result.content;
   }
 
   throw new Error(`[ai-router] All providers failed for task: ${task}`);
 }
 
 /**
- * Call AI returning both the JSON content and the name of the model that succeeded.
- * Use this where tracking which model ran matters (generatedBy, engine fields).
+ * Call AI returning the JSON content, the name of the model that succeeded, and
+ * (when the provider reports it) token usage for cost/audit tracking. tokensInput/
+ * tokensOutput are additive — omitted for providers that don't surface usage (e.g.
+ * local Qwen via LM Studio).
  */
 export async function callAIWithModel(
   task: AITask,
   userMessage: string,
   systemPrompt: string,
   maxTokens: number = 4096,
-): Promise<{ content: string; model: string }> {
+): Promise<{ content: string; model: string; tokensInput?: number; tokensOutput?: number }> {
   const providers = getProviderChain(task, userMessage, systemPrompt, maxTokens);
 
   for (const { name, fn } of providers) {
     const result = await tryProvider(name, fn, true);
-    if (result) return { content: result, model: name };
+    if (result) {
+      return {
+        content: result.content,
+        model: name,
+        tokensInput: result.tokensInput,
+        tokensOutput: result.tokensOutput,
+      };
+    }
   }
 
   throw new Error(`[ai-router] All providers failed for task: ${task}`);
@@ -133,7 +158,7 @@ export async function callAIText(
 
   for (const { name, fn } of providers) {
     const result = await tryProvider(name, fn, false);
-    if (result) return result;
+    if (result) return result.content;
   }
 
   throw new Error(`[ai-router] All providers failed for task: ${task}`);
@@ -144,30 +169,30 @@ function getProviderChain(
   userMessage: string,
   systemPrompt: string,
   maxTokens: number,
-): Array<{ name: string; fn: () => Promise<string> }> {
+): Array<{ name: string; fn: () => Promise<string | ProviderResult> }> {
   const geminiPro = {
     name: 'Gemini 2.5 Pro',
-    fn: () => askGemini(userMessage, systemPrompt, maxTokens),
+    fn: () => askGeminiWithUsage(userMessage, systemPrompt, maxTokens),
   };
 
   const geminiFlash = {
     name: 'Gemini 2.5 Flash',
-    fn: () => askGeminiFlash(userMessage, systemPrompt, maxTokens),
+    fn: () => askGeminiFlashWithUsage(userMessage, systemPrompt, maxTokens),
   };
 
   const deepseek = {
     name: 'DeepSeek R1 (OpenRouter)',
-    fn: () => askOpenRouter(userMessage, systemPrompt, maxTokens),
+    fn: () => askOpenRouterWithUsage(userMessage, systemPrompt, maxTokens),
   };
 
   const groq = {
     name: 'Groq (Llama 70B)',
-    fn: () => askGroq(userMessage, systemPrompt, maxTokens),
+    fn: () => askGroqWithRotation(userMessage, systemPrompt, maxTokens),
   };
 
   const groqLight = {
     name: 'Groq Light (gemma2/8b)',
-    fn: () => askGroqLight(userMessage, systemPrompt, Math.min(maxTokens, 2048)),
+    fn: () => askGroqLightWithUsage(userMessage, systemPrompt, Math.min(maxTokens, 2048)),
   };
 
   const qwen = {
