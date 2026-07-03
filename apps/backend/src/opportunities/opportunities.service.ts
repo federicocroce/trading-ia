@@ -930,7 +930,15 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
         }
       } else {
         // Sin verdict previo: aplicar el mismo gate sobre la acción algorítmica.
-        opp.action = applyLlmAction(opp.action, unified.action) as typeof opp.action;
+        // Defensivo: hoy inalcanzable — buildAlgorithmicOpportunity siempre setea verdict.
+        // Se replica igual el prefijo narrativo para que un refactor futuro no
+        // reintroduzca la contradicción (acción gateada + tesis bullish) en silencio.
+        const gatedNoVerdict = applyLlmAction(opp.action, unified.action) as typeof opp.action;
+        if (gatedNoVerdict === opp.action && unified.action !== gatedNoVerdict) {
+          blockedUpgrade = true;
+          opp.reasoning = `[Sugerencia ${unified.action} bloqueada por gate de riesgo — se mantiene ${gatedNoVerdict}] ${unified.thesis}`;
+        }
+        opp.action = gatedNoVerdict;
       }
 
       // deepAnalysis retrocompat (UI puede leerlo desde unifiedAnalysis.wouldDo).

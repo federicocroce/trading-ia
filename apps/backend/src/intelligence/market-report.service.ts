@@ -177,6 +177,10 @@ export function matchesSourceHeadline(
 ): boolean {
   const needle = sourceHeadline?.trim().toLowerCase();
   if (!needle) return false;
+  // Cita mínima 15 chars — consistente con MIN_BODY_LENGTH de body-fetcher; una cita
+  // más corta ("Fed", "NVDA") no identifica una noticia: matchearía cualquier headline
+  // que contenga esa palabra y validaría items inventados por substring trivial.
+  if (needle.length < 15) return false;
   return providedHeadlines.some(h => {
     const hay = h.trim().toLowerCase();
     if (!hay) return false;

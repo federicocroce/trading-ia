@@ -129,4 +129,14 @@ describe('matchesSourceHeadline — anti-hype: topImpactNews debe citar un titul
     expect(matchesSourceHeadline(undefined, provided)).toBe(false);
     expect(matchesSourceHeadline(null, provided)).toBe(false);
   });
+
+  it('rechaza citas triviales (<15 chars) aunque sean substring de una headline real — "Fed" no identifica una noticia', () => {
+    // Sin el guard, "Fed" matchea "Fed sube tasas 25 bps..." y valida cualquier item inventado.
+    expect(matchesSourceHeadline('Fed', provided)).toBe(false);
+    expect(matchesSourceHeadline('NVDA reporta', provided)).toBe(false); // 12 chars, substring real pero corto
+  });
+
+  it('acepta una cita real de 15+ chars que sí identifica la noticia', () => {
+    expect(matchesSourceHeadline('NVDA reporta earnings', provided)).toBe(true);
+  });
 });
