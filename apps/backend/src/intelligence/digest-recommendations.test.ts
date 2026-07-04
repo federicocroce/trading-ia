@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildDigestRecommendations,
   flagAlertedRecommendations,
+  flagRearmedRecommendations,
   filterAvoidVsAlerts,
   type RecommendationSource,
 } from './digest-recommendations.js';
@@ -108,5 +109,16 @@ describe('coherencia con alertas anticipatorias', () => {
   it('filterAvoidVsAlerts escapa caracteres especiales de regex en el simbolo (BTC-USD)', () => {
     const avoid = ['Evitar BTC-USD por volatilidad', 'No tocar bonos largos'];
     expect(filterAvoidVsAlerts(avoid, new Set(['BTC-USD']))).toEqual(['No tocar bonos largos']);
+  });
+
+  it('flagRearmedRecommendations marca rearmAlert en filas cuyo simbolo re-armó (independiente de anticipatoryAlert)', () => {
+    const recs = [
+      { symbol: 'PAM', action: 'WATCH' as const, reason: 'r', currentPrice: 50, score: 63 },
+      { symbol: 'NVDA', action: 'WATCH' as const, reason: 'r', currentPrice: 900, score: 55 },
+    ];
+    const flagged = flagRearmedRecommendations(recs, new Set(['PAM']));
+    expect(flagged[0].rearmAlert).toBe(true);
+    expect(flagged[1].rearmAlert).toBeUndefined();
+    expect(flagged[0].anticipatoryAlert).toBeUndefined();
   });
 });

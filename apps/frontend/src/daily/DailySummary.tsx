@@ -172,6 +172,7 @@ type DigestRec = {
   score: number;
   tradeLevels?: { entryPrice: number; stopLoss: number; takeProfit: number };
   anticipatoryAlert?: boolean;
+  rearmAlert?: boolean;
 };
 
 // One digest recommendation row: action badge + ticker + motivo (verbatim del scan).
@@ -185,6 +186,14 @@ function RecommendationRow({ rec }: { rec: DigestRec }) {
         <SymbolLink symbol={rec.symbol} className="font-mono font-semibold text-[10px] text-foreground shrink-0" />
         {rec.anticipatoryAlert && (
           <span title="Alerta anticipatoria activa" className="text-[10px] text-purple-400">⚡</span>
+        )}
+        {rec.rearmAlert && (
+          <Badge
+            title="Ayer el setup de riesgo era inválido — hoy volvió a ser operable"
+            className="text-[8px] font-bold px-1 py-0 h-3.5 shrink-0 bg-emerald-500/20 text-emerald-400"
+          >
+            SETUP OPERABLE
+          </Badge>
         )}
         {rec.reason && <span className="text-[10px] text-foreground leading-relaxed">— {rec.reason}</span>}
       </div>

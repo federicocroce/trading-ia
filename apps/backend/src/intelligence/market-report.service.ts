@@ -1,5 +1,5 @@
 import type { MarketReport, MarketReportRecommendation, TopImpactNewsItem, UnifiedAssetAnalysis, MarketDigest, SecondOrderEffect, SectorSummary, QuantContext, Opportunity } from '@trading/shared';
-import { buildDigestRecommendations, flagAlertedRecommendations, filterAvoidVsAlerts } from './digest-recommendations.js';
+import { buildDigestRecommendations, flagAlertedRecommendations, flagRearmedRecommendations, filterAvoidVsAlerts } from './digest-recommendations.js';
 import { COMBINED_SYNTHESIS_PROMPT, CANONICAL_MACRO_THEMES } from '@trading/shared';
 import { callAIWithModel } from '../shared/ai-router.js';
 import {
@@ -220,6 +220,7 @@ function buildFallbackDigest(
   effects: SecondOrderEffect[],
   headlines: string[],
   alertedSymbols: Set<string> = new Set(),
+  rearmedSymbols: Set<string> = new Set(),
 ): MarketDigest {
   const topBuy = opportunities.filter(o => o.action === 'BUY').slice(0, 3);
   const buyCount = opportunities.filter(o => o.action === 'BUY').length;
@@ -227,8 +228,8 @@ function buildFallbackDigest(
   // Recommendations are a deterministic projection of the scan — same source of truth
   // as the success path, so the fallback can never contradict the scan either.
   const { portfolioRecommendations: rawPortfolioRecs, marketRecommendations: rawMarketRecs } = buildDigestRecommendations(opportunities);
-  const portfolioRecommendations = flagAlertedRecommendations(rawPortfolioRecs, alertedSymbols);
-  const marketRecommendations = flagAlertedRecommendations(rawMarketRecs, alertedSymbols);
+  const portfolioRecommendations = flagRearmedRecommendations(flagAlertedRecommendations(rawPortfolioRecs, alertedSymbols), rearmedSymbols);
+  const marketRecommendations = flagRearmedRecommendations(flagAlertedRecommendations(rawMarketRecs, alertedSymbols), rearmedSymbols);
   return {
     generatedAt: Date.now(),
     overnightSummary: headlines.length > 0 ? headlines.slice(0, 3).join('. ') + '.' : 'Sin noticias relevantes recientes.',
@@ -357,8 +358,11 @@ export async function generateMarketReport(
   // contradict the engine, and used to flag/filter the digest downstream.
   // Solo kind 'anticipatory' (bullish): un stop_breach es bajista — incluirlo aca
   // invertiria la semantica (sacaria al simbolo del avoidList y lo chipearia como setup).
-  const activeAlerts = getActiveAnticipatoryAlerts().filter(a => a.kind === 'anticipatory');
+  const allActiveAlerts = getActiveAnticipatoryAlerts();
+  const activeAlerts = allActiveAlerts.filter(a => a.kind === 'anticipatory');
   const alertedSymbols = new Set(activeAlerts.map(a => a.symbol.toUpperCase()));
+  // Re-armados: setup que ayer era invalid y hoy volvió a ser operable — badge propio en UI.
+  const rearmedSymbols = new Set(allActiveAlerts.filter(a => a.kind === 'rearm').map(a => a.symbol.toUpperCase()));
 
   const userMsgParts: string[] = [
     `TEMATICAS (${themes.length}):`,
@@ -516,8 +520,8 @@ export async function generateMarketReport(
     const { portfolioRecommendations, marketRecommendations } = buildDigestRecommendations(
       digestInputs?.opportunities ?? [],
     );
-    const flaggedPortfolioRecs = flagAlertedRecommendations(portfolioRecommendations, alertedSymbols);
-    const flaggedMarketRecs = flagAlertedRecommendations(marketRecommendations, alertedSymbols);
+    const flaggedPortfolioRecs = flagRearmedRecommendations(flagAlertedRecommendations(portfolioRecommendations, alertedSymbols), rearmedSymbols);
+    const flaggedMarketRecs = flagRearmedRecommendations(flagAlertedRecommendations(marketRecommendations, alertedSymbols), rearmedSymbols);
 
     digest = {
       generatedAt: Date.now(),
@@ -537,7 +541,7 @@ export async function generateMarketReport(
     actualEngine = 'pipeline-thematic (fallback)';
     if (digestInputs) {
       const headlines = digestInputs.intelligence.topHeadlines ?? [];
-      digest = buildFallbackDigest(digestInputs.opportunities, digestInputs.secondOrderEffects, headlines, alertedSymbols);
+      digest = buildFallbackDigest(digestInputs.opportunities, digestInputs.secondOrderEffects, headlines, alertedSymbols, rearmedSymbols);
     }
   }
 

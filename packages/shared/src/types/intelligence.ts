@@ -85,6 +85,8 @@ export interface DigestRecommendation {
   tradeLevels?: { entryPrice: number; stopLoss: number; takeProfit: number };
   /** true si el simbolo tiene una alerta anticipatoria activa (chip ⚡ en UI). */
   anticipatoryAlert?: boolean;
+  /** true si el simbolo re-armó su setup (ayer invalid → hoy operable; badge "SETUP OPERABLE" en UI). */
+  rearmAlert?: boolean;
 }
 
 export interface MarketDigest {

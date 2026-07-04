@@ -15,9 +15,9 @@ export interface BullishSignal {
 export type AnticipatoryAlertStatus = 'active' | 'triggered' | 'expired';
 
 export interface AnticipatoryAlert {
-  /** Clave estable: `${symbol}:${categorias ordenadas join '+'}` (kind anticipatory) o `stop:${symbol}` (stop_breach). */
+  /** Clave estable: `${symbol}:${categorias ordenadas join '+'}` (kind anticipatory), `stop:${symbol}` (stop_breach) o `rearm:${symbol}` (rearm). */
   id: string;
-  kind: 'anticipatory' | 'stop_breach';
+  kind: 'anticipatory' | 'stop_breach' | 'rearm';
   symbol: string;
   signals: BullishSignal[];
   currentPrice: number;

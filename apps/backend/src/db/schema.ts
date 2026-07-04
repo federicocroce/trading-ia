@@ -145,7 +145,7 @@ export const swingAlerts = sqliteTable('swing_alerts', {
 // --- Anticipatory alerts (confluencia bullish >=2 señales + stop breaches) ---
 export const anticipatoryAlerts = sqliteTable('anticipatory_alerts', {
   id: text('id').primaryKey(),                        // `${symbol}:${cats}` | `stop:${symbol}`
-  kind: text('kind').notNull().default('anticipatory'), // 'anticipatory' | 'stop_breach'
+  kind: text('kind').notNull().default('anticipatory'), // 'anticipatory' | 'stop_breach' | 'rearm'
   symbol: text('symbol').notNull(),
   signals: text('signals').notNull(),                  // JSON BullishSignal[]
   currentPrice: real('current_price').notNull(),

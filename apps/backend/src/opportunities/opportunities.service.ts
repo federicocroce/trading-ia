@@ -49,8 +49,11 @@ import {
   getActiveAnticipatoryAlerts,
   upsertAnticipatoryAlerts,
   expireAnticipatoryAlerts,
+  getOpportunityScanDates,
+  getInvalidSetupSymbolsByDate,
 } from '../db/repository.js';
 import { buildAlertsFromScan, reconcileAlerts } from './anticipatory-alerts.js';
+import { detectRearmedSetups } from './rearm-detector.js';
 import {
   buildAlgorithmicOpportunity,
 } from './scoring.js';
@@ -58,7 +61,7 @@ import { buildPortfolioContext, buildPortfolioDiagnostic, computePortfolioAdjust
 import { factorsForSymbol } from './risk-factor-map.js';
 import { toReturns } from './correlation.js';
 import { getPortfolio } from '../portfolio/portfolio.service.js';
-import type { OHLC, PortfolioDiagnostic } from '@trading/shared';
+import type { OHLC, PortfolioDiagnostic, AnticipatoryAlert } from '@trading/shared';
 
 /** Daily returns for a symbol from the BD historical cache (no network). [] if absent. */
 function returnsFromHistoricalCache(symbol: string): number[] {
@@ -1121,9 +1124,10 @@ function persistScanResult(result: OpportunityScanResult): void {
       console.log(`[opportunities] Persisted ${result.antiHypeRejected.length} anti-hype rejections`);
     }
 
+    const scanDate = scannedAtISO.slice(0, 10); // YYYY-MM-DD — compartido por alerts y rearm watchlist
+
     // === ANTICIPATORY ALERTS: confluencia bullish del scan → reconciliar y persistir ===
     try {
-      const scanDate = scannedAtISO.slice(0, 10); // YYYY-MM-DD
       const current = buildAlertsFromScan(result.opportunities, scanDate);
       // reconcileAlerts solo consume alertas active — pasarle exactamente ese set evita
       // zombies si una activa cayera fuera de un limite "recientes".
@@ -1136,6 +1140,46 @@ function persistScanResult(result: OpportunityScanResult): void {
       }
     } catch (err) {
       console.error('[alerts] Failed to reconcile anticipatory alerts:', (err as Error).message);
+    }
+
+    // === REARM WATCHLIST: símbolos degradados (setup invalid) el día del scan anterior
+    // que hoy volvieron a tener un setup operable (valid) con BUY/WATCH y score suficiente.
+    // "Día anterior" = el día del scan previo más reciente, no "ayer" literal — salta
+    // fines de semana/feriados. Nunca debe romper el scan si falla.
+    try {
+      const previousScanDate = getOpportunityScanDates().find((d) => d < scanDate);
+      if (previousScanDate) {
+        const yesterdayInvalid = getInvalidSetupSymbolsByDate(previousScanDate);
+        const rearmed = detectRearmedSetups(result.opportunities, yesterdayInvalid);
+        const priceBySymbol = new Map(result.opportunities.map((o) => [o.symbol, o.currentPrice]));
+        const current: AnticipatoryAlert[] = rearmed.map((c) => ({
+          id: `rearm:${c.symbol}`,
+          kind: 'rearm',
+          symbol: c.symbol,
+          signals: [],
+          currentPrice: priceBySymbol.get(c.symbol) ?? c.entryPrice,
+          entryPrice: c.entryPrice,
+          stopLoss: c.stopLoss,
+          takeProfit: c.takeProfit,
+          score: c.score,
+          status: 'active',
+          firstSeenDate: scanDate,
+          lastSeenDate: scanDate,
+          seen: false,
+        }));
+        // Aislado por kind: solo reconcilia contra alertas 'rearm' activas — no toca
+        // anticipatory/stop_breach (esas se reconcilian en su propio bloque, arriba).
+        // Corre aunque hoy no haya re-armados: el expiry de 7 días necesita el reconcile.
+        const storedRearm = getActiveAnticipatoryAlerts().filter((a) => a.kind === 'rearm');
+        const { toInsert, toUpdate, toExpire, newAlerts } = reconcileAlerts(current, storedRearm, scanDate);
+        upsertAnticipatoryAlerts(toInsert, toUpdate);
+        expireAnticipatoryAlerts(toExpire);
+        if (newAlerts.length > 0) {
+          console.log(`[Rearm] ${newAlerts.length} setups se volvieron operables: ${newAlerts.map((a) => a.symbol).join(', ')}`);
+        }
+      }
+    } catch (err) {
+      console.error('[Rearm] Failed to detect/persist rearmed setups:', (err as Error).message);
     }
   } catch (err) {
     console.error('[opportunities] Failed to persist scan result:', (err as Error).message);

@@ -217,6 +217,26 @@ export function getSymbolHistory(symbol: string, limit: number = 30) {
     .all();
 }
 
+/**
+ * Símbolos cuyo snapshot de una fecha dada quedó con setup de riesgo invalid (degradado
+ * BUY/WATCH→WATCH/HOLD). setupQuality vive dentro del JSON del snapshot (tradeLevels es
+ * opcional en el scan real), de ahí el json_extract en vez de una columna dedicada.
+ */
+export function getInvalidSetupSymbolsByDate(date: string): Set<string> {
+  const nextDay = new Date(date + 'T00:00:00.000Z');
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  const nextDayStr = nextDay.toISOString().split('T')[0];
+  const rows = db.select({ symbol: schema.opportunitySnapshots.symbol })
+    .from(schema.opportunitySnapshots)
+    .where(and(
+      gte(schema.opportunitySnapshots.scannedAt, date),
+      lt(schema.opportunitySnapshots.scannedAt, nextDayStr),
+      sql`json_extract(${schema.opportunitySnapshots.data}, '$.tradeLevels.setupQuality') = 'invalid'`,
+    ))
+    .all();
+  return new Set(rows.map(r => r.symbol));
+}
+
 export function getSnapshotsSince(sinceDate: string) {
   return db.select().from(schema.opportunitySnapshots)
     .where(gte(schema.opportunitySnapshots.scannedAt, sinceDate))

@@ -78,6 +78,14 @@ export function flagAlertedRecommendations(
   return recs.map(r => alertedSymbols.has(r.symbol.toUpperCase()) ? { ...r, anticipatoryAlert: true } : r);
 }
 
+/** Marca las filas cuyo símbolo re-armó su setup (ayer invalid → hoy operable) — badge "SETUP OPERABLE". */
+export function flagRearmedRecommendations(
+  recs: DigestRecommendation[],
+  rearmedSymbols: Set<string>,
+): DigestRecommendation[] {
+  return recs.map(r => rearmedSymbols.has(r.symbol.toUpperCase()) ? { ...r, rearmAlert: true } : r);
+}
+
 /** Un símbolo con alerta activa jamás puede aparecer en avoidList (doble discurso). */
 export function filterAvoidVsAlerts(items: string[], alertedSymbols: Set<string>): string[] {
   if (alertedSymbols.size === 0) return items;
