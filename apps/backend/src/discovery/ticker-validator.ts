@@ -12,16 +12,22 @@ const BLOCKLIST = new Set([
   'BREAKING', 'UPDATE', 'ALERT', 'NEWS', 'REPORT', 'ANALYSIS',
 ]);
 
+// Tickers reales de 1 letra (NYSE) — whitelist fail-closed: cualquier otra letra suelta es ruido de texto
+const SINGLE_LETTER_TICKERS = new Set([
+  'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M',
+  'O', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Z',
+]);
+
 // Cache of validated / rejected tickers
 const validatedCache = new Map<string, boolean>();
 
 export function isValidTickerFormat(symbol: string): boolean {
-  if (!symbol || symbol.length < 2 || symbol.length > 10) return false;
+  if (!symbol || symbol.length > 10) return false;
   if (!/^[A-Z0-9.-]+$/.test(symbol)) return false;
+  // 1 letra: solo tickers reales conocidos — el resto se rechaza (fail-closed)
+  if (symbol.length === 1) return SINGLE_LETTER_TICKERS.has(symbol);
   if (BLOCKLIST.has(symbol)) return false;
-  // Single letter
-  if (symbol.length === 1) return false;
-  // All numbers
+  // Solo números
   if (/^\d+$/.test(symbol)) return false;
   return true;
 }
