@@ -1,6 +1,6 @@
 # Prompt maestro — mejora continua del trading dashboard
 
-> **Uso**: pegá este documento (o referencialo) como prompt inicial de cualquier sesión de IA que vaya a trabajar en este repo — incluido `/ralph-loop` para corridas nocturnas autónomas. Contiene todo lo que una sesión fresca necesita: objetivo, reglas duras, estado, evidencia, backlog y verificación. Última actualización: 2026-07-04 (post-P3).
+> **Uso**: pegá este documento (o referencialo) como prompt inicial de cualquier sesión de IA que vaya a trabajar en este repo — incluido `/ralph-loop` para corridas nocturnas autónomas. Contiene todo lo que una sesión fresca necesita: objetivo, reglas duras, estado, evidencia, backlog y verificación. Última actualización: 2026-07-04 (post-P3 + deuda-discovery).
 
 ---
 
@@ -33,7 +33,7 @@ Si una mejora no sirve directamente a 1-4, no se hace. Fuera de alcance a consci
 3. **Quality bar**: acciones requieren marketCap ≥$500M Y precio ≥$5 (fail-closed si falta dato); ETF/commodity solo precio; crypto exenta. Riesgo del setup: stop ≤3×ATR y riesgo ≤10% o `setupQuality='invalid'` → BUY degradado a WATCH, sin sizing.
 4. **envNumber lazy** (`apps/backend/src/shared/env-number.ts`): toda constante configurable se lee DENTRO de la función. Jamás `process.env` a nivel módulo (el hoisting ESM corre antes de `dotenv.config()` — ya causó env vars inertes).
 5. **Payloads tRPC aditivos**: campos nuevos por spread sobre el shape existente. Jamás wrappers que rompan consumidores (ya se revirtió una violación).
-6. **Tests canónicos**: `npm run test --workspace=apps/backend` — ÚNICO conteo válido (399 al 2026-07-04). El vitest de la raíz barre worktrees stale y da conteos falsos: NUNCA usarlo ni citarlo. Todo claim de verificación se re-corre antes de aceptarse (un implementador ya fabricó "587 tests" inexistentes).
+6. **Tests canónicos**: `npm run test --workspace=apps/backend` — ÚNICO conteo válido (420 al 2026-07-04, post deuda-discovery). El vitest de la raíz barre worktrees stale y da conteos falsos: NUNCA usarlo ni citarlo. Todo claim de verificación se re-corre antes de aceptarse (un implementador ya fabricó "587 tests" inexistentes).
 7. **Convenciones**: comentarios en español, imports ESM con `.js`, TDD (test rojo primero) para toda lógica, funciones de decisión puras (sin I/O) para testearlas sin mocks. Commits terminan con `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
 8. **Migraciones drizzle**: journal reparado en P2; toda migración nueva lleva `when` mayor a las existentes. Verificar que la columna exista en la DB viva antes de asumir que un insert funciona.
 9. **Proceso**: planes en `docs/superpowers/plans/YYYY-MM-DD-*.md`; ejecución subagent-driven (implementador fresco por task + review por task + review final whole-branch en el modelo más capaz); ledger durable en `.superpowers/sdd/progress.md` — leelo SIEMPRE antes de empezar (tasks marcadas complete NO se repiten).
@@ -63,11 +63,9 @@ Hecho y verificado: resolución direccional path-aware de señales + R-multiples
 5. **FMP key 403** (market movers muertos) — el usuario decide si renovarla; si no, eliminar el código muerto.
 
 **B. Deuda técnica que puede morder:**
-6. ticker-validator rechaza tickers de 1 letra (T, F) — recall perdido en discovery.
-7. `upsertDiscoveredSymbol` no actualiza `discoveredFrom` ni reactiva con contexto (PFE quedó inactivo siendo operable).
-8. Símbolos del screener entran con relevance~0 → primeros en eviction al cap de 120 (el re-registro diario lo disimula).
-9. Race en eviction (123 > cap 120); GC de 7 días del bloque anticipatory no gatea por kind (benigno documentado).
-10. `.env.example` sin `SCREENER_MAX_DAY_MOVE_PCT`, `SCREENER_MAX_CANDIDATES`, `SCREENER_MIN_RR`, `NO_TRADE_MIN_SETUPS`.
+6. ~~ticker-validator 1 letra~~, ~~upsertDiscoveredSymbol sin refresh de contexto~~, ~~relevance piso del screener~~ y ~~.env.example sin vars de screener/no-trade~~ — **saldados en branch `fix/deuda-discovery` (2026-07-04)**: whitelist fail-closed de 21 tickers de 1 letra; `buildDiscoveredSymbolUpdate` pura refresca `discoveredFrom`+contexto al reactivar (caso PFE) con relevanceScore entrante como piso; screener entra con relevance 30 y eviction extraída a `selectEvictionCandidates` testeada; `.env.example` documenta SCREENER_*/NO_TRADE_MIN_SETUPS/MAX_SETUP_RISK_PCT.
+7. Race en eviction (123 > cap 120); GC de 7 días del bloque anticipatory no gatea por kind (benigno documentado).
+8. Relevance de filas ACTIVAS no escala por re-mención (estructural: `registerNovelTickers` filtra activas como known — el UPDATE solo corre al reactivar). Si algún día se quiere escalar relevance en vivo, es feature deliberada, no patch.
 
 **C. Cosmético/menor**: citas de línea "scoring.ts:696" en comentarios/tests (se pudren); copy "hoy" en RearmWatchlist con alertas de hasta 7 días (falta mostrar `lastSeenDate`); umbral display 0.1 vs toFixed(1) en OpportunityCard; webSearch (EXA/Tavily) caído en 104/121 runs — skip honesto ya implementado, decidir si se arregla o se elimina.
 
