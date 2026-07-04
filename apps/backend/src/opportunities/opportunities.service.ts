@@ -1131,6 +1131,10 @@ function persistScanResult(result: OpportunityScanResult): void {
       const current = buildAlertsFromScan(result.opportunities, scanDate);
       // reconcileAlerts solo consume alertas active — pasarle exactamente ese set evita
       // zombies si una activa cayera fuera de un limite "recientes".
+      // `stored` incluye también las 'rearm' (getActiveAnticipatoryAlerts no filtra por kind);
+      // no es un problema: los ids son disjuntos (`rearm:${symbol}` vs `${symbol}:${categorias}`)
+      // y la regla superseded de reconcileAlerts gatea kind === 'anticipatory' (anticipatory-alerts.ts:167),
+      // así que acá solo puede tocarlas el GC de 7 días — el bloque rearm (abajo) las reconcilia por su lado.
       const stored = getActiveAnticipatoryAlerts();
       const { toInsert, toUpdate, toExpire, newAlerts } = reconcileAlerts(current, stored, scanDate);
       upsertAnticipatoryAlerts(toInsert, toUpdate);

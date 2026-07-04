@@ -111,6 +111,21 @@ describe('coherencia con alertas anticipatorias', () => {
     expect(filterAvoidVsAlerts(avoid, new Set(['BTC-USD']))).toEqual(['No tocar bonos largos']);
   });
 
+  it('filterAvoidVsAlerts tambien elimina items que mencionan simbolos re-armados (rearmedSymbols) — doble discurso avoid vs rearm', () => {
+    const avoid = ['Evitar PAM por riesgo elevado', 'No tocar bonos largos'];
+    expect(filterAvoidVsAlerts(avoid, new Set(), new Set(['PAM']))).toEqual(['No tocar bonos largos']);
+  });
+
+  it('filterAvoidVsAlerts combina alertedSymbols y rearmedSymbols sin duplicar el filtrado', () => {
+    const avoid = ['Evitar GGAL', 'Evitar PAM', 'No tocar bonos largos'];
+    expect(filterAvoidVsAlerts(avoid, new Set(['GGAL']), new Set(['PAM']))).toEqual(['No tocar bonos largos']);
+  });
+
+  it('filterAvoidVsAlerts sin alertedSymbols ni rearmedSymbols devuelve la lista intacta', () => {
+    const avoid = ['Evitar GGAL', 'No tocar bonos largos'];
+    expect(filterAvoidVsAlerts(avoid, new Set())).toEqual(avoid);
+  });
+
   it('flagRearmedRecommendations marca rearmAlert en filas cuyo simbolo re-armó (independiente de anticipatoryAlert)', () => {
     const recs = [
       { symbol: 'PAM', action: 'WATCH' as const, reason: 'r', currentPrice: 50, score: 63 },

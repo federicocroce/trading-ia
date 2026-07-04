@@ -1,6 +1,7 @@
 /**
- * Orquestador del screener de mercado: fetch (Yahoo) → embudo barato (puro) → validación
- * técnica → registro en discovered_symbols con source='screener'.
+ * Orquestador del screener de mercado: fetch (Yahoo) → embudo barato (puro) → filtro de
+ * tendencia (anti-hype) → validación técnica (setupQuality/RR) → registro en
+ * discovered_symbols con source='screener'.
  *
  * Objetivo: el universo de scan no depende solo de watchlist + lo que menciona la prensa
  * (`discovery-registry.ts` con sources 'finnhub'/'yahoo'/'llm') — también entra lo que el
@@ -22,7 +23,10 @@ import { envNumber } from '../shared/env-number.js';
 
 export interface MarketScreenerResult {
   candidates: number;
-  registered: string[];
+  /** Candidatos que pasaron el embudo completo (tendencia + setup técnico) — no implica que ya estén registrados. */
+  operables: string[];
+  /** Count real devuelto por registerNovelTickers — puede ser < operables.length (ya conocidos se filtran ahí). */
+  registered: number;
 }
 
 export async function runMarketScreener(): Promise<MarketScreenerResult> {
@@ -35,6 +39,15 @@ export async function runMarketScreener(): Promise<MarketScreenerResult> {
   for (const c of cheap) {
     try {
       const tech = await getTechnicalSummary(c.symbol);
+      // Alineado con el anti-hype strict: mismo chequeo de tendencia que el Filter 1 de
+      // applyAntiHypeFilters (scoring.ts:696) — precio > SMA200. No reusamos esa función
+      // directamente porque tolera 1 de 3 fallos (MAX_FAILURES) y acá no están los otros 2
+      // filtros (RSI/volumen) para compensar un solo dato faltante — replicamos SOLO la
+      // comparación de tendencia. Fail-closed: SMA200 ausente descarta (applyAntiHypeFilters,
+      // en cambio, deja pasar el símbolo entero cuando no hay `tech`).
+      const ind = tech.indicators;
+      if (ind.sma200 == null || ind.currentPrice <= ind.sma200) continue;
+
       const levels = computeTradeLevels(tech, 'BUY');
       if (levels?.setupQuality === 'valid' && (levels.riskRewardRatio ?? 0) >= minRR) {
         operables.push(c.symbol);
@@ -44,13 +57,14 @@ export async function runMarketScreener(): Promise<MarketScreenerResult> {
     }
   }
 
+  let registered = 0;
   if (operables.length > 0) {
-    await registerNovelTickers(operables, 'screener');
+    registered = await registerNovelTickers(operables, 'screener');
   }
 
   console.log(
-    `[Screener] mercado: ${quotes.length} → embudo ${cheap.length} → operables ${operables.length}: ${operables.slice(0, 10).join(', ')}`,
+    `[Screener] mercado: ${quotes.length} → embudo ${cheap.length} → operables ${operables.length} → registrados ${registered}: ${operables.slice(0, 10).join(', ')}`,
   );
 
-  return { candidates: cheap.length, registered: operables };
+  return { candidates: cheap.length, operables, registered };
 }

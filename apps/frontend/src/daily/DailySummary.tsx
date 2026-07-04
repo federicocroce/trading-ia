@@ -579,6 +579,54 @@ function ActiveAlerts({ symbolFilter, typeFilter }: { symbolFilter: string; type
   );
 }
 
+// Watchlist de re-armado: símbolos degradados (setup de riesgo invalid) que hoy volvieron a
+// tener un setup operable — antes esto solo vivía en la DB (anticipatory_alerts kind='rearm')
+// sin ninguna vista tRPC/UI que lo mostrara. Sección compacta, solo se renderiza si hay alertas.
+function RearmWatchlist() {
+  const { data: alerts } = trpc.opportunities.rearmAlerts.useQuery(undefined, {
+    staleTime: 5 * 60_000,
+  });
+
+  if (!alerts || alerts.length === 0) return null;
+
+  return (
+    <Card size="sm" className="border-l-4 border-l-emerald-500">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Watchlist de re-armado</span>
+          <Badge className="text-[9px] bg-emerald-500/20 text-emerald-400">{alerts.length}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-[10px] text-muted-foreground">
+          Degradados por riesgo que hoy vuelven a tener setup operable.
+        </p>
+        <div className="space-y-1.5">
+          {alerts.map((a) => (
+            <div key={a.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/20 px-2 py-1.5">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <SymbolLink symbol={a.symbol} className="font-mono font-semibold text-[11px] text-foreground shrink-0" />
+                <Badge
+                  title="Ayer el setup de riesgo era inválido — hoy volvió a ser operable"
+                  className="text-[8px] font-bold px-1 py-0 h-3.5 shrink-0 bg-emerald-500/20 text-emerald-400"
+                >
+                  SETUP OPERABLE
+                </Badge>
+                <span className="text-[10px] font-mono text-muted-foreground shrink-0">{a.score}</span>
+              </div>
+              {a.entryPrice != null && a.stopLoss != null && (
+                <p className="text-[9px] text-green-300/80 font-mono shrink-0">
+                  Entrada ${a.entryPrice.toFixed(2)} · Stop ${a.stopLoss.toFixed(2)}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 const moodConfig = {
   'risk-on': { label: 'RISK-ON', bg: 'bg-green-500/20', text: 'text-green-400', desc: 'El mercado favorece activos de riesgo' },
   'risk-off': { label: 'RISK-OFF', bg: 'bg-red-500/20', text: 'text-red-400', desc: 'El mercado esta en modo defensivo' },
@@ -807,6 +855,10 @@ export function DailySummary() {
 
       {/* 1. Digest del día — mood + portfolio/mercado SÍ/NO (lo más importante primero) */}
       {isToday && <MarketDigestPanel />}
+
+      {/* 1b. Watchlist de re-armado — setups degradados que hoy volvieron a ser operables
+          (solo se renderiza si hay alertas activas) */}
+      {isToday && <RearmWatchlist />}
 
       {/* Las decisiones por símbolo (comprar/vender/mantener) viven SOLO en "Hoy" —
           acá NO se repiten, para no contradecir. Resumen = panorama de mercado. */}

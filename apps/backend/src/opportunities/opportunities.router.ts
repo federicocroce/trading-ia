@@ -41,6 +41,7 @@ import {
   getRecentAntiHypeRejections,
   getLatestNewsIntelligenceSnapshot,
   getNewsIntelligenceSnapshotsByDateRange,
+  getActiveRearmAlerts,
 } from '../db/repository.js';
 
 export const opportunitiesRouter = router({
@@ -238,4 +239,8 @@ export const opportunitiesRouter = router({
   // --- Vista "Hoy": un veredicto por cosa (cartera + mercado) ---
 
   today: publicProcedure.query(() => getTodayDecisions()),
+
+  // --- Watchlist de re-armado: setups degradados (invalid) que hoy volvieron a ser operables ---
+
+  rearmAlerts: publicProcedure.query(() => getActiveRearmAlerts()),
 });

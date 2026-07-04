@@ -86,15 +86,24 @@ export function flagRearmedRecommendations(
   return recs.map(r => rearmedSymbols.has(r.symbol.toUpperCase()) ? { ...r, rearmAlert: true } : r);
 }
 
-/** Un símbolo con alerta activa jamás puede aparecer en avoidList (doble discurso). */
-export function filterAvoidVsAlerts(items: string[], alertedSymbols: Set<string>): string[] {
-  if (alertedSymbols.size === 0) return items;
+/**
+ * Un símbolo con alerta activa (anticipatoria o re-armado) jamás puede aparecer en avoidList —
+ * sería el mismo doble discurso: "evitar X" al lado de "X volvió a ser operable".
+ * `rearmedSymbols` es opcional/aditivo (default vacío) para no romper llamadas existentes.
+ */
+export function filterAvoidVsAlerts(
+  items: string[],
+  alertedSymbols: Set<string>,
+  rearmedSymbols: Set<string> = new Set(),
+): string[] {
+  if (alertedSymbols.size === 0 && rearmedSymbols.size === 0) return items;
+  const excluded = new Set([...alertedSymbols, ...rearmedSymbols]);
   return items.filter(item => {
     const upper = item.toUpperCase();
-    for (const sym of alertedSymbols) {
+    for (const sym of excluded) {
       const escaped = sym.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       if (new RegExp(`\\b${escaped}\\b`).test(upper)) {
-        console.warn(`[digest] avoidList descartó "${item.slice(0, 50)}" — ${sym} tiene alerta anticipatoria activa`);
+        console.warn(`[digest] avoidList descartó "${item.slice(0, 50)}" — ${sym} tiene alerta anticipatoria o de re-armado activa`);
         return false;
       }
     }

@@ -198,6 +198,21 @@ describe('computeNoTradeMode — hoy no se opera cuando faltan setups operables'
       else process.env.NO_TRADE_MIN_SETUPS = prev;
     }
   });
+
+  // Dato faltante (sin scan de hoy) ≠ 0 setups (scan real que no encontró ninguno operable).
+  // El caller pasa `null` explícito cuando no hay scan — distinto del array vacío real.
+  it('sin scan de hoy (opportunities null) → reason honesto de falta de datos, no "0 setups"', () => {
+    const result = computeNoTradeMode(null);
+    expect(result.active).toBe(true);
+    expect(result.reason).toBe('Sin scan de hoy — no hay datos para decidir si se opera.');
+    expect(result.reason).not.toContain('setup(s) operable(s)');
+  });
+
+  it('scan real con 0 opportunities (array vacío, no null) usa el reason de "0 setups" — sí hubo scan', () => {
+    const result = computeNoTradeMode([]);
+    expect(result.active).toBe(true);
+    expect(result.reason).toContain('Solo 0 setup(s) operable(s)');
+  });
 });
 
 // Peso sugerido por convicción: un BUY score 90 y un BUY score 63 no son la misma señal

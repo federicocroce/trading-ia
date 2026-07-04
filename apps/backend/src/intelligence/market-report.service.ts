@@ -222,11 +222,22 @@ export interface DigestInputs {
  * (BUY con `tradeLevels.setupQuality === 'valid'`), el digest lo declara en vez de estirar
  * un pick débil para llenar el widget. Determinístico, calculado desde el scan — el LLM
  * nunca decide esto. `regime` (si está disponible) agrega la coletilla de régimen volátil.
+ *
+ * `opportunities === null` es la señal explícita de "no hay scan de hoy" (dato faltante) —
+ * distinto de `[]` (scan real que corrió y no encontró ningún setup operable). Confundirlos
+ * hacía que el reason dijera "Solo 0 setup(s) operable(s)" cuando en realidad no había datos
+ * para decidir nada.
  */
 export function computeNoTradeMode(
-  opportunities: Array<{ action: string; tradeLevels?: { setupQuality?: 'valid' | 'invalid' } }>,
+  opportunities: Array<{ action: string; tradeLevels?: { setupQuality?: 'valid' | 'invalid' } }> | null,
   regime?: string,
 ): { active: boolean; reason: string } {
+  if (opportunities === null) {
+    return {
+      active: true,
+      reason: 'Sin scan de hoy — no hay datos para decidir si se opera.',
+    };
+  }
   const validBuys = opportunities.filter(o => o.action === 'BUY' && o.tradeLevels?.setupQuality === 'valid');
   const minSetups = envNumber('NO_TRADE_MIN_SETUPS', 3);
   if (validBuys.length >= minSetups) return { active: false, reason: '' };
@@ -586,6 +597,7 @@ export async function generateMarketReport(
     avoidList = filterAvoidVsAlerts(
       filterAvoidListVsBuy(Array.isArray(p.avoidList) ? p.avoidList : [], buyTickers),
       alertedSymbols,
+      rearmedSymbols,
     );
 
     // Recommendations are NOT taken from the LLM — they are projected deterministically
@@ -612,7 +624,8 @@ export async function generateMarketReport(
       marketMood: ['risk-on', 'risk-off', 'mixed'].includes(p.marketMood) ? p.marketMood : 'mixed',
       portfolioRecommendations: flaggedPortfolioRecs,
       marketRecommendations: flaggedMarketRecs,
-      noTradeMode: computeNoTradeMode(digestInputs?.opportunities ?? [], digestInputs?.quantContext?.regime?.regime),
+      // `null` explícito (no `?? []`) cuando no hay digestInputs: "sin scan" ≠ "scan con 0 setups".
+      noTradeMode: computeNoTradeMode(digestInputs ? digestInputs.opportunities : null, digestInputs?.quantContext?.regime?.regime),
     };
 
     console.log('[MarketReport] Combined synthesis OK — report + digest generados');

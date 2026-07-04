@@ -638,6 +638,14 @@ export function getActiveAnticipatoryAlerts(): AnticipatoryAlert[] {
     .all().map(rowToAnticipatoryAlert);
 }
 
+/** Watchlist de re-armado: solo kind='rearm' activas (no expiradas — el GC de 7 días ya las movió a 'expired'). */
+export function getActiveRearmAlerts(): AnticipatoryAlert[] {
+  return db.select().from(schema.anticipatoryAlerts)
+    .where(and(eq(schema.anticipatoryAlerts.kind, 'rearm'), eq(schema.anticipatoryAlerts.status, 'active')))
+    .orderBy(desc(schema.anticipatoryAlerts.score))
+    .all().map(rowToAnticipatoryAlert);
+}
+
 export function getRecentAnticipatoryAlerts(limit: number = 50): AnticipatoryAlert[] {
   return db.select().from(schema.anticipatoryAlerts)
     .orderBy(desc(schema.anticipatoryAlerts.lastSeenDate), desc(schema.anticipatoryAlerts.createdAt))
