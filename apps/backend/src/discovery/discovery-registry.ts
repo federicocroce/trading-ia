@@ -15,6 +15,29 @@ const MAX_DISCOVERED = 120;
 const DISCOVERY_TTL_DAYS = 14;
 const EVICTION_BATCH_SIZE = 20;  // when at cap, evict bottom 20 by relevance to make room
 
+const SCREENER_INITIAL_RELEVANCE = 30;  // ya pasó el embudo operable: vale ~3 menciones de noticias
+const DEFAULT_INITIAL_RELEVANCE = 10;   // una mención
+
+// Pura: relevance inicial según la fuente del descubrimiento.
+export function initialRelevanceForSource(source: 'finnhub' | 'yahoo' | 'llm' | 'screener'): number {
+  return source === 'screener' ? SCREENER_INITIAL_RELEVANCE : DEFAULT_INITIAL_RELEVANCE;
+}
+
+// Pura: candidatos a evictar al cap — menor relevance primero, desempate por lastSeen más viejo.
+export function selectEvictionCandidates<T extends { symbol: string; relevanceScore: number | null; lastSeen: string | null }>(
+  rows: T[],
+  batchSize: number,
+): T[] {
+  return [...rows]
+    .sort((a, b) => {
+      const relA = a.relevanceScore ?? 0;
+      const relB = b.relevanceScore ?? 0;
+      if (relA !== relB) return relA - relB;
+      return new Date(a.lastSeen ?? 0).getTime() - new Date(b.lastSeen ?? 0).getTime();
+    })
+    .slice(0, batchSize);
+}
+
 /**
  * Register novel tickers found in news articles.
  * Validates, classifies, and persists them.
@@ -26,15 +49,7 @@ export async function registerNovelTickers(
   // Already at max? Evict lowest-relevance to make room for new candidates.
   let current = getActiveDiscoveredSymbols();
   if (current.length >= MAX_DISCOVERED) {
-    // Sort by (relevanceScore asc, lastSeen asc) — least relevant + oldest first
-    const toEvict = [...current]
-      .sort((a, b) => {
-        const relA = a.relevanceScore ?? 0;
-        const relB = b.relevanceScore ?? 0;
-        if (relA !== relB) return relA - relB;
-        return new Date(a.lastSeen ?? 0).getTime() - new Date(b.lastSeen ?? 0).getTime();
-      })
-      .slice(0, EVICTION_BATCH_SIZE);
+    const toEvict = selectEvictionCandidates(current, EVICTION_BATCH_SIZE);
     if (toEvict.length > 0) {
       console.log(`[Discovery] Evicting ${toEvict.length} low-relevance symbols: ${toEvict.map(t => t.symbol).join(', ')}`);
       // Lazy import to avoid circular
@@ -81,6 +96,7 @@ export async function registerNovelTickers(
         market: classification.market,
         exchange: classification.exchange ?? null,
         discoveredFrom: source,
+        relevanceScore: initialRelevanceForSource(source),
         expiresAt,
       });
       registered++;
