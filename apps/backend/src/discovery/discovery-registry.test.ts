@@ -62,4 +62,9 @@ describe('selectEvictionCandidates', () => {
     expect(evict).toHaveLength(2);
     expect(rows).toEqual(copia);
   });
+
+  it('batchSize mayor que la cantidad de filas devuelve todas', () => {
+    const rows = [row('UNO', 10, null), row('DOS', 20, null)];
+    expect(selectEvictionCandidates(rows, 5)).toHaveLength(2);
+  });
 });

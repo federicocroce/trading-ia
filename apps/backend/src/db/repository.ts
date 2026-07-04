@@ -782,6 +782,7 @@ export interface DiscoveredSymbolUpsertInput {
 // y el contexto de clasificación, que llega fresco de classifyAsset en cada llamada.
 // El relevanceScore entrante actúa como piso del incremento (+10, cap 100): un
 // re-descubrimiento por screener (30) levanta filas que quedaron en el fondo.
+// Ojo: solo corre al reactivar una fila inactiva/expirada — las activas se filtran como known aguas arriba (registerNovelTickers).
 export function buildDiscoveredSymbolUpdate(
   existing: { newsCount: number | null; relevanceScore: number | null },
   data: DiscoveredSymbolUpsertInput,

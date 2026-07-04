@@ -12,7 +12,7 @@ const BLOCKLIST = new Set([
   'BREAKING', 'UPDATE', 'ALERT', 'NEWS', 'REPORT', 'ANALYSIS',
 ]);
 
-// Tickers reales de 1 letra (NYSE) — whitelist fail-closed: cualquier otra letra suelta es ruido de texto
+// Tickers reales de 1 letra (NYSE) — whitelist fail-closed: cualquier otra letra suelta es ruido de texto. Vigente a 2026-07; la validación Yahoo aguas abajo cubre delistings.
 const SINGLE_LETTER_TICKERS = new Set([
   'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L', 'M',
   'O', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Z',

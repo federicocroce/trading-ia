@@ -37,4 +37,9 @@ describe('isValidTickerFormat', () => {
     expect(isValidTickerFormat('TOOLONGTICKER')).toBe(false);
     expect(isValidTickerFormat('123')).toBe(false);
   });
+
+  it("rechaza '.' y '-' sueltos (pasan el regex pero no la whitelist)", () => {
+    expect(isValidTickerFormat('.')).toBe(false);
+    expect(isValidTickerFormat('-')).toBe(false);
+  });
 });
