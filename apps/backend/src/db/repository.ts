@@ -764,7 +764,7 @@ export function countUnseenAnticipatoryAlerts(): number {
 
 // ==================== DISCOVERED SYMBOLS ====================
 
-export function upsertDiscoveredSymbol(data: {
+export interface DiscoveredSymbolUpsertInput {
   symbol: string;
   name: string;
   instrumentType: string;
@@ -775,20 +775,42 @@ export function upsertDiscoveredSymbol(data: {
   discoveredFrom: string;
   relevanceScore?: number;
   expiresAt: string;
-}) {
+}
+
+// Pura (sin I/O): payload del UPDATE al re-descubrir un símbolo.
+// Refresca discoveredFrom (última fuente gana; la procedencia histórica queda en firstSeen)
+// y el contexto de clasificación, que llega fresco de classifyAsset en cada llamada.
+// El relevanceScore entrante actúa como piso del incremento (+10, cap 100): un
+// re-descubrimiento por screener (30) levanta filas que quedaron en el fondo.
+export function buildDiscoveredSymbolUpdate(
+  existing: { newsCount: number | null; relevanceScore: number | null },
+  data: DiscoveredSymbolUpsertInput,
+  now: string,
+) {
+  return {
+    lastSeen: now,
+    newsCount: (existing.newsCount ?? 0) + 1,
+    relevanceScore: Math.min(100, Math.max((existing.relevanceScore ?? 0) + 10, data.relevanceScore ?? 0)),
+    expiresAt: data.expiresAt,
+    active: true,
+    discoveredFrom: data.discoveredFrom,
+    name: data.name,
+    instrumentType: data.instrumentType,
+    sector: data.sector,
+    industry: data.industry ?? null,
+    market: data.market,
+    exchange: data.exchange ?? null,
+  };
+}
+
+export function upsertDiscoveredSymbol(data: DiscoveredSymbolUpsertInput) {
   const existing = db.select().from(schema.discoveredSymbols)
     .where(eq(schema.discoveredSymbols.symbol, data.symbol))
     .get();
 
   if (existing) {
     return db.update(schema.discoveredSymbols)
-      .set({
-        lastSeen: new Date().toISOString(),
-        newsCount: (existing.newsCount ?? 0) + 1,
-        relevanceScore: Math.min(100, (existing.relevanceScore ?? 0) + 10),
-        expiresAt: data.expiresAt,
-        active: true,
-      })
+      .set(buildDiscoveredSymbolUpdate(existing, data, new Date().toISOString()))
       .where(eq(schema.discoveredSymbols.symbol, data.symbol))
       .run();
   }
