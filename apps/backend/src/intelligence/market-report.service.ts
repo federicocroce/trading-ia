@@ -1,5 +1,6 @@
 import type { MarketReport, MarketReportRecommendation, TopImpactNewsItem, UnifiedAssetAnalysis, MarketDigest, SecondOrderEffect, SectorSummary, QuantContext, Opportunity, SignalAction } from '@trading/shared';
 import { buildDigestRecommendations, flagAlertedRecommendations, flagRearmedRecommendations, filterAvoidVsAlerts } from './digest-recommendations.js';
+import { detectConcentrationWarning } from '../opportunities/correlation-warning.js';
 import { COMBINED_SYNTHESIS_PROMPT, CANONICAL_MACRO_THEMES } from '@trading/shared';
 import { callAIWithModel } from '../shared/ai-router.js';
 import {
@@ -255,6 +256,19 @@ export function computeSuggestedWeight(
   return score >= 65 ? 10 : 6;
 }
 
+/**
+ * Cruza las opportunities del scan al shape mínimo que necesita `detectConcentrationWarning`
+ * — `sectorLabel` es el campo legible ya presente en `Opportunity` (p. ej. "Argentina / Energía"),
+ * distinto de `sector` (el enum interno tipo 'argentina-energy'). Devuelve `[]` si no hay
+ * concentración, para poder hacer spread directo en `warnings` sin chequear null en el caller.
+ */
+function buildConcentrationWarnings(opportunities: Opportunity[]): string[] {
+  const warning = detectConcentrationWarning(
+    opportunities.map(o => ({ symbol: o.symbol, sector: o.sectorLabel, action: o.action })),
+  );
+  return warning ? [warning] : [];
+}
+
 function buildFallbackDigest(
   opportunities: Opportunity[],
   effects: SecondOrderEffect[],
@@ -276,7 +290,10 @@ function buildFallbackDigest(
     overnightSummary: headlines.length > 0 ? headlines.slice(0, 3).join('. ') + '.' : 'Sin noticias relevantes recientes.',
     portfolioImpact: effects.length > 0 ? effects.slice(0, 2).map(e => e.reasoning).join(' ') : 'Sin efectos de segundo orden identificados.',
     topOpportunities: topBuy.map(o => ({ symbol: o.symbol, action: 'BUY' as const, narrative: o.simpleReasoning ?? o.reasoning })),
-    warnings: opportunities.filter(o => o.action === 'SELL').slice(0, 2).map(o => `${o.symbol}: ${o.risks[0] ?? 'señales negativas'}`),
+    warnings: [
+      ...opportunities.filter(o => o.action === 'SELL').slice(0, 2).map(o => `${o.symbol}: ${o.risks[0] ?? 'señales negativas'}`),
+      ...buildConcentrationWarnings(opportunities),
+    ],
     marketMood: buyCount > sellCount * 2 ? 'risk-on' : sellCount > buyCount ? 'risk-off' : 'mixed',
     portfolioRecommendations,
     marketRecommendations,
@@ -576,7 +593,11 @@ export async function generateMarketReport(
       portfolioImpact,
       topOpportunities,
       watching,
-      warnings: [...sellMove.sellWarnings, ...(Array.isArray(p.warnings) ? p.warnings.slice(0, 3) : [])],
+      warnings: [
+        ...sellMove.sellWarnings,
+        ...(Array.isArray(p.warnings) ? p.warnings.slice(0, 3) : []),
+        ...buildConcentrationWarnings(digestInputs?.opportunities ?? []),
+      ],
       marketMood: ['risk-on', 'risk-off', 'mixed'].includes(p.marketMood) ? p.marketMood : 'mixed',
       portfolioRecommendations: flaggedPortfolioRecs,
       marketRecommendations: flaggedMarketRecs,
