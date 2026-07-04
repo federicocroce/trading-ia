@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { moveSellsOutOfTopOpportunities, hasAllZeroWeights, matchesSourceHeadline, normalizeScenarios } from './market-report.service.js';
+import {
+  moveSellsOutOfTopOpportunities,
+  hasAllZeroWeights,
+  matchesSourceHeadline,
+  normalizeScenarios,
+  computeNoTradeMode,
+  computeSuggestedWeight,
+} from './market-report.service.js';
 
 describe('moveSellsOutOfTopOpportunities — el digest nunca puede recomendar salir como oportunidad', () => {
   it('caso real NEM: SELL en el scan actual se saca de topOpportunities y pasa a warning con prefijo SALIDA:', () => {
@@ -138,5 +145,86 @@ describe('matchesSourceHeadline — anti-hype: topImpactNews debe citar un titul
 
   it('acepta una cita real de 15+ chars que sí identifica la noticia', () => {
     expect(matchesSourceHeadline('NVDA reporta earnings', provided)).toBe(true);
+  });
+});
+
+// "La paciencia es la posición": si el scan de hoy no deja suficientes setups operables,
+// el digest tiene que decirlo — no estirar un pick débil para llenar el widget.
+describe('computeNoTradeMode — hoy no se opera cuando faltan setups operables', () => {
+  const buyValid = (symbol: string) => ({ symbol, action: 'BUY', tradeLevels: { setupQuality: 'valid' as const } });
+  const buyInvalid = (symbol: string) => ({ symbol, action: 'BUY', tradeLevels: { setupQuality: 'invalid' as const } });
+  const hold = (symbol: string) => ({ symbol, action: 'HOLD' });
+
+  it('con 1 BUY válido (por debajo del mínimo default de 3) → active true', () => {
+    const result = computeNoTradeMode([buyValid('AAPL'), hold('MSFT'), buyInvalid('TSLA')]);
+    expect(result.active).toBe(true);
+    expect(result.reason).toContain('Solo 1 setup(s) operable(s)');
+    expect(result.reason).toContain('watchlist de re-armado');
+  });
+
+  it('con 5 BUY válidos (por encima del mínimo) → active false, reason vacío', () => {
+    const opps = ['A', 'B', 'C', 'D', 'E'].map(buyValid);
+    const result = computeNoTradeMode(opps);
+    expect(result.active).toBe(false);
+    expect(result.reason).toBe('');
+  });
+
+  it('un BUY con setup invalid no cuenta como operable', () => {
+    const result = computeNoTradeMode([buyInvalid('AAPL'), buyInvalid('MSFT'), buyInvalid('TSLA')]);
+    expect(result.active).toBe(true);
+    expect(result.reason).toContain('Solo 0 setup(s) operable(s)');
+  });
+
+  it('régimen volátil se menciona en el reason cuando el modo está activo', () => {
+    const result = computeNoTradeMode([buyValid('AAPL')], 'volatile');
+    expect(result.reason).toContain('en régimen volátil');
+  });
+
+  it('régimen no-volátil no agrega la coletilla', () => {
+    const result = computeNoTradeMode([buyValid('AAPL')], 'trending_bull');
+    expect(result.reason).not.toContain('régimen volátil');
+  });
+
+  it('respeta override de NO_TRADE_MIN_SETUPS en runtime (env lazy)', () => {
+    const prev = process.env.NO_TRADE_MIN_SETUPS;
+    process.env.NO_TRADE_MIN_SETUPS = '2';
+    try {
+      const result = computeNoTradeMode([buyValid('AAPL'), buyValid('MSFT')]);
+      expect(result.active).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.NO_TRADE_MIN_SETUPS;
+      else process.env.NO_TRADE_MIN_SETUPS = prev;
+    }
+  });
+});
+
+// Peso sugerido por convicción: un BUY score 90 y un BUY score 63 no son la misma señal
+// aunque ambos crucen el gate — graduar en vez de fijar 10 para cualquier BUY.
+describe('computeSuggestedWeight — peso graduado por convicción', () => {
+  it('BUY con score >= 65 y setup valid → 10', () => {
+    expect(computeSuggestedWeight('BUY', { opportunityScore: 65, tradeLevels: { setupQuality: 'valid' } })).toBe(10);
+    expect(computeSuggestedWeight('BUY', { opportunityScore: 90, tradeLevels: { setupQuality: 'valid' } })).toBe(10);
+  });
+
+  it('BUY con score < 65 → 6', () => {
+    expect(computeSuggestedWeight('BUY', { opportunityScore: 64, tradeLevels: { setupQuality: 'valid' } })).toBe(6);
+    expect(computeSuggestedWeight('BUY', { opportunityScore: 40, tradeLevels: { setupQuality: 'valid' } })).toBe(6);
+  });
+
+  it('BUY con setup invalid → 5 (defensivo, no debería existir post-gate)', () => {
+    expect(computeSuggestedWeight('BUY', { opportunityScore: 90, tradeLevels: { setupQuality: 'invalid' } })).toBe(5);
+  });
+
+  it('SELL → 0', () => {
+    expect(computeSuggestedWeight('SELL', { opportunityScore: 90 })).toBe(0);
+  });
+
+  it('HOLD/WATCH → 5', () => {
+    expect(computeSuggestedWeight('HOLD', { opportunityScore: 80 })).toBe(5);
+    expect(computeSuggestedWeight('WATCH', { opportunityScore: 80 })).toBe(5);
+  });
+
+  it('BUY sin match en el scan (sin score) → conservador, 6', () => {
+    expect(computeSuggestedWeight('BUY', undefined)).toBe(6);
   });
 });

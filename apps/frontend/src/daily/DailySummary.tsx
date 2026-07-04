@@ -660,6 +660,16 @@ function MarketDigestPanel() {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* "Hoy no se opera": pocos setups operables (o régimen volátil) — decirlo en vez de
+            estirar un pick débil. Banner destacado, arriba de todo lo demás del digest. */}
+        {digest.noTradeMode?.active && (
+          <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2">
+            <p className="text-[10px] text-amber-300">
+              <span className="font-semibold uppercase tracking-wider">Hoy no se opera.</span> {digest.noTradeMode.reason}
+            </p>
+          </div>
+        )}
+
         {/* Overnight summary */}
         {digest.overnightSummary && (
           <div>

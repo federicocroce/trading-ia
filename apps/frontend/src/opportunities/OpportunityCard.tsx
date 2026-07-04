@@ -44,6 +44,8 @@ interface TradeLevels {
   suggestedQuantity?: number;
   suggestedAmount?: number;
   sizingReason?: string;
+  // R/R real contra la primera resistencia — distinto del R/R contra el target lejano.
+  rrToFirstResistance?: number | null;
 }
 
 interface SignalConflict {
@@ -465,9 +467,18 @@ export function OpportunityCard({ opportunity, forceExpanded = false }: { opport
               <TooltipTrigger asChild>
                 <span className="cursor-help text-muted-foreground">
                   R/R <span className="text-foreground">{tl.riskRewardRatio.toFixed(1)}x</span>
+                  {/* R/R honesto: si la 1ra resistencia da un R/R distinto al del target lejano,
+                      mostrar ambos — el target puede no ser lo primero que "cobra" el precio. */}
+                  {tl.rrToFirstResistance != null && Math.abs(tl.rrToFirstResistance - tl.riskRewardRatio) >= 0.1 && (
+                    <span className="text-amber-400/80"> (a 1ª resistencia {tl.rrToFirstResistance.toFixed(1)}x)</span>
+                  )}
                 </span>
               </TooltipTrigger>
-              <TooltipContent>Risk/Reward ratio. Mayor a 2x es favorable.</TooltipContent>
+              <TooltipContent>
+                Risk/Reward ratio contra el target. Mayor a 2x es favorable.
+                {tl.rrToFirstResistance != null && Math.abs(tl.rrToFirstResistance - tl.riskRewardRatio) >= 0.1 &&
+                  ' El R/R a la 1ª resistencia es el que probablemente se cobra primero — el target lejano puede tardar más en validarse.'}
+              </TooltipContent>
             </Tooltip>
             {tl.suggestedAmount && (
               <Tooltip>

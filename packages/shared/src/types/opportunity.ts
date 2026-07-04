@@ -52,6 +52,12 @@ export interface TradeLevels {
   /** 'invalid' = el riesgo del setup excede el máximo tolerable; no operar, la acción se degrada. */
   setupQuality?: 'valid' | 'invalid';
   setupWarning?: string;
+  /**
+   * R/R real contra la primera resistencia (la que probablemente "cobra" el precio primero),
+   * distinto de `riskRewardRatio` (contra el target, que puede estar bastante más lejos).
+   * null cuando no hay resistencia por encima del entry o no aplica (SELL/HOLD).
+   */
+  rrToFirstResistance?: number | null;
 }
 
 export interface SignalConflict {

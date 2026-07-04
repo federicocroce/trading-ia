@@ -121,3 +121,37 @@ describe('computeTradeLevels — clamp de riesgo (caso SDOT)', () => {
     expect(levels.stopLoss).toBeGreaterThan(90);
   });
 });
+
+// R/R honesto: el target lejano (el que da buen R/R por diseño) puede estar bastante más
+// arriba que la primera resistencia real — esta última es la que probablemente "cobra" el
+// precio primero. Mostrar solo el R/R al target lejano es, en la práctica, sobre-vender el setup.
+describe('computeTradeLevels — rrToFirstResistance (R/R honesto contra la 1ra resistencia)', () => {
+  it('con una resistencia cercana que no alcanza el R/R mínimo, el target usa ATR y queda más lejos: rrToFirstResistance < riskRewardRatio', () => {
+    // price=100, atr=2 → stop=97 (risk=3). Resistencia en 104 no alcanza minRequired (105) →
+    // target se ajusta a 105 (ATR-based), más lejos que la resistencia real en 104.
+    const tech = mkTech({ currentPrice: 100, atr14: 2, supports: [], resistances: [{ price: 104, touches: 2 }] });
+    const levels = computeTradeLevels(tech, 'BUY')!;
+    expect(levels.rrToFirstResistance).not.toBeNull();
+    expect(levels.rrToFirstResistance!).toBeLessThan(levels.riskRewardRatio);
+    // (104 - 100) / 3 = 1.33
+    expect(levels.rrToFirstResistance).toBeCloseTo(1.33, 2);
+  });
+
+  it('sin resistencia por encima del entry, rrToFirstResistance es null', () => {
+    const tech = mkTech({ currentPrice: 100, atr14: 2, supports: [], resistances: [] });
+    const levels = computeTradeLevels(tech, 'BUY')!;
+    expect(levels.rrToFirstResistance).toBeNull();
+  });
+
+  it('WATCH también calcula rrToFirstResistance (misma rama que BUY)', () => {
+    const tech = mkTech({ currentPrice: 100, atr14: 2, supports: [], resistances: [{ price: 104, touches: 2 }] });
+    const levels = computeTradeLevels(tech, 'WATCH')!;
+    expect(levels.rrToFirstResistance).toBeCloseTo(1.33, 2);
+  });
+
+  it('SELL no calcula rrToFirstResistance (concepto es solo para setups de compra)', () => {
+    const tech = mkTech({ currentPrice: 100, atr14: 2, supports: [{ price: 90, touches: 2 }], resistances: [{ price: 103, touches: 2 }] });
+    const levels = computeTradeLevels(tech, 'SELL')!;
+    expect(levels.rrToFirstResistance).toBeNull();
+  });
+});

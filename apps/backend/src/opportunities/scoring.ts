@@ -1090,6 +1090,15 @@ export function computeTradeLevels(
   const reward = Math.abs(takeProfit - entryPrice);
   const riskRewardRatio = risk > 0 ? Math.round((reward / risk) * 100) / 100 : 0;
 
+  // R/R honesto: el target puede quedar bastante más lejos que la primera resistencia real
+  // (se ajusta con ATR cuando la resistencia más cercana no alcanza el mínimo de 1.5:1) — la
+  // primera resistencia es la que probablemente "cobra" el precio primero. Solo aplica a
+  // setups de compra (BUY/WATCH); SELL/HOLD no tienen este concepto.
+  let rrToFirstResistance: number | null = null;
+  if ((action === 'BUY' || action === 'WATCH') && resistances[0] && resistances[0].price > entryPrice && risk > 0) {
+    rrToFirstResistance = Math.round(((resistances[0].price - entryPrice) / risk) * 100) / 100;
+  }
+
   // Setup inválido: si aún clampeado (MAX_STOP_ATR_MULT x ATR) el riesgo excede el % máximo
   // del precio de entrada, el trade no es operable — degradar la acción en el caller.
   // Ambas protecciones aplican EN SERIE: el clamp acota el stop, y el cap de riesgo marca
@@ -1138,6 +1147,7 @@ export function computeTradeLevels(
     entryReason, stopReason, targetReason,
     suggestedQuantity, suggestedAmount, sizingReason,
     setupQuality, setupWarning,
+    rrToFirstResistance,
   };
 }
 

@@ -1,4 +1,4 @@
-import type { MarketReport, MarketReportRecommendation, TopImpactNewsItem, UnifiedAssetAnalysis, MarketDigest, SecondOrderEffect, SectorSummary, QuantContext, Opportunity } from '@trading/shared';
+import type { MarketReport, MarketReportRecommendation, TopImpactNewsItem, UnifiedAssetAnalysis, MarketDigest, SecondOrderEffect, SectorSummary, QuantContext, Opportunity, SignalAction } from '@trading/shared';
 import { buildDigestRecommendations, flagAlertedRecommendations, flagRearmedRecommendations, filterAvoidVsAlerts } from './digest-recommendations.js';
 import { COMBINED_SYNTHESIS_PROMPT, CANONICAL_MACRO_THEMES } from '@trading/shared';
 import { callAIWithModel } from '../shared/ai-router.js';
@@ -18,6 +18,7 @@ import {
   saveMarketReport,
 } from './pipeline.repository.js';
 import { getCurrentBuyTickers, filterItemsVsBuyTickers } from '../opportunities/opportunities.service.js';
+import { envNumber } from '../shared/env-number.js';
 
 function filterAvoidListVsBuy(items: string[], buyTickers: Set<string>): string[] {
   return filterItemsVsBuyTickers(items, buyTickers);
@@ -215,12 +216,52 @@ export interface DigestInputs {
   causalMap?: MacroEventRow[];
 }
 
+/**
+ * "La paciencia es la posición": si el scan de hoy no deja suficientes setups operables
+ * (BUY con `tradeLevels.setupQuality === 'valid'`), el digest lo declara en vez de estirar
+ * un pick débil para llenar el widget. Determinístico, calculado desde el scan — el LLM
+ * nunca decide esto. `regime` (si está disponible) agrega la coletilla de régimen volátil.
+ */
+export function computeNoTradeMode(
+  opportunities: Array<{ action: string; tradeLevels?: { setupQuality?: 'valid' | 'invalid' } }>,
+  regime?: string,
+): { active: boolean; reason: string } {
+  const validBuys = opportunities.filter(o => o.action === 'BUY' && o.tradeLevels?.setupQuality === 'valid');
+  const minSetups = envNumber('NO_TRADE_MIN_SETUPS', 3);
+  if (validBuys.length >= minSetups) return { active: false, reason: '' };
+  const regimeNote = regime === 'volatile' ? ' en régimen volátil' : '';
+  return {
+    active: true,
+    reason: `Solo ${validBuys.length} setup(s) operable(s)${regimeNote} — los candidatos de calidad están en la watchlist de re-armado esperando que el riesgo se normalice.`,
+  };
+}
+
+/**
+ * Peso sugerido por convicción: un BUY score 90 y un BUY score 63 no son la misma señal
+ * aunque ambos crucen el gate de acción — antes era un 10 fijo para cualquier BUY. Necesita
+ * el score real y el setupQuality del scan (`UnifiedAssetAnalysis` no los trae), por eso el
+ * caller cruza por símbolo contra `digestInputs.opportunities` antes de invocar esto.
+ */
+export function computeSuggestedWeight(
+  action: SignalAction,
+  opp?: { opportunityScore?: number; tradeLevels?: { setupQuality?: 'valid' | 'invalid' } },
+): number {
+  if (action === 'SELL') return 0;
+  if (action !== 'BUY') return 5; // HOLD/WATCH
+  // Defensivo: un setup invalid no debería llegar hasta acá post-gate, pero si pasa, no
+  // merece el peso máximo.
+  if (opp?.tradeLevels?.setupQuality === 'invalid') return 5;
+  const score = opp?.opportunityScore ?? 0;
+  return score >= 65 ? 10 : 6;
+}
+
 function buildFallbackDigest(
   opportunities: Opportunity[],
   effects: SecondOrderEffect[],
   headlines: string[],
   alertedSymbols: Set<string> = new Set(),
   rearmedSymbols: Set<string> = new Set(),
+  regime?: string,
 ): MarketDigest {
   const topBuy = opportunities.filter(o => o.action === 'BUY').slice(0, 3);
   const buyCount = opportunities.filter(o => o.action === 'BUY').length;
@@ -239,6 +280,7 @@ function buildFallbackDigest(
     marketMood: buyCount > sellCount * 2 ? 'risk-on' : sellCount > buyCount ? 'risk-off' : 'mixed',
     portfolioRecommendations,
     marketRecommendations,
+    noTradeMode: computeNoTradeMode(opportunities, regime),
   };
 }
 
@@ -304,6 +346,11 @@ export async function generateMarketReport(
 
   const portfolioSymbolSet = new Set(positions.map(p => p.symbol.toUpperCase()));
 
+  // UnifiedAssetAnalysis no trae score ni setupQuality — se cruza por símbolo contra el
+  // scan (digestInputs.opportunities), la misma fuente de verdad que arma el digest, para
+  // graduar el peso sugerido por convicción real y no solo por la acción.
+  const oppBySymbol = new Map((digestInputs?.opportunities ?? []).map(o => [o.symbol.toUpperCase(), o]));
+
   // Group analyses by normalized macroTheme, build recommendations
   const themeMap = new Map<string, MarketReportRecommendation[]>();
 
@@ -317,7 +364,7 @@ export async function generateMarketReport(
     if (!themeMap.has(theme)) themeMap.set(theme, []);
 
     const meta = symbolMetaMap.get(symbol);
-    const weight = analysis.action === 'BUY' ? 10 : analysis.action === 'SELL' ? 0 : 5;
+    const weight = computeSuggestedWeight(analysis.action, oppBySymbol.get(symbol.toUpperCase()));
 
     themeMap.get(theme)!.push({
       symbol,
@@ -533,6 +580,7 @@ export async function generateMarketReport(
       marketMood: ['risk-on', 'risk-off', 'mixed'].includes(p.marketMood) ? p.marketMood : 'mixed',
       portfolioRecommendations: flaggedPortfolioRecs,
       marketRecommendations: flaggedMarketRecs,
+      noTradeMode: computeNoTradeMode(digestInputs?.opportunities ?? [], digestInputs?.quantContext?.regime?.regime),
     };
 
     console.log('[MarketReport] Combined synthesis OK — report + digest generados');
@@ -541,7 +589,7 @@ export async function generateMarketReport(
     actualEngine = 'pipeline-thematic (fallback)';
     if (digestInputs) {
       const headlines = digestInputs.intelligence.topHeadlines ?? [];
-      digest = buildFallbackDigest(digestInputs.opportunities, digestInputs.secondOrderEffects, headlines, alertedSymbols, rearmedSymbols);
+      digest = buildFallbackDigest(digestInputs.opportunities, digestInputs.secondOrderEffects, headlines, alertedSymbols, rearmedSymbols, digestInputs.quantContext?.regime?.regime);
     }
   }
 

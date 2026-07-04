@@ -107,6 +107,12 @@ export interface MarketDigest {
   // Recomendaciones proyectadas desde el scan (acción + motivo reales, sin contradicción).
   portfolioRecommendations: DigestRecommendation[];  // opportunities con inPortfolio === true
   marketRecommendations: DigestRecommendation[];     // opportunities con inPortfolio === false
+  /**
+   * "La paciencia es la posición": cuando el scan no deja suficientes setups operables (o el
+   * régimen es volátil), el digest lo declara en vez de estirar un pick débil. Determinístico,
+   * calculado desde el scan — nunca lo decide el LLM.
+   */
+  noTradeMode?: { active: boolean; reason: string };
 }
 
 // --- Market Report (full investment report) ---
