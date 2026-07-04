@@ -37,4 +37,35 @@ describe('detectConcentrationWarning', () => {
     ]);
     expect(w).toBeNull();
   });
+
+  it('multi-sector: 3 Energía + 3 Tech concentrados a la vez → reporta AMBOS sectores, no solo uno', () => {
+    const w = detectConcentrationWarning([
+      mkRec('PAM', 'Energía', 'BUY'), mkRec('YPF', 'Energía', 'BUY'), mkRec('VIST', 'Energía', 'BUY'),
+      mkRec('TSM', 'Tech', 'BUY'), mkRec('NVDA', 'Tech', 'BUY'), mkRec('AMD', 'Tech', 'BUY'),
+    ]);
+    expect(w).not.toBeNull();
+    expect(w).toContain('Energía');
+    expect(w).toContain('Tech');
+    expect(w).toContain('6'); // totalBuys
+  });
+
+  it('multi-sector con conteos distintos: se listan ambos, ordenados por conteo descendente', () => {
+    const w = detectConcentrationWarning([
+      mkRec('PAM', 'Energía', 'BUY'), mkRec('YPF', 'Energía', 'BUY'), mkRec('VIST', 'Energía', 'BUY'), mkRec('CGC', 'Energía', 'BUY'),
+      mkRec('TSM', 'Tech', 'BUY'), mkRec('NVDA', 'Tech', 'BUY'), mkRec('AMD', 'Tech', 'BUY'),
+    ]);
+    expect(w).not.toBeNull();
+    // Energía (4) aparece antes que Tech (3) en el string.
+    expect(w!.indexOf('Energía')).toBeLessThan(w!.indexOf('Tech'));
+    expect(w).toContain('Energía (4)');
+    expect(w).toContain('Tech (3)');
+  });
+
+  it('un solo sector concentrado entre varios sectores presentes: mantiene el string original de un-sector', () => {
+    const w = detectConcentrationWarning([
+      mkRec('PAM', 'Energía', 'BUY'), mkRec('YPF', 'Energía', 'BUY'), mkRec('VIST', 'Energía', 'BUY'),
+      mkRec('TSM', 'Tech', 'BUY'), mkRec('MELI', 'Consumo', 'BUY'),
+    ]);
+    expect(w).toBe('⚠ Concentración: 3 de tus 5 recomendaciones BUY son el mismo trade (sector Energía) — diversificá o tomá una sola.');
+  });
 });

@@ -6,7 +6,9 @@ import {
   normalizeScenarios,
   computeNoTradeMode,
   computeSuggestedWeight,
+  buildConcentrationWarnings,
 } from './market-report.service.js';
+import type { Opportunity, DigestRecommendation, SignalAction } from '@trading/shared';
 
 describe('moveSellsOutOfTopOpportunities — el digest nunca puede recomendar salir como oportunidad', () => {
   it('caso real NEM: SELL en el scan actual se saca de topOpportunities y pasa a warning con prefijo SALIDA:', () => {
@@ -226,5 +228,55 @@ describe('computeSuggestedWeight — peso graduado por convicción', () => {
 
   it('BUY sin match en el scan (sin score) → conservador, 6', () => {
     expect(computeSuggestedWeight('BUY', undefined)).toBe(6);
+  });
+});
+
+// El aviso de concentración debe medirse sobre lo que el digest EFECTIVAMENTE muestra
+// (portfolioRecommendations + marketRecommendations, ya recortadas a sus límites de 12 + 6),
+// no sobre el array completo de `opportunities` del scan — bug real: 8/10 scans recientes
+// tenían más BUYs que ese límite combinado, y el aviso viejo refería a BUYs que el usuario
+// nunca llegaba a ver en pantalla.
+describe('buildConcentrationWarnings — mide sobre las recomendaciones mostradas, no sobre el scan completo', () => {
+  function opp(symbol: string, sectorLabel: string): Opportunity {
+    return { symbol, sectorLabel, action: 'BUY' } as unknown as Opportunity;
+  }
+  function rec(symbol: string, action: SignalAction = 'BUY'): DigestRecommendation {
+    return { symbol, action, reason: '', currentPrice: 1, score: 1 };
+  }
+
+  it('ignora BUYs del scan que el límite del digest dejó afuera', () => {
+    // 3 BUYs de Energía en el scan, pero solo 2 llegaron al digest (el 3ro no entró por el límite).
+    const opportunities = [opp('PAM', 'Energía'), opp('YPF', 'Energía'), opp('VIST', 'Energía')];
+    const digestRecs = [rec('PAM'), rec('YPF')]; // VIST no está en lo que el digest muestra
+    expect(buildConcentrationWarnings(opportunities, digestRecs)).toEqual([]);
+  });
+
+  it('avisa cuando los 3 BUYs concentrados SÍ están entre las recomendaciones mostradas', () => {
+    const opportunities = [opp('PAM', 'Energía'), opp('YPF', 'Energía'), opp('VIST', 'Energía'), opp('TSM', 'Tech')];
+    const digestRecs = [rec('PAM'), rec('YPF'), rec('VIST'), rec('TSM')];
+    const warnings = buildConcentrationWarnings(opportunities, digestRecs);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('Energía');
+    expect(warnings[0]).toContain('3 de tus 4');
+  });
+
+  it('cruza por símbolo (case-insensitive) contra opportunities para obtener sectorLabel — DigestRecommendation no trae sector propio', () => {
+    const opportunities = [opp('PAM', 'Argentina/Energía'), opp('YPF', 'Argentina/Energía'), opp('VIST', 'Argentina/Energía')];
+    const digestRecs = [rec('pam'), rec('YPF'), rec('vist')];
+    const warnings = buildConcentrationWarnings(opportunities, digestRecs);
+    expect(warnings[0]).toContain('Argentina/Energía');
+  });
+
+  it('fail-closed: una recomendación del digest sin match en opportunities no cuenta para ningún grupo', () => {
+    const opportunities = [opp('PAM', 'Energía'), opp('YPF', 'Energía')];
+    // VIST está en el digest pero no aparece en `opportunities` — no debería pasar en runtime
+    // real (mismo scan), pero si pasa no debe inflar la concentración de Energía a 3.
+    const digestRecs = [rec('PAM'), rec('YPF'), rec('VIST')];
+    expect(buildConcentrationWarnings(opportunities, digestRecs)).toEqual([]);
+  });
+
+  it('sin recomendaciones en el digest, no hay warning aunque el scan tenga concentración', () => {
+    const opportunities = [opp('PAM', 'Energía'), opp('YPF', 'Energía'), opp('VIST', 'Energía')];
+    expect(buildConcentrationWarnings(opportunities, [])).toEqual([]);
   });
 });

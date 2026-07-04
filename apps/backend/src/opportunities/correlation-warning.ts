@@ -36,18 +36,27 @@ export function detectConcentrationWarning(recs: ConcentrationCandidate[]): stri
     countBySector.set(r.sector, (countBySector.get(r.sector) ?? 0) + 1);
   }
 
-  // El sector más concentrado (si hay empate, cualquiera de los máximos sirve — el
-  // mensaje es igual de válido para todos).
-  let worstSector: string | null = null;
-  let worstCount = 0;
-  for (const [sector, count] of countBySector) {
-    if (count > worstCount) {
-      worstSector = sector;
-      worstCount = count;
-    }
+  // Decisión explícita para el caso multi-sector (ej. 3 BUY Energía + 3 BUY Tech a la vez):
+  // reportar TODOS los sectores que alcanzan el umbral, no solo "el peor". Quedarse con uno
+  // solo escondería un segundo riesgo real de concentración igual de grave. Se listan todos
+  // en un único string (en vez de un warning por sector) para no inflar el array `warnings`
+  // del digest, que ya tiene un límite de items mostrados.
+  // Orden: conteo descendente; en empate, orden de aparición del sector dentro de `buys`
+  // (Map conserva el orden de inserción) — es solo para que el output sea determinístico
+  // dado un array de entrada fijo, NO representa ningún criterio de "sector más importante".
+  const concentrated = [...countBySector.entries()]
+    .filter(([, count]) => count >= MIN_CONCENTRATION)
+    .sort((a, b) => b[1] - a[1]);
+
+  if (concentrated.length === 0) return null;
+
+  // Caso de un solo sector concentrado: se mantiene el string original (contrato existente
+  // consumido río abajo / testeado desde hace rato).
+  if (concentrated.length === 1) {
+    const [sector, count] = concentrated[0];
+    return `⚠ Concentración: ${count} de tus ${totalBuys} recomendaciones BUY son el mismo trade (sector ${sector}) — diversificá o tomá una sola.`;
   }
 
-  if (!worstSector || worstCount < MIN_CONCENTRATION) return null;
-
-  return `⚠ Concentración: ${worstCount} de tus ${totalBuys} recomendaciones BUY son el mismo trade (sector ${worstSector}) — diversificá o tomá una sola.`;
+  const sectorList = concentrated.map(([sector, count]) => `${sector} (${count})`).join(', ');
+  return `⚠ Concentración: tus ${totalBuys} recomendaciones BUY repiten el mismo trade en varios sectores — ${sectorList} — diversificá o tomá una sola por sector.`;
 }

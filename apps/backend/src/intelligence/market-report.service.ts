@@ -1,4 +1,4 @@
-import type { MarketReport, MarketReportRecommendation, TopImpactNewsItem, UnifiedAssetAnalysis, MarketDigest, SecondOrderEffect, SectorSummary, QuantContext, Opportunity, SignalAction } from '@trading/shared';
+import type { MarketReport, MarketReportRecommendation, TopImpactNewsItem, UnifiedAssetAnalysis, MarketDigest, DigestRecommendation, SecondOrderEffect, SectorSummary, QuantContext, Opportunity, SignalAction } from '@trading/shared';
 import { buildDigestRecommendations, flagAlertedRecommendations, flagRearmedRecommendations, filterAvoidVsAlerts } from './digest-recommendations.js';
 import { detectConcentrationWarning } from '../opportunities/correlation-warning.js';
 import { COMBINED_SYNTHESIS_PROMPT, CANONICAL_MACRO_THEMES } from '@trading/shared';
@@ -257,14 +257,25 @@ export function computeSuggestedWeight(
 }
 
 /**
- * Cruza las opportunities del scan al shape mínimo que necesita `detectConcentrationWarning`
- * — `sectorLabel` es el campo legible ya presente en `Opportunity` (p. ej. "Argentina / Energía"),
- * distinto de `sector` (el enum interno tipo 'argentina-energy'). Devuelve `[]` si no hay
- * concentración, para poder hacer spread directo en `warnings` sin chequear null en el caller.
+ * Mide la concentración sobre lo que el digest EFECTIVAMENTE muestra (`portfolioRecommendations`
+ * + `marketRecommendations`, ya recortadas a sus límites — ver `buildDigestRecommendations`),
+ * no sobre el array completo de `opportunities` del scan. Medir sobre el scan completo hacía que
+ * el aviso "N de tus M recomendaciones BUY" refiriera a BUYs que el límite del digest ya había
+ * dejado afuera — el usuario nunca los veía en pantalla (bug real: 8/10 scans recientes tenían
+ * más BUYs que el límite combinado de 12 + 6).
+ *
+ * `DigestRecommendation` no trae `sector` propio (solo `Opportunity` lo tiene, vía `sectorLabel`),
+ * así que se cruza por símbolo contra las opportunities del scan. Fail-closed: si una recomendación
+ * no matchea ninguna opportunity (no debería pasar — mismo scan) queda sin sector y por lo tanto
+ * `detectConcentrationWarning` la excluye de todo grupo, igual que cualquier sector desconocido.
  */
-function buildConcentrationWarnings(opportunities: Opportunity[]): string[] {
+export function buildConcentrationWarnings(
+  opportunities: Opportunity[],
+  digestRecommendations: DigestRecommendation[],
+): string[] {
+  const sectorBySymbol = new Map(opportunities.map(o => [o.symbol.toUpperCase(), o.sectorLabel]));
   const warning = detectConcentrationWarning(
-    opportunities.map(o => ({ symbol: o.symbol, sector: o.sectorLabel, action: o.action })),
+    digestRecommendations.map(r => ({ symbol: r.symbol, sector: sectorBySymbol.get(r.symbol.toUpperCase()), action: r.action })),
   );
   return warning ? [warning] : [];
 }
@@ -292,7 +303,7 @@ function buildFallbackDigest(
     topOpportunities: topBuy.map(o => ({ symbol: o.symbol, action: 'BUY' as const, narrative: o.simpleReasoning ?? o.reasoning })),
     warnings: [
       ...opportunities.filter(o => o.action === 'SELL').slice(0, 2).map(o => `${o.symbol}: ${o.risks[0] ?? 'señales negativas'}`),
-      ...buildConcentrationWarnings(opportunities),
+      ...buildConcentrationWarnings(opportunities, [...portfolioRecommendations, ...marketRecommendations]),
     ],
     marketMood: buyCount > sellCount * 2 ? 'risk-on' : sellCount > buyCount ? 'risk-off' : 'mixed',
     portfolioRecommendations,
@@ -596,7 +607,7 @@ export async function generateMarketReport(
       warnings: [
         ...sellMove.sellWarnings,
         ...(Array.isArray(p.warnings) ? p.warnings.slice(0, 3) : []),
-        ...buildConcentrationWarnings(digestInputs?.opportunities ?? []),
+        ...buildConcentrationWarnings(digestInputs?.opportunities ?? [], [...flaggedPortfolioRecs, ...flaggedMarketRecs]),
       ],
       marketMood: ['risk-on', 'risk-off', 'mixed'].includes(p.marketMood) ? p.marketMood : 'mixed',
       portfolioRecommendations: flaggedPortfolioRecs,
