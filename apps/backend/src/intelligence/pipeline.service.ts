@@ -36,6 +36,7 @@ import { rankMomentum } from '../quant/momentum-ranker.service.js';
 import { calibrateWeights } from '../quant/weight-calibrator.service.js';
 import { getAllTechnicalSummaries } from '../technical/technical-analysis.service.js';
 import { runMarketScreener } from '../discovery/market-screener.service.js';
+import { runCycleRadar } from '../radar/cycle-radar.service.js';
 
 let _stageUnifiedAnalyses: Map<string, import('@trading/shared').UnifiedAssetAnalysis> | null = null;
 
@@ -578,6 +579,17 @@ async function runRemainingStages(runId: number): Promise<void> {
   } catch (err) {
     console.warn('[pipeline] runMarketScreener failed (non-blocking):', (err as Error).message);
   }
+
+  // Radar de ciclos: contexto cuantitativo diario (no señal). Fire-and-forget:
+  // un fallo de Yahoo acá no puede tocar el estado de la corrida del pipeline.
+  void (async () => {
+    try {
+      const radar = await runCycleRadar();
+      console.log(`[pipeline] cycle radar: ${radar.persisted} canastas persistidas (${radar.date})`);
+    } catch (err) {
+      console.warn('[pipeline] runCycleRadar failed (non-blocking):', (err as Error).message);
+    }
+  })();
 
   if (!isAnalysisStageValid()) {
     const analysisResult = await runAnalysisStage(runId);
