@@ -113,4 +113,13 @@ describe('classifyCycleState', () => {
     expect(r.state).toBeNull();
     expect(r.reason).toContain('rs3m');
   });
+
+  it('bordes exactos de los umbrales (fijan los operadores <=60, >60, >=120, >20)', () => {
+    expect(classifyCycleState({ ...base, sesionesEnLado: 60, rs3m: 1 }).state).toBe('girando');
+    expect(classifyCycleState({ ...base, sesionesEnLado: 61, rs3m: 1 }).state).toBe('tendencia');
+    expect(classifyCycleState({ ...base, lado: 'abajo', sesionesEnLado: 119, rs6m: -1 }).state).toBe('neutro');
+    expect(classifyCycleState({ ...base, lado: 'abajo', sesionesEnLado: 120, rs6m: -1 }).state).toBe('odiado');
+    expect(classifyCycleState({ ...base, distSma200Pct: 20 }).state).toBe('tendencia'); // 20 NO es extendido (>20 estricto)
+    expect(classifyCycleState({ ...base, distSma200Pct: 20.01 }).state).toBe('extendido');
+  });
 });
