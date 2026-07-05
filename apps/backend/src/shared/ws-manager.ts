@@ -50,6 +50,22 @@ export function broadcastPrices(prices: Price[]) {
   });
 }
 
+/**
+ * Eventos del chat agéntico (deltas de texto, actividad de tools) hacia el frontend.
+ * Reusa el mismo WS de precios: el cliente filtra por `type === 'chat_agent'` y
+ * correlaciona por requestId, así el canal de precios no cambia.
+ */
+export function broadcastChatAgentEvent(payload: Record<string, unknown>) {
+  if (!wss) return;
+
+  const data = JSON.stringify({ type: 'chat_agent', ...payload });
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(data);
+    }
+  });
+}
+
 export function closeWebSocket() {
   if (intervalId) clearInterval(intervalId);
   if (wss) wss.close();

@@ -16,3 +16,5 @@ sqlite.pragma('foreign_keys = ON');
 export const db = drizzle(sqlite, { schema });
 export { schema };
 export { sqlite };
+// Path real de la DB, para quien necesite abrir una conexión propia (ej: readonly del chat agéntico)
+export const dbPath = DB_PATH;
