@@ -1921,3 +1921,66 @@ export function archiveWatchlistItemBySymbol(symbol: string) {
     ))
     .run();
 }
+
+// ==================== CYCLE RADAR ====================
+
+export interface CycleRadarSnapshotInsert {
+  snapshotDate: string;
+  symbol: string;
+  label: string;
+  categoria: 'pais' | 'sector';
+  close: number;
+  sma200: number | null;
+  distSma200Pct: number | null;
+  ret3m: number | null;
+  ret6m: number | null;
+  rs3m: number | null;
+  rs6m: number | null;
+  sesionesEnLado: number | null;
+  ladoSma: 'arriba' | 'abajo' | null;
+  sharesOutstanding: number | null;
+  flowDelta20d: number | null;
+  cycleState: 'girando' | 'odiado' | 'tendencia' | 'extendido' | 'neutro' | null;
+  stateReason: string | null;
+}
+
+export function insertCycleRadarSnapshots(rows: CycleRadarSnapshotInsert[]) {
+  if (rows.length === 0) return;
+  db.insert(schema.cycleRadarSnapshots).values(rows).run();
+}
+
+export function deleteCycleRadarSnapshotsForDate(date: string) {
+  db.delete(schema.cycleRadarSnapshots).where(eq(schema.cycleRadarSnapshots.snapshotDate, date)).run();
+}
+
+export function getLatestCycleRadarDate(): string | null {
+  const row = db.select({ d: schema.cycleRadarSnapshots.snapshotDate }).from(schema.cycleRadarSnapshots)
+    .orderBy(desc(schema.cycleRadarSnapshots.snapshotDate)).limit(1).get();
+  return row?.d ?? null;
+}
+
+export function getCycleRadarSnapshots(date: string) {
+  return db.select().from(schema.cycleRadarSnapshots)
+    .where(eq(schema.cycleRadarSnapshots.snapshotDate, date))
+    .all();
+}
+
+// Pura (sin I/O): filas ordenadas por fecha asc -> serie de sharesOutstanding.
+export function buildRadarSharesHistory(rows: Array<{ snapshotDate: string; sharesOutstanding: number | null }>): Array<number | null> {
+  return rows.map(r => r.sharesOutstanding);
+}
+
+export function getRadarSharesHistory(symbol: string, limit: number): Array<number | null> {
+  const rows = db.select({
+    snapshotDate: schema.cycleRadarSnapshots.snapshotDate,
+    sharesOutstanding: schema.cycleRadarSnapshots.sharesOutstanding,
+  }).from(schema.cycleRadarSnapshots)
+    .where(eq(schema.cycleRadarSnapshots.symbol, symbol))
+    .orderBy(desc(schema.cycleRadarSnapshots.snapshotDate)).limit(limit).all();
+  return buildRadarSharesHistory(rows.reverse());
+}
+
+export function countCycleRadarDates(): number {
+  const rows = db.selectDistinct({ d: schema.cycleRadarSnapshots.snapshotDate }).from(schema.cycleRadarSnapshots).all();
+  return rows.length;
+}

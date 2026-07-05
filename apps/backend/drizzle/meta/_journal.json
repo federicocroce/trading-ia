@@ -295,6 +295,13 @@
       "when": 1783100605156,
       "tag": "0041_condemned_pyro",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "6",
+      "when": 1783269206016,
+      "tag": "0042_funny_joystick",
+      "breakpoints": true
     }
   ]
 }

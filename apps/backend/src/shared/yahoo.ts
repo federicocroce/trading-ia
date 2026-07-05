@@ -678,6 +678,46 @@ export async function getInsiderTransactions(symbol: string): Promise<YahooInsid
   return result ?? [];
 }
 
+// --- Key Statistics (para sharesOutstanding, insumo del Radar de Ciclos) ---
+
+/**
+ * sharesOutstanding vía quoteSummary/defaultKeyStatistics.
+ * Fail-closed: cualquier error o dato faltante => null (el radar lo trata como "sin dato").
+ */
+export async function getKeyStats(symbol: string): Promise<{ sharesOutstanding: number | null }> {
+  try {
+    const modules = 'defaultKeyStatistics';
+    const auth = await ensureCrumb();
+
+    const tryFetch = async (baseUrl: string, headers: Record<string, string>): Promise<{ sharesOutstanding: number | null } | null> => {
+      try {
+        const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : '';
+        const url = `${baseUrl}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${crumbParam}`;
+        const res = await yfetch(url, { headers });
+        if (!res.ok) return null;
+
+        const data = (await res.json()) as any;
+        const stats = data?.quoteSummary?.result?.[0]?.defaultKeyStatistics;
+        if (!stats) return null;
+
+        const raw = extractRaw(stats, 'sharesOutstanding');
+        return { sharesOutstanding: raw != null && raw > 0 ? raw : null };
+      } catch {
+        return null;
+      }
+    };
+
+    if (auth) {
+      const result = await tryFetch('https://query2.finance.yahoo.com', { ...YAHOO_HEADERS, Cookie: auth.cookie });
+      if (result) return result;
+    }
+    const result = await tryFetch('https://query1.finance.yahoo.com', YAHOO_HEADERS);
+    return result ?? { sharesOutstanding: null };
+  } catch {
+    return { sharesOutstanding: null };
+  }
+}
+
 // --- Options Chain (for Options Flow signal) ---
 
 export interface OptionsContract {

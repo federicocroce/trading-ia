@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { segmentByStopRisk, computeExpectancy, type StopRiskRow, buildDiscoveredSymbolUpdate, type DiscoveredSymbolUpsertInput } from './repository.js';
+import { segmentByStopRisk, computeExpectancy, type StopRiskRow, buildDiscoveredSymbolUpdate, type DiscoveredSymbolUpsertInput, buildRadarSharesHistory } from './repository.js';
 
 function row(entryPrice: number, stopLoss: number | null, rMultiple: number | null): StopRiskRow {
   return { entryPrice, stopLoss, rMultiple };
@@ -125,5 +125,20 @@ describe('buildDiscoveredSymbolUpdate', () => {
     const update = buildDiscoveredSymbolUpdate({ newsCount: 1, relevanceScore: 10 }, upsertInput({ industry: undefined, exchange: undefined }), NOW);
     expect(update.industry).toBeNull();
     expect(update.exchange).toBeNull();
+  });
+});
+
+describe('buildRadarSharesHistory', () => {
+  it('mapea filas (fecha asc) a la serie de sharesOutstanding preservando nulls', () => {
+    const rows = [
+      { snapshotDate: '2026-07-01', sharesOutstanding: 1000 },
+      { snapshotDate: '2026-07-02', sharesOutstanding: null },
+      { snapshotDate: '2026-07-03', sharesOutstanding: 1010 },
+    ];
+    expect(buildRadarSharesHistory(rows)).toEqual([1000, null, 1010]);
+  });
+
+  it('lista vacía devuelve serie vacía', () => {
+    expect(buildRadarSharesHistory([])).toEqual([]);
   });
 });
