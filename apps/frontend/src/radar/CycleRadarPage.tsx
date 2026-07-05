@@ -13,6 +13,8 @@ const FASES: Array<{ key: string; titulo: string; badge: string; descripcion: st
 
 const fmt = (v: number | null, suffix = '%') => (v === null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(1)}${suffix}`);
 
+const rsColor = (v: number | null) => (v === null ? 'text-muted-foreground' : v > 0 ? 'text-emerald-600' : 'text-red-500');
+
 export function CycleRadarPage() {
   const { data, isLoading } = trpc.radar.getLatest.useQuery(undefined, { refetchInterval: 5 * 60 * 1000 });
 
@@ -27,7 +29,7 @@ export function CycleRadarPage() {
     );
   }
 
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
   const porFase = new Map<string, typeof data.snapshots>();
   for (const s of data.snapshots) {
     const key = s.cycleState ?? 'sin-datos';
@@ -75,8 +77,8 @@ export function CycleRadarPage() {
                     <tr key={s.symbol} className="border-t border-border/40">
                       <td className="py-1.5 pr-3 font-medium">{s.label} <span className="text-xs text-muted-foreground">{s.symbol}</span></td>
                       <td className="py-1.5 pr-3 text-xs">{s.categoria === 'pais' ? 'País' : 'Sector'}</td>
-                      <td className={`py-1.5 pr-3 text-right ${(s.rs3m ?? 0) > 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmt(s.rs3m, ' pp')}</td>
-                      <td className={`py-1.5 pr-3 text-right ${(s.rs6m ?? 0) > 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmt(s.rs6m, ' pp')}</td>
+                      <td className={`py-1.5 pr-3 text-right ${rsColor(s.rs3m)}`}>{fmt(s.rs3m, ' pp')}</td>
+                      <td className={`py-1.5 pr-3 text-right ${rsColor(s.rs6m)}`}>{fmt(s.rs6m, ' pp')}</td>
                       <td className="py-1.5 pr-3 text-right">{fmt(s.distSma200Pct)}</td>
                       <td className="py-1.5 pr-3 text-right">{s.flowDelta20d === null ? 'acumulando' : fmt(s.flowDelta20d)}</td>
                       <td className="py-1.5 text-right">{s.sesionesEnLado ?? '—'}</td>
