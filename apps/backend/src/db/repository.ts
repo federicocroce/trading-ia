@@ -1,4 +1,4 @@
-import { eq, desc, gte, lt, asc, and, inArray, gt, sql, isNull } from 'drizzle-orm';
+import { eq, desc, gte, lt, asc, and, inArray, gt, sql, isNull, ne } from 'drizzle-orm';
 import type { AnticipatoryAlert } from '@trading/shared';
 import { db, schema } from './index.js';
 import { missedOpportunities, signalTracking, etfWatchlist } from './schema.js';
@@ -1970,12 +1970,21 @@ export function buildRadarSharesHistory(rows: Array<{ snapshotDate: string; shar
   return rows.map(r => r.sharesOutstanding);
 }
 
-export function getRadarSharesHistory(symbol: string, limit: number): Array<number | null> {
+/**
+ * excludeDate saca el snapshot de esa fecha de la historia. Necesario porque en re-corridas
+ * del mismo día el radar ya insertó un snapshot de HOY antes de recalcular flowDelta20d: sin
+ * excluirlo, ese snapshot viejo entra en la ventana y el share count nuevo se concatena
+ * duplicado, corriendo el delta un día (off-by-one silencioso).
+ */
+export function getRadarSharesHistory(symbol: string, limit: number, excludeDate?: string): Array<number | null> {
   const rows = db.select({
     snapshotDate: schema.cycleRadarSnapshots.snapshotDate,
     sharesOutstanding: schema.cycleRadarSnapshots.sharesOutstanding,
   }).from(schema.cycleRadarSnapshots)
-    .where(eq(schema.cycleRadarSnapshots.symbol, symbol))
+    .where(and(
+      eq(schema.cycleRadarSnapshots.symbol, symbol),
+      excludeDate ? ne(schema.cycleRadarSnapshots.snapshotDate, excludeDate) : undefined,
+    ))
     .orderBy(desc(schema.cycleRadarSnapshots.snapshotDate)).limit(limit).all();
   return buildRadarSharesHistory(rows.reverse());
 }

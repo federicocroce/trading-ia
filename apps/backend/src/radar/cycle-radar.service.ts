@@ -78,7 +78,7 @@ export async function runCycleRadar(): Promise<{ date: string; persisted: number
       const { state, reason } = classifyCycleState({ distSma200Pct, rs3m, rs6m, lado, sesionesEnLado });
 
       const { sharesOutstanding } = await getKeyStats(basket.symbol);
-      const historia = getRadarSharesHistory(basket.symbol, RADAR_FLOW_LOOKBACK + 1);
+      const historia = getRadarSharesHistory(basket.symbol, RADAR_FLOW_LOOKBACK + 1, date);
       const flowDelta20d = computeFlowDeltaPct([...historia, sharesOutstanding], RADAR_FLOW_LOOKBACK);
 
       rows.push({
