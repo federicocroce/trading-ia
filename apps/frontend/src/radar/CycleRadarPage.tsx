@@ -1,6 +1,7 @@
 import { trpc } from '@/shared/trpc';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { printWithTitle } from '@/shared/printWithTitle';
 
 // Orden y estilo por fase: "despertándose" (lo que busca el radar) primero.
 // Los nombres son deliberadamente coloquiales: la tab la lee una persona, no un quant.
@@ -90,7 +91,21 @@ export function CycleRadarPage() {
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">En criollo, hoy:</CardTitle>
+          <CardTitle className="flex items-center justify-between text-base">
+            <span>En criollo, hoy:</span>
+            <button
+              onClick={() => printWithTitle('radar', data.date)}
+              title="Imprimir / Guardar como PDF"
+              className="h-7 px-2 rounded border border-border/50 text-[10px] font-normal text-muted-foreground hover:text-foreground hover:border-border transition-colors flex items-center gap-1"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              PDF
+            </button>
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-1.5 text-sm">
           {frases.map((f, i) => (
