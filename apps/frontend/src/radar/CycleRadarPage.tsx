@@ -2,6 +2,7 @@ import { trpc } from '@/shared/trpc';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { printWithTitle } from '@/shared/printWithTitle';
+import { usePrintSection } from '@/shared/usePrintSection';
 
 // Orden y estilo por fase: "despertándose" (lo que busca el radar) primero.
 // Los nombres son deliberadamente coloquiales: la tab la lee una persona, no un quant.
@@ -65,6 +66,7 @@ function resumenEnCriollo(porFase: Map<string, Array<{ label: string }>>): strin
 }
 
 export function CycleRadarPage() {
+  usePrintSection('cycle-radar-print');
   const { data, isLoading } = trpc.radar.getLatest.useQuery(undefined, { refetchInterval: 5 * 60 * 1000 });
 
   if (isLoading) return <div className="p-4 text-sm text-muted-foreground">Cargando radar…</div>;
@@ -88,7 +90,7 @@ export function CycleRadarPage() {
   const frases = resumenEnCriollo(porFase);
 
   return (
-    <div className="space-y-4">
+    <div id="cycle-radar-print" className="space-y-4">
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center justify-between text-base">
