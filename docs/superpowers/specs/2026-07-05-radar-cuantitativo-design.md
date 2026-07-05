@@ -13,6 +13,7 @@ Detectar de forma **medible y diaria** dónde se está gestando un ciclo (país/
 
 ## 2. Fuera de alcance (v2, especificado para no perderlo)
 
+- **Canasta girando → universo** (aprobado en concepto por el dueño, 2026-07-05): cuando una canasta pasa a `girando`, proponer sus tickers representativos a discovery (`source='radar'`, mismo patrón que el screener). Cambia QUÉ se escanea, jamás verdicts — cada ticker pasa quality bar/anti-hype/setup como cualquiera. Orden acordado: (1) esto, (2) mención narrativa en digest, (3) peso en scoring SOLO con evidencia medida en signal_tracking (2-3 meses).
 - **Term structure de futuros de cobre** (contratos HG específicos en Yahoo son frágiles; diferido).
 - **EDGAR Form 4** (clusters de compras de insiders por sector — API gratis, proyecto propio).
 - **Informe narrativo mensual vía Gemini + Google Search grounding** como stage del pipeline.
