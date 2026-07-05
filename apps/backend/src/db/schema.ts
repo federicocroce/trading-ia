@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 // --- Symbols / Watchlist ---
@@ -835,9 +835,9 @@ export const cycleRadarSnapshots = sqliteTable('cycle_radar_snapshots', {
   rs6m: real('rs_6m'),
   sesionesEnLado: integer('sesiones_en_lado'),
   ladoSma: text('lado_sma', { enum: ['arriba', 'abajo'] }),
-  sharesOutstanding: real('shares_outstanding'),
+  sharesOutstanding: real('shares_outstanding'), // shares IMPLÍCITAS (totalAssets/close), nunca el sharesOutstanding real de Yahoo — ver cycle-radar.service.ts
   flowDelta20d: real('flow_delta_20d'),
   cycleState: text('cycle_state', { enum: ['girando', 'odiado', 'tendencia', 'extendido', 'neutro'] }),
   stateReason: text('state_reason'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-});
+}, (t) => [uniqueIndex('cycle_radar_date_symbol_uq').on(t.snapshotDate, t.symbol)]);

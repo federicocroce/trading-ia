@@ -17,6 +17,7 @@ export interface CycleStateInput {
   rs6m: number | null;
   lado: 'arriba' | 'abajo' | null;
   sesionesEnLado: number | null;
+  saturado: boolean | null;
 }
 
 // closes en orden ascendente (más viejo primero)
@@ -35,12 +36,13 @@ export function computeSma(closes: number[], sessions: number): number | null {
 }
 
 // De qué lado de su SMA está el cierre y hace cuántas sesiones consecutivas.
-// Si nunca cruzó dentro de la ventana calculable, el conteo es cota inferior (ventana completa).
+// Si nunca cruzó dentro de la ventana calculable, el conteo es cota inferior (ventana completa):
+// `saturado` marca ese caso para que el clasificador no lo confunda con un cruce reciente real.
 export function computeSmaSide(
   closes: number[],
   smaSessions: number,
-): { lado: 'arriba' | 'abajo' | null; sesionesEnLado: number | null } {
-  if (closes.length < smaSessions) return { lado: null, sesionesEnLado: null };
+): { lado: 'arriba' | 'abajo' | null; sesionesEnLado: number | null; saturado: boolean | null } {
+  if (closes.length < smaSessions) return { lado: null, sesionesEnLado: null, saturado: null };
   const lados: boolean[] = []; // true = arriba, por cada sesión con SMA calculable
   let suma = closes.slice(0, smaSessions).reduce((a, b) => a + b, 0);
   lados.push(closes[smaSessions - 1] > suma / smaSessions);
@@ -51,7 +53,7 @@ export function computeSmaSide(
   const actual = lados[lados.length - 1];
   let sesiones = 1;
   for (let back = lados.length - 2; back >= 0 && lados[back] === actual; back--) sesiones++;
-  return { lado: actual ? 'arriba' : 'abajo', sesionesEnLado: sesiones };
+  return { lado: actual ? 'arriba' : 'abajo', sesionesEnLado: sesiones, saturado: sesiones === lados.length };
 }
 
 // Delta % de sharesOutstanding entre el último snapshot y el de hace `lookback`.
@@ -71,11 +73,12 @@ export function classifyCycleState(input: CycleStateInput): { state: CycleState 
   if (faltantes.length > 0) {
     return { state: null, reason: `datos insuficientes: ${faltantes.join(', ')}` };
   }
-  const { distSma200Pct, rs3m, rs6m, lado, sesionesEnLado } = input as {
-    distSma200Pct: number; rs3m: number; rs6m: number; lado: 'arriba' | 'abajo'; sesionesEnLado: number;
+  const { distSma200Pct, rs3m, rs6m, lado, sesionesEnLado, saturado } = input as {
+    distSma200Pct: number; rs3m: number; rs6m: number; lado: 'arriba' | 'abajo'; sesionesEnLado: number; saturado: boolean | null;
   };
   if (lado === 'arriba' && distSma200Pct > RADAR_EXTENDED_DIST_PCT) return { state: 'extendido', reason: null };
-  if (lado === 'arriba' && sesionesEnLado <= RADAR_TURNING_MAX_SESSIONS && rs3m > 0) return { state: 'girando', reason: null };
+  // saturado === true => el conteo es la ventana completa (nunca cruzó), no un cruce reciente real.
+  if (lado === 'arriba' && sesionesEnLado <= RADAR_TURNING_MAX_SESSIONS && rs3m > 0 && saturado === false) return { state: 'girando', reason: null };
   if (lado === 'arriba' && sesionesEnLado > RADAR_TURNING_MAX_SESSIONS && rs3m >= 0) return { state: 'tendencia', reason: null };
   if (lado === 'abajo' && sesionesEnLado >= RADAR_HATED_MIN_SESSIONS && rs6m < 0) return { state: 'odiado', reason: null };
   return { state: 'neutro', reason: null };

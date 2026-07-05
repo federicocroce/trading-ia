@@ -1944,13 +1944,21 @@ export interface CycleRadarSnapshotInsert {
   stateReason: string | null;
 }
 
-export function insertCycleRadarSnapshots(rows: CycleRadarSnapshotInsert[]) {
+/**
+ * Reemplaza (delete+insert transaccional) los snapshots del día pero SOLO para los símbolos
+ * presentes en `rows`. Si una canasta falló su fetch en esta corrida, su snapshot previo del
+ * día (de una corrida anterior exitosa) NO se toca — un delete por fecha completa lo borraría
+ * y lo dejaría invisible aunque hubiera datos válidos de antes.
+ */
+export function replaceCycleRadarSnapshotsForDate(date: string, rows: CycleRadarSnapshotInsert[]) {
   if (rows.length === 0) return;
-  db.insert(schema.cycleRadarSnapshots).values(rows).run();
-}
-
-export function deleteCycleRadarSnapshotsForDate(date: string) {
-  db.delete(schema.cycleRadarSnapshots).where(eq(schema.cycleRadarSnapshots.snapshotDate, date)).run();
+  const symbols = rows.map(r => r.symbol);
+  db.transaction((trx) => {
+    trx.delete(schema.cycleRadarSnapshots)
+      .where(and(eq(schema.cycleRadarSnapshots.snapshotDate, date), inArray(schema.cycleRadarSnapshots.symbol, symbols)))
+      .run();
+    trx.insert(schema.cycleRadarSnapshots).values(rows).run();
+  });
 }
 
 export function getLatestCycleRadarDate(): string | null {

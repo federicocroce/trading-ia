@@ -7,12 +7,10 @@ vi.mock('../shared/yahoo.js', () => ({
   getKeyStats: (...args: unknown[]) => mockGetKeyStats(...args),
 }));
 
-const mockInsert = vi.fn();
-const mockDeleteForDate = vi.fn();
+const mockReplace = vi.fn();
 const mockSharesHistory = vi.fn();
 vi.mock('../db/repository.js', () => ({
-  insertCycleRadarSnapshots: (...args: unknown[]) => mockInsert(...args),
-  deleteCycleRadarSnapshotsForDate: (...args: unknown[]) => mockDeleteForDate(...args),
+  replaceCycleRadarSnapshotsForDate: (...args: unknown[]) => mockReplace(...args),
   getRadarSharesHistory: (...args: unknown[]) => mockSharesHistory(...args),
 }));
 
@@ -28,20 +26,19 @@ const velas = (desde: number, hasta: number, n = 350) =>
 beforeEach(() => {
   mockGetHistoricalQuotes.mockReset();
   mockGetKeyStats.mockReset();
-  mockInsert.mockReset();
-  mockDeleteForDate.mockReset();
+  mockReplace.mockReset();
   mockSharesHistory.mockReset();
-  mockGetKeyStats.mockResolvedValue({ sharesOutstanding: 1000000, totalAssets: null });
+  mockGetKeyStats.mockResolvedValue({ sharesOutstanding: null, totalAssets: null });
   mockSharesHistory.mockReturnValue([]);
 });
 
 describe('runCycleRadar', () => {
-  it('persiste un snapshot por canasta del universo con delete previo (idempotente)', async () => {
+  it('persiste un snapshot por canasta del universo con un solo replace transaccional', async () => {
     mockGetHistoricalQuotes.mockResolvedValue(velas(100, 200));
     const r = await runCycleRadar();
-    expect(mockDeleteForDate).toHaveBeenCalledTimes(1);
-    expect(mockInsert).toHaveBeenCalledTimes(1);
-    const rows = mockInsert.mock.calls[0][0];
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+    const [replaceDate, rows] = mockReplace.mock.calls[0];
+    expect(replaceDate).toBe(r.date);
     expect(rows).toHaveLength(RADAR_UNIVERSE.length);
     expect(r.persisted).toBe(RADAR_UNIVERSE.length);
     expect(r.skipped).toEqual([]);
@@ -53,8 +50,7 @@ describe('runCycleRadar', () => {
     mockGetHistoricalQuotes.mockRejectedValue(new Error('yahoo caido'));
     const r = await runCycleRadar();
     expect(r.persisted).toBe(0);
-    expect(mockInsert).not.toHaveBeenCalled();
-    expect(mockDeleteForDate).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it('el fallo de una canasta la manda a skipped sin frenar al resto', async () => {
@@ -72,7 +68,7 @@ describe('runCycleRadar', () => {
     mockGetHistoricalQuotes.mockResolvedValue(velas(100, 200));
     mockGetKeyStats.mockResolvedValue({ sharesOutstanding: null, totalAssets: null });
     await runCycleRadar();
-    const rows = mockInsert.mock.calls[0][0];
+    const rows = mockReplace.mock.calls[0][1];
     expect(rows[0].sharesOutstanding).toBeNull();
     expect(rows[0].flowDelta20d).toBeNull();
   });
@@ -81,8 +77,26 @@ describe('runCycleRadar', () => {
     mockGetHistoricalQuotes.mockResolvedValue(velas(100, 200));
     mockGetKeyStats.mockResolvedValue({ sharesOutstanding: null, totalAssets: 22000 });
     await runCycleRadar();
-    const rows = mockInsert.mock.calls[0][0];
+    const rows = mockReplace.mock.calls[0][1];
     expect(rows[0].sharesOutstanding).toBeCloseTo(22000 / 200, 5); // close final de velas(100,200) = 200
+  });
+
+  it('ignora sharesOutstanding real de Yahoo aunque venga presente: siempre usa la implícita', async () => {
+    mockGetHistoricalQuotes.mockResolvedValue(velas(100, 200));
+    mockGetKeyStats.mockResolvedValue({ sharesOutstanding: 999999, totalAssets: 22000 });
+    await runCycleRadar();
+    const rows = mockReplace.mock.calls[0][1];
+    expect(rows[0].sharesOutstanding).toBeCloseTo(22000 / 200, 5);
+  });
+
+  it('no persiste nada si todas las canastas fallan (rows vacío, sin llamar a replace)', async () => {
+    mockGetHistoricalQuotes.mockImplementation((symbol: string) => {
+      if (symbol === 'SPY') return Promise.resolve(velas(100, 200));
+      return Promise.reject(new Error('timeout'));
+    });
+    const r = await runCycleRadar();
+    expect(r.persisted).toBe(0);
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it('el universo tiene 23 canastas con labels y categorias validas', () => {
@@ -99,10 +113,25 @@ describe('runCycleRadar', () => {
 
   it('con historia acumulada computa flowDelta20d end-to-end (+10% con base 1000 y actual 1100)', async () => {
     mockGetHistoricalQuotes.mockResolvedValue(velas(100, 200));
-    mockGetKeyStats.mockResolvedValue({ sharesOutstanding: 1100, totalAssets: null });
+    mockGetKeyStats.mockResolvedValue({ sharesOutstanding: null, totalAssets: 220000 }); // close final = 200 => implícita 1100
     mockSharesHistory.mockReturnValue(Array(20).fill(1000));
     await runCycleRadar();
-    const rows = mockInsert.mock.calls[0][0];
+    const rows = mockReplace.mock.calls[0][1];
     expect(rows[0].flowDelta20d).toBeCloseTo(10, 5);
+  });
+
+  it('si ya hay una corrida en curso, la nueva invocación no fetchea y devuelve skipped (guard de concurrencia)', async () => {
+    let liberar!: (v: unknown) => void;
+    // Solo el primer fetch (SPY, dentro de "primera") queda pendiente; el resto de la serie de
+    // "primera" (las canastas del loop) se resuelve normal una vez liberada, para poder esperarla.
+    mockGetHistoricalQuotes.mockImplementationOnce(() => new Promise(resolve => { liberar = resolve; }));
+    const primera = runCycleRadar();
+    const segunda = await runCycleRadar();
+    expect(segunda.persisted).toBe(0);
+    expect(segunda.skipped).toEqual(['radar ya en curso']);
+    expect(mockGetHistoricalQuotes).toHaveBeenCalledTimes(1); // la segunda invocación no llegó a fetchear
+    mockGetHistoricalQuotes.mockResolvedValue(velas(100, 200)); // desbloquea el resto de "primera"
+    liberar(velas(100, 200));
+    await primera;
   });
 });

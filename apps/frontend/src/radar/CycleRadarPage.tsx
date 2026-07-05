@@ -13,7 +13,8 @@ const FASES: Array<{ key: string; titulo: string; badge: string; descripcion: st
 
 const fmt = (v: number | null, suffix = '%') => (v === null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(1)}${suffix}`);
 
-const rsColor = (v: number | null) => (v === null ? 'text-muted-foreground' : v > 0 ? 'text-emerald-600' : 'text-red-500');
+const rsColor = (v: number | null) =>
+  v === null ? 'text-muted-foreground' : v > 0 ? 'text-emerald-600' : v < 0 ? 'text-red-500' : 'text-muted-foreground';
 
 export function CycleRadarPage() {
   const { data, isLoading } = trpc.radar.getLatest.useQuery(undefined, { refetchInterval: 5 * 60 * 1000 });
@@ -80,7 +81,9 @@ export function CycleRadarPage() {
                       <td className={`py-1.5 pr-3 text-right ${rsColor(s.rs3m)}`}>{fmt(s.rs3m, ' pp')}</td>
                       <td className={`py-1.5 pr-3 text-right ${rsColor(s.rs6m)}`}>{fmt(s.rs6m, ' pp')}</td>
                       <td className="py-1.5 pr-3 text-right">{fmt(s.distSma200Pct)}</td>
-                      <td className="py-1.5 pr-3 text-right">{s.flowDelta20d === null ? 'acumulando' : fmt(s.flowDelta20d)}</td>
+                      <td className="py-1.5 pr-3 text-right">
+                        {s.sharesOutstanding === null ? '—' : s.flowDelta20d === null ? 'acumulando' : fmt(s.flowDelta20d)}
+                      </td>
                       <td className="py-1.5 text-right">{s.sesionesEnLado ?? '—'}</td>
                     </tr>
                   ))}
@@ -91,12 +94,15 @@ export function CycleRadarPage() {
         );
       })}
 
-      {(porFase.get('sin-datos') ?? []).length > 0 && (
+      {((porFase.get('sin-datos') ?? []).length > 0 || data.missing.length > 0) && (
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-base">Sin datos suficientes</CardTitle></CardHeader>
           <CardContent className="text-sm text-muted-foreground">
             {(porFase.get('sin-datos') ?? []).map(s => (
               <div key={s.symbol}>{s.label} ({s.symbol}): {s.stateReason ?? 'sin razón registrada'}</div>
+            ))}
+            {data.missing.map(b => (
+              <div key={b.symbol}>{b.label} ({b.symbol}): sin snapshot hoy (fetch fallido)</div>
             ))}
           </CardContent>
         </Card>

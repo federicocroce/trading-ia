@@ -34,11 +34,12 @@ describe('computeSma', () => {
 });
 
 describe('computeSmaSide', () => {
-  it('serie alcista sostenida: lado arriba, sesionesEnLado = ventana completa (cota inferior)', () => {
+  it('serie alcista sostenida: lado arriba, sesionesEnLado = ventana completa (cota inferior), saturado', () => {
     const closes = linear(300, 100, 200); // siempre por encima de su SMA200
     const r = computeSmaSide(closes, 200);
     expect(r.lado).toBe('arriba');
     expect(r.sesionesEnLado).toBe(101); // 300 - 200 + 1 sesiones con SMA calculable
+    expect(r.saturado).toBe(true); // nunca cruzó en la ventana calculable
   });
 
   it('serie bajista sostenida: lado abajo', () => {
@@ -47,17 +48,18 @@ describe('computeSmaSide', () => {
     expect(r.lado).toBe('abajo');
   });
 
-  it('cruce reciente: cuenta sesiones desde el cruce, no la ventana', () => {
+  it('cruce reciente: cuenta sesiones desde el cruce, no la ventana, no saturado', () => {
     // 280 sesiones cayendo fuerte + 20 sesiones de rebote violento sobre la SMA
     const closes = [...linear(280, 400, 100), ...linear(20, 300, 320)];
     const r = computeSmaSide(closes, 200);
     expect(r.lado).toBe('arriba');
     expect(r.sesionesEnLado).toBeGreaterThanOrEqual(1);
     expect(r.sesionesEnLado).toBeLessThanOrEqual(20);
+    expect(r.saturado).toBe(false); // sí cruzó dentro de la ventana calculable
   });
 
   it('historia insuficiente devuelve nulls', () => {
-    expect(computeSmaSide(linear(150, 100, 110), 200)).toEqual({ lado: null, sesionesEnLado: null });
+    expect(computeSmaSide(linear(150, 100, 110), 200)).toEqual({ lado: null, sesionesEnLado: null, saturado: null });
   });
 });
 
@@ -78,7 +80,7 @@ describe('computeFlowDeltaPct', () => {
 });
 
 describe('classifyCycleState', () => {
-  const base = { distSma200Pct: 5, rs3m: 1, rs6m: 1, lado: 'arriba' as const, sesionesEnLado: 100 };
+  const base = { distSma200Pct: 5, rs3m: 1, rs6m: 1, lado: 'arriba' as const, sesionesEnLado: 100, saturado: false };
 
   it('extendido: arriba de la SMA200 con distancia > 20%', () => {
     expect(classifyCycleState({ ...base, distSma200Pct: 25 }).state).toBe('extendido');
@@ -86,6 +88,10 @@ describe('classifyCycleState', () => {
 
   it('girando: cruce alcista hace <=60 sesiones con RS 3m positiva', () => {
     expect(classifyCycleState({ ...base, sesionesEnLado: 30, rs3m: 2 }).state).toBe('girando');
+  });
+
+  it('saturado (historia corta, nunca cruzó): NO girando aunque sesionesEnLado <=60 y RS 3m positiva', () => {
+    expect(classifyCycleState({ ...base, sesionesEnLado: 30, rs3m: 2, saturado: true }).state).toBe('neutro');
   });
 
   it('tendencia: arriba hace >60 sesiones con RS 3m >= 0', () => {
