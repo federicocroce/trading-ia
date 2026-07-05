@@ -77,7 +77,10 @@ export async function runCycleRadar(): Promise<{ date: string; persisted: number
       const { lado, sesionesEnLado } = computeSmaSide(closes, RADAR_SMA_SESSIONS);
       const { state, reason } = classifyCycleState({ distSma200Pct, rs3m, rs6m, lado, sesionesEnLado });
 
-      const { sharesOutstanding } = await getKeyStats(basket.symbol);
+      const { sharesOutstanding: sharesReales, totalAssets } = await getKeyStats(basket.symbol);
+      // Yahoo no publica sharesOutstanding para la mayoría de los ETFs; AUM/precio = shares implícitas.
+      // Proxy con ruido de prima/descuento vs NAV (<±0,5% en ETFs líquidos) — irrelevante para un delta a 20 días.
+      const sharesOutstanding = sharesReales ?? (totalAssets !== null && close > 0 ? totalAssets / close : null);
       const historia = getRadarSharesHistory(basket.symbol, RADAR_FLOW_LOOKBACK + 1, date);
       const flowDelta20d = computeFlowDeltaPct([...historia, sharesOutstanding], RADAR_FLOW_LOOKBACK);
 

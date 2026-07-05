@@ -31,7 +31,7 @@ beforeEach(() => {
   mockInsert.mockReset();
   mockDeleteForDate.mockReset();
   mockSharesHistory.mockReset();
-  mockGetKeyStats.mockResolvedValue({ sharesOutstanding: 1000000 });
+  mockGetKeyStats.mockResolvedValue({ sharesOutstanding: 1000000, totalAssets: null });
   mockSharesHistory.mockReturnValue([]);
 });
 
@@ -70,11 +70,19 @@ describe('runCycleRadar', () => {
 
   it('getKeyStats que falla no voltea la canasta: sharesOutstanding null y flow null', async () => {
     mockGetHistoricalQuotes.mockResolvedValue(velas(100, 200));
-    mockGetKeyStats.mockResolvedValue({ sharesOutstanding: null });
+    mockGetKeyStats.mockResolvedValue({ sharesOutstanding: null, totalAssets: null });
     await runCycleRadar();
     const rows = mockInsert.mock.calls[0][0];
     expect(rows[0].sharesOutstanding).toBeNull();
     expect(rows[0].flowDelta20d).toBeNull();
+  });
+
+  it('sin sharesOutstanding usa totalAssets/close como shares implicitas (caso ETF)', async () => {
+    mockGetHistoricalQuotes.mockResolvedValue(velas(100, 200));
+    mockGetKeyStats.mockResolvedValue({ sharesOutstanding: null, totalAssets: 22000 });
+    await runCycleRadar();
+    const rows = mockInsert.mock.calls[0][0];
+    expect(rows[0].sharesOutstanding).toBeCloseTo(22000 / 200, 5); // close final de velas(100,200) = 200
   });
 
   it('el universo tiene 23 canastas con labels y categorias validas', () => {
@@ -91,7 +99,7 @@ describe('runCycleRadar', () => {
 
   it('con historia acumulada computa flowDelta20d end-to-end (+10% con base 1000 y actual 1100)', async () => {
     mockGetHistoricalQuotes.mockResolvedValue(velas(100, 200));
-    mockGetKeyStats.mockResolvedValue({ sharesOutstanding: 1100 });
+    mockGetKeyStats.mockResolvedValue({ sharesOutstanding: 1100, totalAssets: null });
     mockSharesHistory.mockReturnValue(Array(20).fill(1000));
     await runCycleRadar();
     const rows = mockInsert.mock.calls[0][0];
