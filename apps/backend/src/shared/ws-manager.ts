@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Price } from '@trading/shared';
 import { getQuotes } from './yahoo.js';
 import { getActiveSymbolList } from '../db/repository.js';
+import { envNumber } from './env-number.js';
 
 let wss: WebSocketServer | null = null;
 let intervalId: ReturnType<typeof setInterval> | null = null;
@@ -18,9 +19,16 @@ export function initWebSocket(server: Server) {
     });
   });
 
-  // Broadcast prices every 10 seconds
+  // Broadcast de precios. Un fan-out del universo (~196 símbolos, un request por símbolo)
+  // tarda más en drenar el limitador global de Yahoo (6 slots) que el intervalo: sin el
+  // guard, los ticks se apilaban sin límite y la cola de Yahoo nunca se vaciaba — todo lo
+  // demás que toca Yahoo (validación de tickers, market regime, fundamentals) esperaba
+  // minutos detrás del streamer. Un tick nuevo no arranca si el anterior sigue en vuelo.
+  let tickInFlight = false;
   intervalId = setInterval(async () => {
     if (!wss || wss.clients.size === 0) return;
+    if (tickInFlight) return;
+    tickInFlight = true;
 
     try {
       const prices = await getQuotes(getActiveSymbolList());
@@ -33,8 +41,10 @@ export function initWebSocket(server: Server) {
       });
     } catch (err) {
       console.error('[WS] Error fetching prices:', err);
+    } finally {
+      tickInFlight = false;
     }
-  }, 10_000);
+  }, envNumber('WS_PRICES_INTERVAL_MS', 30_000));
 
   console.log('[WS] WebSocket server initialized on /ws/prices');
 }
