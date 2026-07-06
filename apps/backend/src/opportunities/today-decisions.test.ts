@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { computeTrailingStop, decidePositionVerb, type Candle } from './today-decisions.js';
+import { computeTrailingStop, decidePositionVerb, timingCaveatFor, type Candle } from './today-decisions.js';
+import type { TimingView } from '@trading/shared';
 
 function c(date: string, high: number, low: number, close: number): Candle {
   return { date, high, low, close };
@@ -134,5 +135,44 @@ describe('decidePositionVerb — veredicto por CIERRE, no por toque intradiario'
     expect(spot.reason).toMatch(/Tocó/);
     const close = decidePositionVerb({ avgCost: 100, currentPrice: 108, closePrice: 108, trailingStop: 110 });
     expect(close.reason).toMatch(/Cerró/);
+  });
+});
+
+describe('timingCaveatFor (coherencia: verbo COMPRAR vs vista de timing vendedora)', () => {
+  const sellTiming: TimingView = {
+    action: 'SELL',
+    timing: 'now',
+    confidence: 62,
+    triggers: [
+      { type: 'stoch_cross', description: 'Stochastic cruzó en sobrecompra', direction: 'bearish', estimatedDays: 0, impact: 'medium' },
+      { type: 'macd_cross', description: 'MACD a punto de cruzar bajista en ~2 días', direction: 'bearish', estimatedDays: 2, impact: 'high' },
+    ],
+  };
+
+  it('COMPRAR con timing SELL lleva caveat nombrando confianza y el trigger de mayor impacto', () => {
+    const caveat = timingCaveatFor('COMPRAR', sellTiming);
+    expect(caveat).toBeDefined();
+    expect(caveat).toContain('62%');
+    expect(caveat).toContain('MACD a punto de cruzar bajista en ~2 días');
+  });
+
+  it('COMPRAR sin timingView no inventa advertencia (fail-closed: ausencia = nada)', () => {
+    expect(timingCaveatFor('COMPRAR', undefined)).toBeUndefined();
+  });
+
+  it('COMPRAR con timing BUY no lleva caveat (no hay contradicción)', () => {
+    const buyTiming: TimingView = { action: 'BUY', timing: 'now', confidence: 70, triggers: [] };
+    expect(timingCaveatFor('COMPRAR', buyTiming)).toBeUndefined();
+  });
+
+  it('OBSERVAR no lleva caveat aunque el timing diga SELL (ya no es operable)', () => {
+    expect(timingCaveatFor('OBSERVAR', sellTiming)).toBeUndefined();
+  });
+
+  it('COMPRAR con timing SELL sin triggers bajistas igual advierte, sin inventar detalle', () => {
+    const bare: TimingView = { action: 'SELL', timing: 'soon', confidence: 55, triggers: [] };
+    const caveat = timingCaveatFor('COMPRAR', bare);
+    expect(caveat).toBeDefined();
+    expect(caveat).toContain('55%');
   });
 });

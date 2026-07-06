@@ -58,7 +58,7 @@ Hecho y verificado: resolución direccional path-aware de señales + R-multiples
 ## 6. Backlog priorizado (arrancá por acá)
 
 **A. Con impacto directo en decisiones:**
-1. **Stage de noticias tarda ~65 min** (903 artículos) — cuello de botella del pipeline entero. Perfilar y paralelizar/cachear.
+1. ~~Stage de noticias tarda ~65 min~~ — **saldado 2026-07-06** (4 fixes en main): flag `analyzed_at` (neutrales no se re-analizan), batches LLM paralelos (`NEWS_LLM_CONCURRENCY`), tickers del universo sin validación Yahoo (solo desconocidos, cap 50), y guard del streamer WS (los fan-outs de precios cada 10s se apilaban y saturaban la cola global de Yahoo — causa sistémica de etapas "colgadas"). News: 3h → 3 min. Coherencia Hoy: tarjeta COMPRAR carga `timingCaveat` cuando el timing del scan dice SELL (caso DAL).
 2. **Anti-hype del scan es fail-open cuando falta `tech`** (deja pasar el símbolo entero; señalado por review final P3, pre-existente). Alinear con la filosofía fail-closed y medir cuántos símbolos afecta.
 3. **Concentración agrupa por plaza, no sector económico** (`sectorLabel`: 3 CEDEARs no correlacionados = "mismo trade"). Decidir taxonomía (riesgo CCL compartido es parcialmente defendible).
 4. **Expectancy segmentada del screener**: cuando `signal_tracking` junte 1-2 meses de señales `source='screener'`, medir si el embudo paga o ajustar umbrales (SCREENER_MIN_RR, anti-chase).
@@ -78,6 +78,7 @@ Hecho y verificado: resolución direccional path-aware de señales + R-multiples
 - ¿noTradeMode se activa demasiado/poco? → contar días active=true vs performance de los picks en esos días.
 - ¿Vale la pena el stage de noticias completo si sentiment r=0.03? → lo que paga son macro_events/causal context para el reporte, no el sentiment; si el costo (65 min + tokens) supera eso, recortar agresivamente.
 - ¿El calibrador de pesos (weight proposals) ya tiene n suficiente post-fix para proponer pesos con evidencia? (`scoring_weight_history` estaba vacía → defaults.)
+- ¿El timingView SELL sobre un verbo COMPRAR predice peor outcome? (caso DAL 2026-07-06: COMPRAR con timing SELL 62%.) Hoy es solo caveat visible en la tarjeta de Hoy (`timingCaveatFor`, aditivo, sin tocar jerarquía). Si `signal_tracking` muestra que los COMPRAR-con-timing-SELL rinden peor, recién ahí evaluar convertirlo en gate degradante.
 
 ## 8. Cómo verificar cualquier cambio (checklist de cierre)
 

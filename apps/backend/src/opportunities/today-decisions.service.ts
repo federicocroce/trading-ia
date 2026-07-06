@@ -7,7 +7,7 @@
 import type { Opportunity, Price } from '@trading/shared';
 import { getPortfolioPositions, getLatestOpportunityScan } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
-import { decidePositionVerb, type PortfolioVerb } from './today-decisions.js';
+import { decidePositionVerb, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
 import { getRegimes, assetClassOf, type Regimes } from '../quant/risk.service.js';
 import { suggestPositionSize } from '../quant/risk.js';
 
@@ -33,6 +33,8 @@ export interface TodayOpportunity {
   symbol: string;
   verb: MarketVerb;
   reason: string;
+  /** Coherencia: el timing técnico del mismo scan contradice al verbo (ej. COMPRAR + timing SELL). */
+  timingCaveat?: string;
   score: number;
   currentPrice: number;
   assetClass: 'us' | 'crypto' | 'argentina';
@@ -149,10 +151,12 @@ export async function getTodayDecisions(): Promise<TodayView> {
       const size = entry != null && stop != null && portfolioValue > 0
         ? suggestPositionSize({ portfolioValue, entry, stop })
         : null;
+      const verb = o.action === 'BUY' ? 'COMPRAR' as const : 'OBSERVAR' as const;
       return {
         symbol: o.symbol,
-        verb: o.action === 'BUY' ? 'COMPRAR' as const : 'OBSERVAR' as const,
+        verb,
         reason: pickReason(o),
+        timingCaveat: timingCaveatFor(verb, o.timingView),
         score: Math.round(o.opportunityScore),
         currentPrice: round2(o.currentPrice),
         assetClass: assetClassOf(o.symbol),

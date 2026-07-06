@@ -11,8 +11,29 @@
  * Puro y testeable: sin DB ni red. La parte de I/O vive en today-decisions.service.ts.
  */
 
+import type { TimingView } from '@trading/shared';
+
 export type PortfolioVerb = 'MANTENER' | 'REVISAR' | 'VENDER';
 export type ScanAction = 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
+
+/**
+ * Coherencia entre secciones (objetivo #4 del prompt maestro): si la tarjeta de Hoy dice
+ * COMPRAR pero la vista de timing del mismo scan dice SELL, esa contradicción tiene que
+ * viajar CON la tarjeta — no quedar escondida en el detalle (caso DAL 2026-07-06).
+ *
+ * Es advertencia, no gate: el timing NO degrada el verbo porque no hay evidencia medida
+ * de su poder predictivo todavía (sección 4 del prompt maestro — medir antes de dar veto).
+ * Fail-closed en el otro sentido: sin timingView no se inventa advertencia.
+ */
+export function timingCaveatFor(verb: 'COMPRAR' | 'OBSERVAR', timing?: TimingView | null): string | undefined {
+  if (verb !== 'COMPRAR' || !timing || timing.action !== 'SELL') return undefined;
+
+  const bearish = (timing.triggers ?? []).filter((t) => t.direction === 'bearish');
+  // El trigger de mayor impacto le pone nombre concreto a la advertencia.
+  const top = bearish.find((t) => t.impact === 'high') ?? bearish[0];
+  const detail = top ? ` — ${top.description}` : '';
+  return `El timing de corto plazo contradice la compra: la vista técnica dice VENDER (${timing.confidence}%)${detail}. Papel válido, momento estirado — considerá esperar el retroceso.`;
+}
 
 export interface Candle {
   date: string;

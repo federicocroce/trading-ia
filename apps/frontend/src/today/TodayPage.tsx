@@ -120,6 +120,7 @@ export function TodayPage() {
                   <span className="text-[10px] text-muted-foreground ml-auto">score {o.score}</span>
                 </div>
                 {o.reason && <p className="text-[11px] text-foreground">{o.reason}</p>}
+                {o.timingCaveat && <p className="text-[10px] text-amber-400">⚠ {o.timingCaveat}</p>}
                 {(o.entry != null || o.stop != null || o.target != null) && (
                   <div className="flex gap-3 text-[10px] text-muted-foreground">
                     {o.entry != null && <span>Entrada {money(o.entry)}</span>}
