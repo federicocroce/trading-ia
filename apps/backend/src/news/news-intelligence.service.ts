@@ -13,6 +13,7 @@ import type {
 import { buildBatchNewsAnalysisPrompt, getPlazaForSymbol, PLAZA_CONFIG } from '@trading/shared';
 import { updateNewsAnalysis, getActiveSentimentKeywords, insertNewsIntelligenceSnapshot } from '../db/repository.js';
 import { validateTickers } from '../discovery/ticker-validator.js';
+import { partitionTickersForValidation } from '../discovery/ticker-partition.js';
 import { needsLlmAnalysis } from './analysis-pending.js';
 import { mapWithConcurrency } from '../shared/concurrency.js';
 import { envNumber } from '../shared/env-number.js';
@@ -222,15 +223,26 @@ async function analyzeBatch(news: NewsItem[]): Promise<AnalyzedNewsItem[]> {
     }
   });
 
-  // Anclaje anti-alucinación: validar contra Yahoo los tickers que el LLM dice afectados
-  // y descartar los inventados antes de que alimenten el sentiment por símbolo.
+  // Anclaje anti-alucinación: descartar los tickers inventados por el LLM antes de que
+  // alimenten el sentiment por símbolo. Los que ya están en el universo conocido son
+  // válidos por definición (el LLM los recibió en el prompt) — solo los desconocidos
+  // pasan por Yahoo, con cap: validar cientos de inventados con retries tenía la etapa
+  // horas moliendo contra un API rate-limiteado.
   // Guarda: el LLM a veces devuelve affectedTickers como NO-array (string/objeto) → normalizar.
   // Los objetos de llmAnalyses son las mismas referencias guardadas en analysisMap:
   // mutar affectedTickers acá filtra también lo que ve el resto del pipeline.
   const tickersOf = (a: { affectedTickers?: unknown }): string[] =>
     Array.isArray(a.affectedTickers) ? a.affectedTickers.filter((t): t is string => typeof t === 'string') : [];
   const llmTickers = [...new Set(llmAnalyses.flatMap(tickersOf))];
-  const validSet = new Set(await validateTickers(llmTickers));
+  const { trusted, toValidate, dropped } = partitionTickersForValidation(
+    llmTickers,
+    new Set(getFullSymbolUniverse()),
+    envNumber('NEWS_TICKER_VALIDATION_CAP', 50),
+  );
+  if (dropped.length > 0) {
+    console.warn(`[intelligence] ${dropped.length} tickers fuera de universo descartados sin validar (cap): ${dropped.slice(0, 10).join(', ')}${dropped.length > 10 ? '…' : ''}`);
+  }
+  const validSet = new Set([...trusted, ...(await validateTickers(toValidate))]);
   for (const a of llmAnalyses) {
     a.affectedTickers = tickersOf(a).filter((t) => validSet.has(t));
   }
