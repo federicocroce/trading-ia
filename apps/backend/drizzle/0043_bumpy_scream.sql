@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `cycle_radar_date_symbol_uq` ON `cycle_radar_snapshots` (`snapshot_date`,`symbol`);

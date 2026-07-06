@@ -1,4 +1,4 @@
-import { eq, desc, gte, lt, asc, and, inArray, gt, sql, isNull } from 'drizzle-orm';
+import { eq, desc, gte, lt, asc, and, inArray, gt, sql, isNull, ne } from 'drizzle-orm';
 import type { AnticipatoryAlert } from '@trading/shared';
 import { db, schema } from './index.js';
 import { missedOpportunities, signalTracking, etfWatchlist } from './schema.js';
@@ -1920,4 +1920,84 @@ export function archiveWatchlistItemBySymbol(symbol: string) {
       sql`${schema.watchlistItems.status} != 'archived'`,
     ))
     .run();
+}
+
+// ==================== CYCLE RADAR ====================
+
+export interface CycleRadarSnapshotInsert {
+  snapshotDate: string;
+  symbol: string;
+  label: string;
+  categoria: 'pais' | 'sector';
+  close: number;
+  sma200: number | null;
+  distSma200Pct: number | null;
+  ret3m: number | null;
+  ret6m: number | null;
+  rs3m: number | null;
+  rs6m: number | null;
+  sesionesEnLado: number | null;
+  ladoSma: 'arriba' | 'abajo' | null;
+  sharesOutstanding: number | null;
+  flowDelta20d: number | null;
+  cycleState: 'girando' | 'odiado' | 'tendencia' | 'extendido' | 'neutro' | null;
+  stateReason: string | null;
+}
+
+/**
+ * Reemplaza (delete+insert transaccional) los snapshots del día pero SOLO para los símbolos
+ * presentes en `rows`. Si una canasta falló su fetch en esta corrida, su snapshot previo del
+ * día (de una corrida anterior exitosa) NO se toca — un delete por fecha completa lo borraría
+ * y lo dejaría invisible aunque hubiera datos válidos de antes.
+ */
+export function replaceCycleRadarSnapshotsForDate(date: string, rows: CycleRadarSnapshotInsert[]) {
+  if (rows.length === 0) return;
+  const symbols = rows.map(r => r.symbol);
+  db.transaction((trx) => {
+    trx.delete(schema.cycleRadarSnapshots)
+      .where(and(eq(schema.cycleRadarSnapshots.snapshotDate, date), inArray(schema.cycleRadarSnapshots.symbol, symbols)))
+      .run();
+    trx.insert(schema.cycleRadarSnapshots).values(rows).run();
+  });
+}
+
+export function getLatestCycleRadarDate(): string | null {
+  const row = db.select({ d: schema.cycleRadarSnapshots.snapshotDate }).from(schema.cycleRadarSnapshots)
+    .orderBy(desc(schema.cycleRadarSnapshots.snapshotDate)).limit(1).get();
+  return row?.d ?? null;
+}
+
+export function getCycleRadarSnapshots(date: string) {
+  return db.select().from(schema.cycleRadarSnapshots)
+    .where(eq(schema.cycleRadarSnapshots.snapshotDate, date))
+    .all();
+}
+
+// Pura (sin I/O): filas ordenadas por fecha asc -> serie de sharesOutstanding.
+export function buildRadarSharesHistory(rows: Array<{ snapshotDate: string; sharesOutstanding: number | null }>): Array<number | null> {
+  return rows.map(r => r.sharesOutstanding);
+}
+
+/**
+ * excludeDate saca el snapshot de esa fecha de la historia. Necesario porque en re-corridas
+ * del mismo día el radar ya insertó un snapshot de HOY antes de recalcular flowDelta20d: sin
+ * excluirlo, ese snapshot viejo entra en la ventana y el share count nuevo se concatena
+ * duplicado, corriendo el delta un día (off-by-one silencioso).
+ */
+export function getRadarSharesHistory(symbol: string, limit: number, excludeDate?: string): Array<number | null> {
+  const rows = db.select({
+    snapshotDate: schema.cycleRadarSnapshots.snapshotDate,
+    sharesOutstanding: schema.cycleRadarSnapshots.sharesOutstanding,
+  }).from(schema.cycleRadarSnapshots)
+    .where(and(
+      eq(schema.cycleRadarSnapshots.symbol, symbol),
+      excludeDate ? ne(schema.cycleRadarSnapshots.snapshotDate, excludeDate) : undefined,
+    ))
+    .orderBy(desc(schema.cycleRadarSnapshots.snapshotDate)).limit(limit).all();
+  return buildRadarSharesHistory(rows.reverse());
+}
+
+export function countCycleRadarDates(): number {
+  const rows = db.selectDistinct({ d: schema.cycleRadarSnapshots.snapshotDate }).from(schema.cycleRadarSnapshots).all();
+  return rows.length;
 }

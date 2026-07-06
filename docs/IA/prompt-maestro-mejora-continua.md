@@ -1,6 +1,6 @@
 # Prompt maestro — mejora continua del trading dashboard
 
-> **Uso**: pegá este documento (o referencialo) como prompt inicial de cualquier sesión de IA que vaya a trabajar en este repo — incluido `/ralph-loop` para corridas nocturnas autónomas. Contiene todo lo que una sesión fresca necesita: objetivo, reglas duras, estado, evidencia, backlog y verificación. Última actualización: 2026-07-04 (post-P3 + deuda-discovery).
+> **Uso**: pegá este documento (o referencialo) como prompt inicial de cualquier sesión de IA que vaya a trabajar en este repo — incluido `/ralph-loop` para corridas nocturnas autónomas. Contiene todo lo que una sesión fresca necesita: objetivo, reglas duras, estado, evidencia, backlog y verificación. Última actualización: 2026-07-05 (post radar-cuantitativo, branch sin mergear).
 
 ---
 
@@ -33,9 +33,9 @@ Si una mejora no sirve directamente a 1-4, no se hace. Fuera de alcance a consci
 3. **Quality bar**: acciones requieren marketCap ≥$500M Y precio ≥$5 (fail-closed si falta dato); ETF/commodity solo precio; crypto exenta. Riesgo del setup: stop ≤3×ATR y riesgo ≤10% o `setupQuality='invalid'` → BUY degradado a WATCH, sin sizing.
 4. **envNumber lazy** (`apps/backend/src/shared/env-number.ts`): toda constante configurable se lee DENTRO de la función. Jamás `process.env` a nivel módulo (el hoisting ESM corre antes de `dotenv.config()` — ya causó env vars inertes).
 5. **Payloads tRPC aditivos**: campos nuevos por spread sobre el shape existente. Jamás wrappers que rompan consumidores (ya se revirtió una violación).
-6. **Tests canónicos**: `npm run test --workspace=apps/backend` — ÚNICO conteo válido (420 al 2026-07-04, post deuda-discovery). El vitest de la raíz barre worktrees stale y da conteos falsos: NUNCA usarlo ni citarlo. Todo claim de verificación se re-corre antes de aceptarse (un implementador ya fabricó "587 tests" inexistentes).
+6. **Tests canónicos**: `npm run test --workspace=apps/backend` — ÚNICO conteo válido (454 al 2026-07-05 en branch fix/radar-cuantitativo; 420 en feat/outcome-resolver hasta su merge). El vitest de la raíz barre worktrees stale y da conteos falsos: NUNCA usarlo ni citarlo. Todo claim de verificación se re-corre antes de aceptarse (un implementador ya fabricó "587 tests" inexistentes).
 7. **Convenciones**: comentarios en español, imports ESM con `.js`, TDD (test rojo primero) para toda lógica, funciones de decisión puras (sin I/O) para testearlas sin mocks. Commits terminan con `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
-8. **Migraciones drizzle**: journal reparado en P2; toda migración nueva lleva `when` mayor a las existentes. Verificar que la columna exista en la DB viva antes de asumir que un insert funciona.
+8. **Migraciones drizzle**: journal reparado en P2; toda migración nueva lleva `when` mayor a las existentes. Verificar que la columna exista en la DB viva antes de asumir que un insert funciona. **LANDMINE**: `initDatabase()` corre migrate() en CADA boot del backend — generar una migración = asumir que se aplica en el próximo arranque; el backup va ANTES de `db:generate` si el backend puede arrancar en el medio.
 9. **Proceso**: planes en `docs/superpowers/plans/YYYY-MM-DD-*.md`; ejecución subagent-driven (implementador fresco por task + review por task + review final whole-branch en el modelo más capaz); ledger durable en `.superpowers/sdd/progress.md` — leelo SIEMPRE antes de empezar (tasks marcadas complete NO se repiten).
 
 ## 4. Evidencia acumulada (no re-litigar sin datos nuevos)
@@ -52,6 +52,8 @@ Si una mejora no sirve directamente a 1-4, no se hace. Fuera de alcance a consci
 Hecho y verificado: resolución direccional path-aware de señales + R-multiples; gate LLM; quality bar; clamp de riesgo; cron pre-market; tokens end-to-end; verbo REVISAR + jerarquía; extractor de tickers por word-boundary (mató las alucinaciones ROAD/CAST); sentiment 0.05; screener de mercado Yahoo (embudo: quality bar → anti-chase ±15% → SMA200 → setup válido + RR≥2 → `discovered_symbols source='screener'`); watchlist de re-armado (invalid→valid + BUY/WATCH + score≥55 → alerta `kind='rearm'` + sección visible con badge "SETUP OPERABLE"); noTradeMode determinístico (<3 setups válidos o sin scan → "hoy no se opera"); suggestedWeight graduado (10/6/5/0); rrToFirstResistance; aviso de concentración sectorial sobre recomendaciones renderizadas.
 
 **Verificación runtime pendiente** (primer pipeline con mercado abierto, lunes 2026-07-07): digest con noTradeMode/concentración en vivo; primer re-armado real; screener con volumen>0.
+
+**Branch `fix/radar-cuantitativo` (2026-07-05, review final "Ready to merge: Yes", SIN mergear — el dueño lo prueba primero):** radar de ciclos cuantitativo v1 — 23 ETFs país/sector vs SPY, fases girando/odiado/tendencia/extendido/neutro (SMA200 + RS 3m/6m + saturación), proxy de flujos AUM/precio (Yahoo no publica shares de ETFs), tabla `cycle_radar_snapshots` (migraciones 0042/0043 ya aplicadas), stage fire-and-forget, tRPC `radar.getLatest`, tab "Radar". Regla: es capa de CONTEXTO, jamás señal — nada del motor importa de `radar/`. flowDelta20d necesita ~21 snapshots para activarse; con ~40 días calibrar contra flujos publicados antes de confiarle lectura. Complementa `/radar-ciclos` (informe narrativo, docs/IA/research/). V2 especificado en el spec: EDGAR Form 4, Gemini grounding, term structure cobre.
 
 ## 6. Backlog priorizado (arrancá por acá)
 

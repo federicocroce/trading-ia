@@ -14,12 +14,13 @@ import { OpportunityDashboard } from '@/opportunities/OpportunityDashboard';
 import { TodayPage } from '@/today/TodayPage';
 import { DailySummary } from '@/daily/DailySummary';
 import { HistoricoPage } from '@/historico/HistoricoPage';
+import { CycleRadarPage } from '@/radar/CycleRadarPage';
 import { NavigationContext } from '@/shared/navigation';
 import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
 import { WebSearchBlockedModal } from '@/pipeline/WebSearchBlockedModal';
 
-const VALID_TABS = ['hoy', 'daily', 'opportunities', 'portfolio', 'historico'] as const;
+const VALID_TABS = ['hoy', 'daily', 'opportunities', 'portfolio', 'historico', 'radar'] as const;
 type TabValue = typeof VALID_TABS[number];
 const DEFAULT_TAB: TabValue = 'hoy';
 
@@ -128,6 +129,7 @@ export function App() {
                 </TabsTrigger>
                 <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
                 <TabsTrigger value="historico">Histórico</TabsTrigger>
+                <TabsTrigger value="radar">Radar</TabsTrigger>
               </TabsList>
 
               {selectedSymbol ? (
@@ -150,6 +152,9 @@ export function App() {
                   </TabsContent>
                   <TabsContent value="historico" className="flex-1 overflow-y-auto">
                     <HistoricoPage />
+                  </TabsContent>
+                  <TabsContent value="radar" className="flex-1 overflow-y-auto">
+                    <CycleRadarPage />
                   </TabsContent>
                 </>
               )}

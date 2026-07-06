@@ -678,6 +678,54 @@ export async function getInsiderTransactions(symbol: string): Promise<YahooInsid
   return result ?? [];
 }
 
+// --- Key Statistics (para sharesOutstanding, insumo del Radar de Ciclos) ---
+
+/**
+ * sharesOutstanding y totalAssets vía quoteSummary/defaultKeyStatistics.
+ * Para ETFs, Yahoo casi nunca publica sharesOutstanding (solo algunos emisores lo hacen);
+ * totalAssets (AUM) sí está en el mismo módulo para todos y sirve de sustituto
+ * (AUM/precio = shares implícitas, ver cycle-radar.service.ts).
+ * Fail-closed: cualquier error o dato faltante => null (el radar lo trata como "sin dato").
+ */
+export async function getKeyStats(symbol: string): Promise<{ sharesOutstanding: number | null; totalAssets: number | null }> {
+  const EMPTY = { sharesOutstanding: null, totalAssets: null };
+  try {
+    const modules = 'defaultKeyStatistics';
+    const auth = await ensureCrumb();
+
+    const tryFetch = async (baseUrl: string, headers: Record<string, string>): Promise<{ sharesOutstanding: number | null; totalAssets: number | null } | null> => {
+      try {
+        const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : '';
+        const url = `${baseUrl}/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}${crumbParam}`;
+        const res = await yfetch(url, { headers });
+        if (!res.ok) return null;
+
+        const data = (await res.json()) as any;
+        const stats = data?.quoteSummary?.result?.[0]?.defaultKeyStatistics;
+        if (!stats) return null;
+
+        const rawShares = extractRaw(stats, 'sharesOutstanding');
+        const rawAssets = extractRaw(stats, 'totalAssets');
+        return {
+          sharesOutstanding: rawShares != null && rawShares > 0 ? rawShares : null,
+          totalAssets: rawAssets != null && rawAssets > 0 ? rawAssets : null,
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    if (auth) {
+      const result = await tryFetch('https://query2.finance.yahoo.com', { ...YAHOO_HEADERS, Cookie: auth.cookie });
+      if (result) return result;
+    }
+    const result = await tryFetch('https://query1.finance.yahoo.com', YAHOO_HEADERS);
+    return result ?? EMPTY;
+  } catch {
+    return EMPTY;
+  }
+}
+
 // --- Options Chain (for Options Flow signal) ---
 
 export interface OptionsContract {

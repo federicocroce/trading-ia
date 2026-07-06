@@ -1,0 +1,21 @@
+CREATE TABLE `cycle_radar_snapshots` (
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	`snapshot_date` text NOT NULL,
+	`symbol` text NOT NULL,
+	`label` text NOT NULL,
+	`categoria` text NOT NULL,
+	`close` real NOT NULL,
+	`sma200` real,
+	`dist_sma200_pct` real,
+	`ret_3m` real,
+	`ret_6m` real,
+	`rs_3m` real,
+	`rs_6m` real,
+	`sesiones_en_lado` integer,
+	`lado_sma` text,
+	`shares_outstanding` real,
+	`flow_delta_20d` real,
+	`cycle_state` text,
+	`state_reason` text,
+	`created_at` text DEFAULT (datetime('now')) NOT NULL
+);

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 // --- Symbols / Watchlist ---
@@ -818,3 +818,26 @@ export const eventSectorReactions = sqliteTable('event_sector_reactions', {
   nEvents: integer('n_events').notNull(),
   computedAt: text('computed_at').notNull().default(sql`(datetime('now'))`),
 });
+
+// Radar de ciclos cuantitativo: snapshot diario por canasta (ETF). Contexto, no señal.
+export const cycleRadarSnapshots = sqliteTable('cycle_radar_snapshots', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  snapshotDate: text('snapshot_date').notNull(), // YYYY-MM-DD
+  symbol: text('symbol').notNull(),
+  label: text('label').notNull(),
+  categoria: text('categoria', { enum: ['pais', 'sector'] }).notNull(),
+  close: real('close').notNull(),
+  sma200: real('sma200'),
+  distSma200Pct: real('dist_sma200_pct'),
+  ret3m: real('ret_3m'),
+  ret6m: real('ret_6m'),
+  rs3m: real('rs_3m'),
+  rs6m: real('rs_6m'),
+  sesionesEnLado: integer('sesiones_en_lado'),
+  ladoSma: text('lado_sma', { enum: ['arriba', 'abajo'] }),
+  sharesOutstanding: real('shares_outstanding'), // shares IMPLÍCITAS (totalAssets/close), nunca el sharesOutstanding real de Yahoo — ver cycle-radar.service.ts
+  flowDelta20d: real('flow_delta_20d'),
+  cycleState: text('cycle_state', { enum: ['girando', 'odiado', 'tendencia', 'extendido', 'neutro'] }),
+  stateReason: text('state_reason'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (t) => [uniqueIndex('cycle_radar_date_symbol_uq').on(t.snapshotDate, t.symbol)]);
