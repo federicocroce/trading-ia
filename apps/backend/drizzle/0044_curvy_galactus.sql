@@ -1,0 +1,2 @@
+ALTER TABLE `news_articles` ADD `analyzed_at` text;--> statement-breakpoint
+UPDATE `news_articles` SET `analyzed_at` = `created_at` WHERE `sentiment` IS NOT NULL AND (`sentiment` != 'neutral' OR `impact` != 'low');

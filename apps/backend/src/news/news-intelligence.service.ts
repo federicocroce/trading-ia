@@ -13,6 +13,9 @@ import type {
 import { buildBatchNewsAnalysisPrompt, getPlazaForSymbol, PLAZA_CONFIG } from '@trading/shared';
 import { updateNewsAnalysis, getActiveSentimentKeywords, insertNewsIntelligenceSnapshot } from '../db/repository.js';
 import { validateTickers } from '../discovery/ticker-validator.js';
+import { needsLlmAnalysis } from './analysis-pending.js';
+import { mapWithConcurrency } from '../shared/concurrency.js';
+import { envNumber } from '../shared/env-number.js';
 import { getLastTriangulationStats } from './triangulation.service.js';
 import { getFullSymbolUniverse } from '../discovery/discovery-registry.js';
 import { callAI } from '../shared/ai-router.js';
@@ -24,6 +27,10 @@ import { enrichNewsWithBodies } from './body-fetcher.service.js';
 import { filterForDeepAnalysis, logFilterStats, type DeepAnalysisFilterOptions } from './news-filters.service.js';
 
 function getMaxBatchSize(): number {
+  // Override explícito por env — OJO: tener LMSTUDIO_URL seteado fuerza batches chicos
+  // aunque el router termine usando Groq; el override permite corregir ese caso.
+  const override = envNumber('NEWS_BATCH_SIZE', 0);
+  if (override > 0) return override;
   // Adaptive batch size based on AI provider
   // LMStudio local (Qwen 9B) → small batches for quality
   // Cloud models (Groq 70B, OpenRouter) → larger batches
@@ -134,10 +141,11 @@ async function analyzeBatch(news: NewsItem[]): Promise<AnalyzedNewsItem[]> {
     marketPlaza: MarketPlaza;
   }>();
 
-  // Pre-populate with DB values: noticias que ya tienen sentiment/impact guardado no necesitan re-analisis
+  // Pre-populate with DB values: noticias que ya tienen análisis persistido no necesitan re-analisis.
+  // El flag analyzedAt distingue "analizada con resultado neutral/low" de "sin analizar".
   const needsAnalysis: NewsItem[] = [];
   for (const n of news) {
-    if (n.sentiment !== 'neutral' || n.impact !== 'low') {
+    if (!needsLlmAnalysis(n)) {
       // Ya tiene analisis de la BD — usar directamente
       const plaza = n.relatedTickers.length > 0 ? getPlazaForSymbol(n.relatedTickers[0]) : 'global';
       analysisMap.set(n.id, {
@@ -154,13 +162,19 @@ async function analyzeBatch(news: NewsItem[]): Promise<AnalyzedNewsItem[]> {
 
   console.log(`[intelligence] ${news.length} noticias total, ${news.length - needsAnalysis.length} ya analizadas en BD, ${needsAnalysis.length} pendientes`);
 
-  // Analizar en batches de MAX_NEWS_FOR_BATCH
+  // Analizar en batches con concurrencia limitada (antes: secuencial + sleep fijo → horas con backlog grande)
   const batchSize = getMaxBatchSize();
+  const batches: NewsItem[][] = [];
   for (let i = 0; i < needsAnalysis.length; i += batchSize) {
-    const batch = needsAnalysis.slice(i, i + batchSize);
-    const batchNum = Math.floor(i / batchSize) + 1;
-    const totalBatches = Math.ceil(needsAnalysis.length / batchSize);
+    batches.push(needsAnalysis.slice(i, i + batchSize));
+  }
+  const totalBatches = batches.length;
+  // Análisis que salieron del LLM en esta corrida: sus tickers se validan UNA vez al final,
+  // sobre el set deduplicado, en vez de pegarle a Yahoo por cada batch.
+  const llmAnalyses: NonNullable<ReturnType<typeof parseBatchResponse>> = [];
 
+  await mapWithConcurrency(batches, envNumber('NEWS_LLM_CONCURRENCY', 3), async (batch, idx) => {
+    const batchNum = idx + 1;
     const newsPayload = batch.map((n) => ({
       newsId: n.id,
       title: n.title,
@@ -181,16 +195,9 @@ async function analyzeBatch(news: NewsItem[]): Promise<AnalyzedNewsItem[]> {
     }
 
     if (batchResults) {
-      // Anclaje anti-alucinación: validar contra Yahoo los tickers que el LLM dice afectados
-      // y descartar los inventados antes de que alimenten el sentiment por símbolo.
-      // Guarda: el LLM a veces devuelve affectedTickers como NO-array (string/objeto) → normalizar.
-      const tickersOf = (a: { affectedTickers?: unknown }): string[] =>
-        Array.isArray(a.affectedTickers) ? a.affectedTickers.filter((t): t is string => typeof t === 'string') : [];
-      const llmTickers = [...new Set(batchResults.flatMap(tickersOf))];
-      const validSet = new Set(await validateTickers(llmTickers));
       for (const a of batchResults) {
-        a.affectedTickers = tickersOf(a).filter((t) => validSet.has(t));
         analysisMap.set(a.newsId, a);
+        llmAnalyses.push(a);
         const original = batch.find((n) => n.id === a.newsId);
         updateNewsAnalysis(a.newsId, a.sentiment, a.impact,
           original?.triangulation?.storyClusterId,
@@ -209,10 +216,23 @@ async function analyzeBatch(news: NewsItem[]): Promise<AnalyzedNewsItem[]> {
       console.log(`[intelligence] Batch ${batchNum}/${totalBatches}: ${batch.length} analizadas con fallback algoritmico`);
     }
 
-    // Rate limit protection: wait 2s between batches
+    // Rate limit protection: pausa por worker entre batches
     if (batchNum < totalBatches) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, envNumber('NEWS_BATCH_DELAY_MS', 2000)));
     }
+  });
+
+  // Anclaje anti-alucinación: validar contra Yahoo los tickers que el LLM dice afectados
+  // y descartar los inventados antes de que alimenten el sentiment por símbolo.
+  // Guarda: el LLM a veces devuelve affectedTickers como NO-array (string/objeto) → normalizar.
+  // Los objetos de llmAnalyses son las mismas referencias guardadas en analysisMap:
+  // mutar affectedTickers acá filtra también lo que ve el resto del pipeline.
+  const tickersOf = (a: { affectedTickers?: unknown }): string[] =>
+    Array.isArray(a.affectedTickers) ? a.affectedTickers.filter((t): t is string => typeof t === 'string') : [];
+  const llmTickers = [...new Set(llmAnalyses.flatMap(tickersOf))];
+  const validSet = new Set(await validateTickers(llmTickers));
+  for (const a of llmAnalyses) {
+    a.affectedTickers = tickersOf(a).filter((t) => validSet.has(t));
   }
 
   // Construir resultado final

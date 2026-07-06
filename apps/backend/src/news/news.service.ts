@@ -34,6 +34,7 @@ function dbRowToNewsItem(row: {
   summary: string | null;
   body: string | null;
   bodyFetchedAt: string | null;
+  analyzedAt: string | null;
 }): NewsItem {
   const tickers: string[] = JSON.parse(row.relatedSymbols);
   return {
@@ -50,6 +51,7 @@ function dbRowToNewsItem(row: {
     summary: row.summary ?? undefined,
     body: row.body ?? undefined,
     bodyFetchedAt: row.bodyFetchedAt ?? undefined,
+    analyzedAt: row.analyzedAt ?? undefined,
   };
 }
 

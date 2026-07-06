@@ -85,6 +85,7 @@ export const newsArticles = sqliteTable('news_articles', {
   impact: text('impact'),
   storyClusterId: text('story_cluster_id'),      // triangulation
   triangulationConfidence: text('triangulation_confidence'),
+  analyzedAt: text('analyzed_at'),               // seteado al persistir análisis LLM/fallback — evita re-analizar neutrales en cada run
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 });
 

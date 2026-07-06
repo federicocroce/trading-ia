@@ -389,6 +389,7 @@ export function updateNewsAnalysis(externalId: string, sentiment: string, impact
       impact,
       storyClusterId: storyClusterId ?? null,
       triangulationConfidence: confidence ?? null,
+      analyzedAt: new Date().toISOString(),
     })
     .where(eq(schema.newsArticles.externalId, externalId))
     .run();

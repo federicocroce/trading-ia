@@ -20,6 +20,7 @@ export interface NewsItem {
   summary?: string;           // adapter-provided summary (used as body fallback for paywalled tier-1 sources)
   body?: string;              // full extracted article body (lazy-populated)
   bodyFetchedAt?: string;     // ISO datetime when body was extracted
+  analyzedAt?: string;        // ISO datetime del análisis LLM — seteado = no re-analizar aunque el resultado sea neutral/low
 }
 
 export interface NewsAnalysis {
