@@ -5,12 +5,12 @@
  * así "Hoy" y "Oportunidades" muestran SIEMPRE los mismos números.
  */
 import type { Opportunity, Price } from '@trading/shared';
-import { getPortfolioPositions, getLatestOpportunityScan } from '../db/repository.js';
+import { getPortfolioPositions, getLatestOpportunityScan, getTodayProposalAppearances } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
 import { decidePositionVerb, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
 import { getRegimes, assetClassOf, type Regimes } from '../quant/risk.service.js';
 import { suggestPositionSize } from '../quant/risk.js';
-import { selectTodayProposals, verbFor, type MarketVerb } from './today-proposals.js';
+import { selectTodayProposals, verbFor, chronicAdjustment, type MarketVerb } from './today-proposals.js';
 
 export type { MarketVerb };
 
@@ -36,6 +36,10 @@ export interface TodayOpportunity {
   reason: string;
   /** Coherencia: el timing técnico del mismo scan contradice al verbo (ej. COMPRAR + timing SELL). */
   timingCaveat?: string;
+  /** Enésima aparición en el top de Hoy (contando hoy). null = sin registro — no se inventa. */
+  appearances: number | null;
+  /** Regla del residente crónico (4ª+ aparición): viaja con la card, cita la evidencia. */
+  persistenceCaveat?: string;
   score: number;
   currentPrice: number;
   assetClass: 'us' | 'crypto' | 'argentina';
@@ -142,29 +146,37 @@ export async function getTodayDecisions(): Promise<TodayView> {
   const portfolioValue = round2(portfolio.reduce((s, p) => s + p.value, 0));
 
   // --- Mercado: solo lo que NO tenés (excluye la cartera real → sin doble discurso) ---
-  const opportunities: TodayOpportunity[] = selectTodayProposals(opps, heldSet)
-    .map((o) => {
-      const entry = o.tradeLevels?.entryPrice;
-      const stop = o.tradeLevels?.stopLoss;
-      const size = entry != null && stop != null && portfolioValue > 0
-        ? suggestPositionSize({ portfolioValue, entry, stop })
-        : null;
-      const verb = verbFor(o.action);
-      return {
-        symbol: o.symbol,
-        verb,
-        reason: pickReason(o),
-        timingCaveat: timingCaveatFor(verb, o.timingView),
-        score: Math.round(o.opportunityScore),
-        currentPrice: round2(o.currentPrice),
-        assetClass: assetClassOf(o.symbol),
-        entry,
-        stop,
-        target: o.tradeLevels?.takeProfit,
-        suggestedShares: size?.shares,
-        suggestedDollars: size?.dollars,
-      };
-    });
+  const scanDay = scan?.scannedAt?.slice(0, 10) ?? generatedAt.slice(0, 10);
+  const candidates = selectTodayProposals(opps, heldSet);
+  // Enésima aparición: días previos registrados + 1 (hoy). Sin filas previas ni registro
+  // del propio scan (tabla recién creada) el prior es 0 → appearances = 1, honesto.
+  const priorAppearances = getTodayProposalAppearances(candidates.map((c) => c.symbol), scanDay);
+
+  const opportunities: TodayOpportunity[] = candidates.map((o) => {
+    const entry = o.tradeLevels?.entryPrice;
+    const stop = o.tradeLevels?.stopLoss;
+    const size = entry != null && stop != null && portfolioValue > 0
+      ? suggestPositionSize({ portfolioValue, entry, stop })
+      : null;
+    const nth = (priorAppearances.get(o.symbol) ?? 0) + 1;
+    const adj = chronicAdjustment(verbFor(o.action), nth);
+    return {
+      symbol: o.symbol,
+      verb: adj.verb,
+      reason: pickReason(o),
+      timingCaveat: timingCaveatFor(adj.verb, o.timingView),
+      appearances: nth,
+      persistenceCaveat: adj.caveat,
+      score: Math.round(o.opportunityScore),
+      currentPrice: round2(o.currentPrice),
+      assetClass: assetClassOf(o.symbol),
+      entry,
+      stop,
+      target: o.tradeLevels?.takeProfit,
+      suggestedShares: size?.shares,
+      suggestedDollars: size?.dollars,
+    };
+  });
 
   return { generatedAt, portfolio, opportunities, regimes, portfolioValue, scanDate: scan?.scannedAt };
 }
