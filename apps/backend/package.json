@@ -20,6 +20,7 @@
     "db:import-buenbit": "tsx src/db/import-buenbit.ts",
     "db:reresolve-signals": "tsx src/scripts/reresolve-signal-tracking.ts",
     "db:backfill-r": "tsx src/scripts/backfill-r-multiple.ts",
+    "db:backfill-hoy": "tsx src/scripts/backfill-today-proposals.ts",
     "db:repair-journal": "tsx src/scripts/repair-migration-timestamps.ts"
   },
   "dependencies": {
