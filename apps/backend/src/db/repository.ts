@@ -2002,3 +2002,64 @@ export function countCycleRadarDates(): number {
   const rows = db.selectDistinct({ d: schema.cycleRadarSnapshots.snapshotDate }).from(schema.cycleRadarSnapshots).all();
   return rows.length;
 }
+
+// --- Today proposals (registro de lo que "Hoy" propuso cada día) ---
+
+export interface TodayProposalInsert {
+  scanId: number;
+  scanDate: string; // YYYY-MM-DD
+  symbol: string;
+  verb: string;         // COMPRAR | OBSERVAR (lo mostrado, post-degradación)
+  engineAction: string; // BUY | WATCH
+  score: number;
+  entryPrice: number | null;
+  stopLoss: number | null;
+  targetPrice: number | null;
+  nthAppearance: number;
+}
+
+/** Upsert por (scanDate, symbol): si hay varios scans en el día, gana el último — igual que la vista. */
+export function upsertTodayProposals(rows: TodayProposalInsert[]): void {
+  for (const row of rows) {
+    db.insert(schema.todayProposals)
+      .values(row)
+      .onConflictDoUpdate({
+        target: [schema.todayProposals.scanDate, schema.todayProposals.symbol],
+        set: {
+          scanId: row.scanId,
+          verb: row.verb,
+          engineAction: row.engineAction,
+          score: row.score,
+          entryPrice: row.entryPrice,
+          stopLoss: row.stopLoss,
+          targetPrice: row.targetPrice,
+          nthAppearance: row.nthAppearance,
+        },
+      })
+      .run();
+  }
+}
+
+/**
+ * Días distintos ANTERIORES a `beforeDate` en que cada símbolo ya apareció en el top de Hoy.
+ * Excluye el día actual a propósito: la enésima aparición de hoy = resultado + 1, y así
+ * el número no cambia si el scan se re-corre en el día (idempotente).
+ */
+export function getTodayProposalAppearances(symbols: string[], beforeDate: string): Map<string, number> {
+  const map = new Map<string, number>();
+  if (symbols.length === 0) return map;
+  const rows = db
+    .select({
+      symbol: schema.todayProposals.symbol,
+      days: sql<number>`count(distinct ${schema.todayProposals.scanDate})`,
+    })
+    .from(schema.todayProposals)
+    .where(and(
+      inArray(schema.todayProposals.symbol, symbols),
+      lt(schema.todayProposals.scanDate, beforeDate),
+    ))
+    .groupBy(schema.todayProposals.symbol)
+    .all();
+  for (const r of rows) map.set(r.symbol, r.days);
+  return map;
+}

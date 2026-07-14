@@ -51,7 +51,10 @@ import {
   expireAnticipatoryAlerts,
   getOpportunityScanDates,
   getInvalidSetupSymbolsByDate,
+  upsertTodayProposals,
+  getTodayProposalAppearances,
 } from '../db/repository.js';
+import { selectTodayProposals, verbFor, chronicAdjustment } from './today-proposals.js';
 import { buildAlertsFromScan, reconcileAlerts } from './anticipatory-alerts.js';
 import { detectRearmedSetups } from './rearm-detector.js';
 import {
@@ -1125,6 +1128,33 @@ function persistScanResult(result: OpportunityScanResult): void {
     }
 
     const scanDate = scannedAtISO.slice(0, 10); // YYYY-MM-DD — compartido por alerts y rearm watchlist
+
+    // === REGISTRO DE PROPUESTAS DE HOY: exactamente lo que la vista va a mostrar de este scan,
+    // con enésima aparición y verbo post-degradación crónica. Nunca rompe el scan. ===
+    try {
+      const heldNow = new Set(getPortfolioPositions().map((p) => p.symbol.toUpperCase()));
+      const proposed = selectTodayProposals(result.opportunities, heldNow);
+      const priorAppearances = getTodayProposalAppearances(proposed.map((o) => o.symbol), scanDate);
+      upsertTodayProposals(proposed.map((o) => {
+        const nth = (priorAppearances.get(o.symbol) ?? 0) + 1;
+        const adj = chronicAdjustment(verbFor(o.action), nth);
+        return {
+          scanId,
+          scanDate,
+          symbol: o.symbol,
+          verb: adj.verb,
+          engineAction: o.action,
+          score: Math.round(o.opportunityScore),
+          entryPrice: o.tradeLevels?.entryPrice ?? null,
+          stopLoss: o.tradeLevels?.stopLoss ?? null,
+          targetPrice: o.tradeLevels?.takeProfit ?? null,
+          nthAppearance: nth,
+        };
+      }));
+      console.log(`[opportunities] Registradas ${proposed.length} propuestas de Hoy (${scanDate})`);
+    } catch (err) {
+      console.error('[opportunities] Failed to record today proposals:', (err as Error).message);
+    }
 
     // === ANTICIPATORY ALERTS: confluencia bullish del scan → reconciliar y persistir ===
     try {
