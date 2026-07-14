@@ -10,8 +10,9 @@ import { getQuotes } from '../shared/yahoo.js';
 import { decidePositionVerb, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
 import { getRegimes, assetClassOf, type Regimes } from '../quant/risk.service.js';
 import { suggestPositionSize } from '../quant/risk.js';
+import { selectTodayProposals, verbFor, type MarketVerb } from './today-proposals.js';
 
-export type MarketVerb = 'COMPRAR' | 'OBSERVAR';
+export type { MarketVerb };
 
 export interface TodayPosition {
   symbol: string;
@@ -141,17 +142,14 @@ export async function getTodayDecisions(): Promise<TodayView> {
   const portfolioValue = round2(portfolio.reduce((s, p) => s + p.value, 0));
 
   // --- Mercado: solo lo que NO tenés (excluye la cartera real → sin doble discurso) ---
-  const opportunities: TodayOpportunity[] = opps
-    .filter((o) => !heldSet.has(o.symbol.toUpperCase()) && (o.action === 'BUY' || o.action === 'WATCH'))
-    .sort((a, b) => b.opportunityScore - a.opportunityScore)
-    .slice(0, 6)
+  const opportunities: TodayOpportunity[] = selectTodayProposals(opps, heldSet)
     .map((o) => {
       const entry = o.tradeLevels?.entryPrice;
       const stop = o.tradeLevels?.stopLoss;
       const size = entry != null && stop != null && portfolioValue > 0
         ? suggestPositionSize({ portfolioValue, entry, stop })
         : null;
-      const verb = o.action === 'BUY' ? 'COMPRAR' as const : 'OBSERVAR' as const;
+      const verb = verbFor(o.action);
       return {
         symbol: o.symbol,
         verb,
