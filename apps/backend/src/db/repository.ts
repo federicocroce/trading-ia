@@ -2018,13 +2018,19 @@ export interface TodayProposalInsert {
   nthAppearance: number;
 }
 
-/** Upsert por (scanDate, symbol): si hay varios scans en el día, gana el último — igual que la vista. */
+/**
+ * Upsert por (scanDate, symbol): si hay varios scans en el día, gana el último — igual que la vista.
+ * Ojo: no borra símbolos que cayeron del top entre scans del día — la tabla guarda la unión de lo
+ * mostrado; todo lo registrado FUE propuesto en algún momento del día.
+ */
 export function upsertTodayProposals(rows: TodayProposalInsert[]): void {
   for (const row of rows) {
     db.insert(schema.todayProposals)
       .values(row)
       .onConflictDoUpdate({
         target: [schema.todayProposals.scanDate, schema.todayProposals.symbol],
+        // set omite createdAt a propósito: es el timestamp de la primera vez que se registró
+        // el símbolo ese día, no se bumpea en updates posteriores.
         set: {
           scanId: row.scanId,
           verb: row.verb,
@@ -2076,6 +2082,9 @@ export interface TodayAccuracyBucket {
  * (symbol, fecha). Solo outcomes resueltos; sin filas no se inventa nada (total null).
  */
 export function getTodayProposalAccuracy(): { total: TodayAccuracyBucket | null; byBucket: TodayAccuracyBucket[] } {
+  // Guard anti-SELL: si el símbolo flipeó a SELL en un scan posterior del mismo día, el tracking
+  // de esa fila mide un short (win = precio cayó) — dirección invertida respecto a la card
+  // COMPRAR/OBSERVAR que efectivamente se mostró. Hoy da 0 filas; guard preventivo.
   const rows = db.all<{ bucket: string; wins: number; losses: number; avg_r: number | null }>(sql`
     SELECT CASE WHEN tp.nth_appearance = 1 THEN '1'
                 WHEN tp.nth_appearance <= 3 THEN '2-3'
@@ -2085,7 +2094,7 @@ export function getTodayProposalAccuracy(): { total: TodayAccuracyBucket | null;
            AVG(st.r_multiple)       AS avg_r
     FROM today_proposals tp
     JOIN signal_tracking st ON st.symbol = tp.symbol AND st.signal_date = tp.scan_date
-    WHERE st.outcome IN ('win', 'loss', 'neutral')
+    WHERE st.outcome IN ('win', 'loss', 'neutral') AND st.action != 'SELL'
     GROUP BY bucket
   `);
 
@@ -2112,7 +2121,7 @@ export function getTodayProposalAccuracy(): { total: TodayAccuracyBucket | null;
         SELECT AVG(st.r_multiple) AS avg_r
         FROM today_proposals tp
         JOIN signal_tracking st ON st.symbol = tp.symbol AND st.signal_date = tp.scan_date
-        WHERE st.outcome IN ('win', 'loss', 'neutral')
+        WHERE st.outcome IN ('win', 'loss', 'neutral') AND st.action != 'SELL'
       `)[0]?.avg_r ?? null
     : null;
 

@@ -1130,7 +1130,10 @@ function persistScanResult(result: OpportunityScanResult): void {
     const scanDate = scannedAtISO.slice(0, 10); // YYYY-MM-DD — compartido por alerts y rearm watchlist
 
     // === REGISTRO DE PROPUESTAS DE HOY: exactamente lo que la vista va a mostrar de este scan,
-    // con enésima aparición y verbo post-degradación crónica. Nunca rompe el scan. ===
+    // con enésima aparición y verbo post-degradación crónica. Nunca rompe el scan.
+    // Fija las posiciones AL MOMENTO DEL SCAN: si se compra un símbolo propuesto intradía, la
+    // vista lo excluye (heldNow) y muestra al 7º candidato sin registrar — aceptado, se
+    // auto-corrige en el próximo scan. ===
     try {
       const heldNow = new Set(getPortfolioPositions().map((p) => p.symbol.toUpperCase()));
       const proposed = selectTodayProposals(result.opportunities, heldNow);

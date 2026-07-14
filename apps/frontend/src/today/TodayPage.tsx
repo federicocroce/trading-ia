@@ -119,7 +119,7 @@ export function TodayPage() {
                   <Badge className={`text-[10px] font-bold ${v.cls}`}>{v.label}</Badge>
                   <button className="text-sm font-bold hover:text-purple-400" onClick={() => goToSymbol(o.symbol)}>{o.symbol}</button>
                   {o.appearances != null && (
-                    <span className={`text-[10px] ${o.appearances >= 4 ? 'text-amber-400 font-semibold' : 'text-muted-foreground'}`}>
+                    <span className={`text-[10px] ${o.persistenceCaveat != null ? 'text-amber-400 font-semibold' : 'text-muted-foreground'}`}>
                       {o.appearances === 1 ? 'nueva' : `${o.appearances}ª aparición`}
                     </span>
                   )}
