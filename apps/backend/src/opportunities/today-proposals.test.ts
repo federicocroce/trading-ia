@@ -73,8 +73,12 @@ describe('chronicThreshold (envNumber lazy)', () => {
   it('default 4; respeta HOY_CHRONIC_THRESHOLD', () => {
     delete process.env.HOY_CHRONIC_THRESHOLD;
     expect(chronicThreshold()).toBe(4);
-    process.env.HOY_CHRONIC_THRESHOLD = '7';
-    expect(chronicThreshold()).toBe(7);
-    delete process.env.HOY_CHRONIC_THRESHOLD;
+    try {
+      process.env.HOY_CHRONIC_THRESHOLD = '7';
+      expect(chronicThreshold()).toBe(7);
+    } finally {
+      // sin finally, un fallo intermedio filtraría el env al resto del archivo
+      delete process.env.HOY_CHRONIC_THRESHOLD;
+    }
   });
 });

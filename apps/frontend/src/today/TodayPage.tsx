@@ -146,9 +146,17 @@ export function TodayPage() {
         })}
         {accuracy?.total && (
           <p className="text-[10px] text-muted-foreground">
-            Track record medido de estas propuestas: {accuracy.total.winRate}% de aciertos
+            Track record medido (sobre las propuestas con seguimiento): {accuracy.total.winRate}% de aciertos
             {accuracy.total.avgR != null && <> · R promedio {accuracy.total.avgR >= 0 ? '+' : ''}{accuracy.total.avgR}</>}
-            {' '}({accuracy.total.n} señales resueltas). Las apariciones frescas (1ª–3ª) rinden mejor que los residentes crónicos (4ª+).
+            {' '}(n={accuracy.total.n}).
+            {accuracy.byBucket.length > 0 && (
+              <>
+                {' '}Por aparición:{' '}
+                {accuracy.byBucket
+                  .map((b) => `${b.bucket === '1' ? '1ª' : b.bucket === '2-3' ? '2ª–3ª' : '4ª+'} ${b.winRate}% (n=${b.n})`)
+                  .join(' · ')}.
+              </>
+            )}
           </p>
         )}
       </section>

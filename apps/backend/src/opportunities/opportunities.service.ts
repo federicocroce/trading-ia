@@ -30,6 +30,7 @@ import { getSourceStats } from '../news/news.service.js';
 import {
   getActiveSymbolList,
   getEtfSymbols,
+  getLiveWatchlistItems,
   getPortfolioPositions,
   getCausalTickersByDate,
   getCausalMapByDate,
@@ -435,10 +436,14 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
   const discovered = getDiscoveredTickers()
     .filter(t => !isExcludedInstrument(t.classification?.name, t.classification?.instrumentType))
     .map(t => t.symbol);
-  // Portfolio always included; news-derived tickers replace hardcoded watchlist
+  // Watchlist VIVO del usuario: siempre en el universo. Sin esto, un ticker watchlisteado
+  // deja de escanearse cuando sale de noticias y su descubrimiento expira — y "Hoy" nunca
+  // lo re-evalúa aunque el usuario lo esté siguiendo (gap detectado 2026-07-14). Solo los
+  // items con status 'live' (~18), no la tabla symbols entera (201 acumulados históricos).
+  const watchlistLive = getLiveWatchlistItems().map((i) => i.symbol);
   const etfSymbols = getEtfSymbols();
-  const allSymbols = [...new Set([...portfolioSymbolsList, ...causalTickers, ...discovered, ...etfSymbols])];
-  console.log(`[opportunities] ${allSymbols.length} simbolos (${portfolioSymbolsList.length} portfolio + ${causalTickers.length} causal + ${discovered.length} descubiertos + ${etfSymbols.length} ETFs)`);
+  const allSymbols = [...new Set([...portfolioSymbolsList, ...causalTickers, ...discovered, ...watchlistLive, ...etfSymbols])];
+  console.log(`[opportunities] ${allSymbols.length} simbolos (${portfolioSymbolsList.length} portfolio + ${causalTickers.length} causal + ${discovered.length} descubiertos + ${watchlistLive.length} watchlist vivo + ${etfSymbols.length} ETFs)`);
 
   // ============================================================
   // PASO 3: Clasificar activos (tipo, sector, mercado)
