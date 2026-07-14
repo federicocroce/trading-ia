@@ -255,6 +255,25 @@ export const signalTracking = sqliteTable('signal_tracking', {
   rMultiple: real('r_multiple'),
 });
 
+// --- Registro de propuestas de "Hoy" ---
+// Qué mostró la vista cada día (top-6 de "Oportunidades - no las tenés"), para poder medir
+// el accuracy de LO PROPUESTO (no del scan entero) y contar apariciones (residente crónico).
+// Se llena al persistir cada scan con la misma selección pura que usa la vista — fuente única.
+export const todayProposals = sqliteTable('today_proposals', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  scanId: integer('scan_id').notNull(),
+  scanDate: text('scan_date').notNull(),               // YYYY-MM-DD del scan
+  symbol: text('symbol').notNull(),
+  verb: text('verb').notNull(),                        // COMPRAR | OBSERVAR — lo que se mostró (post-degradación crónica)
+  engineAction: text('engine_action').notNull(),       // BUY | WATCH — acción cruda del motor
+  score: integer('score').notNull(),
+  entryPrice: real('entry_price'),
+  stopLoss: real('stop_loss'),
+  targetPrice: real('target_price'),
+  nthAppearance: integer('nth_appearance').notNull(),  // 1 = primera vez en el top de Hoy (días distintos)
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+}, (t) => [uniqueIndex('today_proposals_date_symbol_uq').on(t.scanDate, t.symbol)]);
+
 // --- Historical price cache (1 day TTL daily, 1 week TTL weekly) ---
 export const historicalCache = sqliteTable('historical_cache', {
   id: text('id').primaryKey(),              // "VIST:daily" or "VIST:weekly"
