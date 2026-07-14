@@ -2063,3 +2063,58 @@ export function getTodayProposalAppearances(symbols: string[], beforeDate: strin
   for (const r of rows) map.set(r.symbol, r.days);
   return map;
 }
+
+export interface TodayAccuracyBucket {
+  bucket: string;       // '1' | '2-3' | '4+' | 'total'
+  n: number;            // señales con outcome win/loss (neutral no cuenta para win rate)
+  winRate: number;      // % redondeado a 1 decimal
+  avgR: number | null;  // R-multiple promedio (incluye neutrales con R), null si no hay
+}
+
+/**
+ * Track record de LO QUE HOY PROPUSO: join de today_proposals con signal_tracking por
+ * (symbol, fecha). Solo outcomes resueltos; sin filas no se inventa nada (total null).
+ */
+export function getTodayProposalAccuracy(): { total: TodayAccuracyBucket | null; byBucket: TodayAccuracyBucket[] } {
+  const rows = db.all<{ bucket: string; wins: number; losses: number; avg_r: number | null }>(sql`
+    SELECT CASE WHEN tp.nth_appearance = 1 THEN '1'
+                WHEN tp.nth_appearance <= 3 THEN '2-3'
+                ELSE '4+' END AS bucket,
+           SUM(st.outcome = 'win')  AS wins,
+           SUM(st.outcome = 'loss') AS losses,
+           AVG(st.r_multiple)       AS avg_r
+    FROM today_proposals tp
+    JOIN signal_tracking st ON st.symbol = tp.symbol AND st.signal_date = tp.scan_date
+    WHERE st.outcome IN ('win', 'loss', 'neutral')
+    GROUP BY bucket
+  `);
+
+  const toBucket = (bucket: string, wins: number, losses: number, avgR: number | null): TodayAccuracyBucket | null => {
+    const n = wins + losses;
+    if (n === 0) return null;
+    return {
+      bucket,
+      n,
+      winRate: Math.round((wins / n) * 1000) / 10,
+      avgR: avgR == null ? null : Math.round(avgR * 1000) / 1000,
+    };
+  };
+
+  const byBucket = rows
+    .map((r) => toBucket(r.bucket, r.wins, r.losses, r.avg_r))
+    .filter((b): b is TodayAccuracyBucket => b !== null);
+
+  const totWins = rows.reduce((s, r) => s + r.wins, 0);
+  const totLosses = rows.reduce((s, r) => s + r.losses, 0);
+  // avg_r total ponderado no es exacto sumando promedios — se consulta aparte si hay filas.
+  const totalAvgR = rows.length > 0
+    ? db.all<{ avg_r: number | null }>(sql`
+        SELECT AVG(st.r_multiple) AS avg_r
+        FROM today_proposals tp
+        JOIN signal_tracking st ON st.symbol = tp.symbol AND st.signal_date = tp.scan_date
+        WHERE st.outcome IN ('win', 'loss', 'neutral')
+      `)[0]?.avg_r ?? null
+    : null;
+
+  return { total: toBucket('total', totWins, totLosses, totalAvgR), byBucket };
+}

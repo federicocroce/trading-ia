@@ -31,6 +31,7 @@ function relTime(iso?: string): string {
 
 export function TodayPage() {
   const { data, isLoading } = trpc.opportunities.today.useQuery(undefined, { staleTime: 60_000 });
+  const { data: accuracy } = trpc.opportunities.todayAccuracy.useQuery(undefined, { staleTime: 300_000 });
   const { goToSymbol } = useNavigation();
 
   return (
@@ -117,10 +118,16 @@ export function TodayPage() {
                 <div className="flex items-center gap-2">
                   <Badge className={`text-[10px] font-bold ${v.cls}`}>{v.label}</Badge>
                   <button className="text-sm font-bold hover:text-purple-400" onClick={() => goToSymbol(o.symbol)}>{o.symbol}</button>
+                  {o.appearances != null && (
+                    <span className={`text-[10px] ${o.appearances >= 4 ? 'text-amber-400 font-semibold' : 'text-muted-foreground'}`}>
+                      {o.appearances === 1 ? 'nueva' : `${o.appearances}ª aparición`}
+                    </span>
+                  )}
                   <span className="text-[10px] text-muted-foreground ml-auto">score {o.score}</span>
                 </div>
                 {o.reason && <p className="text-[11px] text-foreground">{o.reason}</p>}
                 {o.timingCaveat && <p className="text-[10px] text-amber-400">⚠ {o.timingCaveat}</p>}
+                {o.persistenceCaveat && <p className="text-[10px] text-amber-400">⚠ {o.persistenceCaveat}</p>}
                 {(o.entry != null || o.stop != null || o.target != null) && (
                   <div className="flex gap-3 text-[10px] text-muted-foreground">
                     {o.entry != null && <span>Entrada {money(o.entry)}</span>}
@@ -137,6 +144,13 @@ export function TodayPage() {
             </Card>
           );
         })}
+        {accuracy?.total && (
+          <p className="text-[10px] text-muted-foreground">
+            Track record medido de estas propuestas: {accuracy.total.winRate}% de aciertos
+            {accuracy.total.avgR != null && <> · R promedio {accuracy.total.avgR >= 0 ? '+' : ''}{accuracy.total.avgR}</>}
+            {' '}({accuracy.total.n} señales resueltas). Las apariciones frescas (1ª–3ª) rinden mejor que los residentes crónicos (4ª+).
+          </p>
+        )}
       </section>
 
       <p className="text-[10px] text-muted-foreground border-t border-border pt-3">

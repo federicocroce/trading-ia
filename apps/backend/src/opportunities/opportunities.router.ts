@@ -42,6 +42,7 @@ import {
   getLatestNewsIntelligenceSnapshot,
   getNewsIntelligenceSnapshotsByDateRange,
   getActiveRearmAlerts,
+  getTodayProposalAccuracy,
 } from '../db/repository.js';
 
 export const opportunitiesRouter = router({
@@ -239,6 +240,9 @@ export const opportunitiesRouter = router({
   // --- Vista "Hoy": un veredicto por cosa (cartera + mercado) ---
 
   today: publicProcedure.query(() => getTodayDecisions()),
+
+  // Track record medido de lo que "Hoy" propuso (join today_proposals ↔ signal_tracking).
+  todayAccuracy: publicProcedure.query(() => getTodayProposalAccuracy()),
 
   // --- Watchlist de re-armado: setups degradados (invalid) que hoy volvieron a ser operables ---
 
