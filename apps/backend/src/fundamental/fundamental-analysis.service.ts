@@ -186,7 +186,7 @@ export async function getFundamentalSummary(symbol: string): Promise<Fundamental
     return {
       symbol,
       data: {
-        symbol, marketCap: null, peRatio: null, forwardPE: null, eps: null,
+        symbol, marketCap: null, peRatio: null, forwardPE: null, pegRatio: null, eps: null,
         dividendYield: null, fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null,
         currentPrice: 0, priceVs52wHigh: null, priceVs52wLow: null,
         avgVolume: null, beta: null,

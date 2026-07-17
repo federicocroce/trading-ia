@@ -3,6 +3,7 @@ export interface FundamentalData {
   marketCap: number | null;
   peRatio: number | null;
   forwardPE: number | null;
+  pegRatio: number | null;    // trailing PEG (P/E ÷ crecimiento esperado); null = Yahoo no lo trae
   eps: number | null;
   dividendYield: number | null;
   fiftyTwoWeekHigh: number | null;

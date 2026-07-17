@@ -408,6 +408,8 @@ function parseFundamentalsFromSummary(
     marketCap: extractRaw(summary, 'marketCap'),
     peRatio: extractRaw(summary, 'trailingPE'),
     forwardPE: extractRaw(stats, 'forwardPE') ?? extractRaw(summary, 'forwardPE'),
+    // Yahoo deprecó pegRatio clásico; trailingPegRatio es el campo vigente. Ambos por las dudas.
+    pegRatio: extractRaw(stats, 'trailingPegRatio') ?? extractRaw(stats, 'pegRatio'),
     eps: extractRaw(stats, 'trailingEps'),
     dividendYield: extractRaw(summary, 'dividendYield'),
     fiftyTwoWeekHigh: high52,
@@ -513,6 +515,7 @@ async function getFundamentalsFromChart(symbol: string): Promise<FundamentalData
         marketCap: null,
         peRatio: null,
         forwardPE: null,
+        pegRatio: null,
         eps: null,
         dividendYield: null,
         fiftyTwoWeekHigh: high52,
@@ -530,7 +533,7 @@ async function getFundamentalsFromChart(symbol: string): Promise<FundamentalData
   }
 
   return {
-    symbol, marketCap: null, peRatio: null, forwardPE: null, eps: null,
+    symbol, marketCap: null, peRatio: null, forwardPE: null, pegRatio: null, eps: null,
     dividendYield: null, fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null,
     currentPrice: 0, priceVs52wHigh: null, priceVs52wLow: null,
     avgVolume: null, beta: null,

@@ -262,6 +262,17 @@ function computeConfluence(
         votes.push({ name: `Forward P/E ${d.forwardPE.toFixed(1)} empeora vs ${d.peRatio.toFixed(1)}`, direction: 'bearish' });
     }
 
+    // F2b. PEG — valuación relativa al crecimiento esperado (Peter Lynch: <1 barato).
+    // PEG <= 0 (earnings o growth negativos) no es interpretable → sin voto (fail-closed).
+    if (d.pegRatio != null && d.pegRatio > 0) {
+      if (d.pegRatio < 1)
+        votes.push({ name: `PEG ${d.pegRatio.toFixed(1)} (barato vs crecimiento)`, direction: 'bullish' });
+      else if (d.pegRatio > 2)
+        votes.push({ name: `PEG ${d.pegRatio.toFixed(1)} (caro vs crecimiento)`, direction: 'bearish' });
+      else
+        votes.push({ name: `PEG ${d.pegRatio.toFixed(1)} (razonable)`, direction: 'neutral' });
+    }
+
     // F3. Dividendo
     if (d.dividendYield != null) {
       if (d.dividendYield > 0.03)

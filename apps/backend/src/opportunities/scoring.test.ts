@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { scoreToAction, computeTradeLevels } from './scoring.js';
-import type { TechnicalSummary } from '@trading/shared';
+import { scoreToAction, computeTradeLevels, computeConfluenceDetail } from './scoring.js';
+import type { TechnicalSummary, FundamentalSummary } from '@trading/shared';
 
 // Construye el TechnicalSummary mínimo que computeTradeLevels lee: currentPrice, atr14,
 // supports/resistances. El resto de indicators no lo toca esta función — se completa con
@@ -153,5 +153,55 @@ describe('computeTradeLevels — rrToFirstResistance (R/R honesto contra la 1ra 
     const tech = mkTech({ currentPrice: 100, atr14: 2, supports: [{ price: 90, touches: 2 }], resistances: [{ price: 103, touches: 2 }] });
     const levels = computeTradeLevels(tech, 'SELL')!;
     expect(levels.rrToFirstResistance).toBeNull();
+  });
+});
+
+// FundamentalSummary mínimo para testear votos fundamentales de confluencia.
+// Todo null por default (fail-closed): cada test setea solo lo que su voto necesita.
+function mkFund(overrides: Partial<FundamentalSummary['data']>): FundamentalSummary {
+  return {
+    symbol: 'TEST',
+    signal: 'fair',
+    score: 50,
+    data: {
+      symbol: 'TEST',
+      marketCap: null, peRatio: null, forwardPE: null, pegRatio: null,
+      eps: null, dividendYield: null, fiftyTwoWeekHigh: null, fiftyTwoWeekLow: null,
+      currentPrice: 100, priceVs52wHigh: null, priceVs52wLow: null,
+      avgVolume: null, beta: null, revenueGrowth: null, grossMargin: null,
+      operatingMargin: null, netMargin: null, debtToEquity: null, freeCashFlow: null,
+      returnOnEquity: null, returnOnAssets: null, earningsSurprise: null, nextEarningsDate: null,
+      ...overrides,
+    },
+  };
+}
+
+describe('voto PEG en confluencia (P/E ÷ crecimiento esperado)', () => {
+  const allSignals = (d: ReturnType<typeof computeConfluenceDetail>) =>
+    [...d.bullishSignals, ...d.bearishSignals, ...d.neutralSignals];
+
+  it('PEG < 1 vota bullish (barato vs su crecimiento)', () => {
+    const detail = computeConfluenceDetail(undefined, mkFund({ pegRatio: 0.8 }), undefined);
+    expect(detail.bullishSignals).toContain('PEG 0.8 (barato vs crecimiento)');
+  });
+
+  it('PEG > 2 vota bearish (caro vs su crecimiento)', () => {
+    const detail = computeConfluenceDetail(undefined, mkFund({ pegRatio: 2.5 }), undefined);
+    expect(detail.bearishSignals).toContain('PEG 2.5 (caro vs crecimiento)');
+  });
+
+  it('PEG entre 1 y 2 vota neutral', () => {
+    const detail = computeConfluenceDetail(undefined, mkFund({ pegRatio: 1.4 }), undefined);
+    expect(detail.neutralSignals).toContain('PEG 1.4 (razonable)');
+  });
+
+  it('PEG null no genera voto (fail-closed, jamás neutral por default)', () => {
+    const detail = computeConfluenceDetail(undefined, mkFund({ pegRatio: null }), undefined);
+    expect(allSignals(detail).some(s => s.startsWith('PEG'))).toBe(false);
+  });
+
+  it('PEG negativo no genera voto (earnings o growth negativos = no interpretable)', () => {
+    const detail = computeConfluenceDetail(undefined, mkFund({ pegRatio: -1.2 }), undefined);
+    expect(allSignals(detail).some(s => s.startsWith('PEG'))).toBe(false);
   });
 });
