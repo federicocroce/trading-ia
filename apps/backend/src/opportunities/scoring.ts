@@ -696,7 +696,11 @@ export function applyAntiHypeFilters(
 
     const tech = techMap.get(symbol);
     if (!tech) {
-      filtered.push(symbol); // no data = no filter
+      // Fail-closed (regla #1): sin datos técnicos no hay forma de evaluar hype.
+      // Antes esto era fail-open ("no data = no filter") — medido 2026-07-17: 248 señales
+      // legacy abr/may pasaron así; desde jun el path casi no dispara, pero un fallo de
+      // batch de Yahoo dejaría entrar una ola entera sin evaluar. Rechazo con audit trail.
+      rejected.push({ symbol, reasons: ['Sin datos técnicos (fail-closed)'] });
       continue;
     }
 
