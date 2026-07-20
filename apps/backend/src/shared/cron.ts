@@ -76,4 +76,16 @@ export function startCronJobs(): void {
     { timezone: 'America/New_York' },
   );
   console.log('[Cron] Scheduled: pipeline pre-market diario 7:30 ET (lun-vie)');
+
+  // Barrido de bases: sábados 14:00 — mercado cerrado, cola Yahoo libre.
+  // ~500 fetches secuenciales (≈10-15 min). Fire-and-forget como el radar.
+  cron.schedule('0 14 * * 6', async () => {
+    try {
+      const { runBaseSweep } = await import('../discovery/base-sweep.service.js');
+      await runBaseSweep();
+    } catch (err) {
+      console.error('[Cron] Barrido de bases falló:', (err as Error).message);
+    }
+  });
+  console.log('[Cron] Scheduled: barrido de bases sábados 14:00');
 }
