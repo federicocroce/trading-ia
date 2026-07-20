@@ -18,8 +18,11 @@ const EVICTION_BATCH_SIZE = 20;  // when at cap, evict bottom 20 by relevance to
 const SCREENER_INITIAL_RELEVANCE = 30;  // ya pasó el embudo operable: vale ~3 menciones de noticias
 const DEFAULT_INITIAL_RELEVANCE = 10;   // una mención
 
+// Fuentes de descubrimiento: noticias/screener original + radar de ciclos y barrido de bases (Task 2).
+type DiscoverySource = 'finnhub' | 'yahoo' | 'llm' | 'screener' | 'radar' | 'base_sweep';
+
 // Pura: relevance inicial según la fuente del descubrimiento.
-export function initialRelevanceForSource(source: 'finnhub' | 'yahoo' | 'llm' | 'screener'): number {
+export function initialRelevanceForSource(source: DiscoverySource): number {
   return source === 'screener' ? SCREENER_INITIAL_RELEVANCE : DEFAULT_INITIAL_RELEVANCE;
 }
 
@@ -44,7 +47,7 @@ export function selectEvictionCandidates<T extends { symbol: string; relevanceSc
  */
 export async function registerNovelTickers(
   tickers: string[],
-  source: 'finnhub' | 'yahoo' | 'llm' | 'screener',
+  source: DiscoverySource,
 ): Promise<number> {
   // Already at max? Evict lowest-relevance to make room for new candidates.
   let current = getActiveDiscoveredSymbols();

@@ -24,8 +24,9 @@ import { resolveWatchlistItems } from './watchlist-tracking.service.js';
 import { isExcludedInstrument, isTradeable, meetsQualityBar } from './tradeability.js';
 import { applyLlmAction } from './verdicts.service.js';
 import { runUnifiedAnalysis } from '../intelligence/unified-analysis.service.js';
-import { getSectorForSymbolDynamic, getDiscoveredTickers, pruneExpiredDiscoveries } from '../discovery/discovery-registry.js';
+import { getSectorForSymbolDynamic, getDiscoveredTickers, pruneExpiredDiscoveries, registerNovelTickers } from '../discovery/discovery-registry.js';
 import { classifyAssets } from '../discovery/asset-classifier.js';
+import { selectRadarNominees } from '../discovery/radar-constituents.js';
 import { getSourceStats } from '../news/news.service.js';
 import {
   getActiveSymbolList,
@@ -54,6 +55,8 @@ import {
   getInvalidSetupSymbolsByDate,
   upsertTodayProposals,
   getTodayProposalAppearances,
+  getLatestCycleRadarDate,
+  getCycleRadarSnapshots,
 } from '../db/repository.js';
 import { selectTodayProposals, verbFor, chronicAdjustment } from './today-proposals.js';
 import { buildAlertsFromScan, reconcileAlerts } from './anticipatory-alerts.js';
@@ -431,6 +434,27 @@ async function runLiveScan(sectors?: OpportunitySector[], pipelineRunId?: number
   const causalRows = getCausalTickersByDate(today);
   const causalTickers = causalRows.map(c => c.ticker);
   const causalContextMap = new Map(causalRows.map(c => [c.ticker, c.causalSummary]));
+
+  // Puente radar→universo: sectores "girando" nominan constituyentes al scan.
+  // El radar no decide acciones (regla del proyecto) — solo nomina; el embudo decide.
+  // Fail-closed: sin snapshot fresco no se nomina nada (selectRadarNominees).
+  try {
+    const radarDate = getLatestCycleRadarDate();
+    const radarRows = radarDate ? getCycleRadarSnapshots(radarDate) : [];
+    const nominees = selectRadarNominees(
+      radarRows.map((r) => ({ symbol: r.symbol, categoria: r.categoria, cycleState: r.cycleState })),
+      radarDate,
+      today,
+    );
+    if (nominees.length > 0) {
+      const registered = await registerNovelTickers(nominees, 'radar');
+      console.log(`[opportunities] Radar nomina ${nominees.length} constituyentes (girando) → ${registered} registrados`);
+    }
+  } catch (err) {
+    // El puente jamás voltea el scan: sin radar se escanea igual con el universo base.
+    console.warn('[opportunities] Puente radar→universo falló:', (err as Error).message);
+  }
+
   // Filtra el ruido del descubrimiento por noticias: bonos / MLPs / preferidas / fondos de renta
   // no son swing trades. (La liquidez se filtra después, con el volumen ya calculado.)
   const discovered = getDiscoveredTickers()
