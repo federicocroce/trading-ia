@@ -12,7 +12,7 @@ export interface AssetClassification {
 export interface DiscoveredTickerInfo {
   symbol: string;
   classification: AssetClassification;
-  discoveredFrom: 'finnhub' | 'yahoo' | 'llm' | 'screener';
+  discoveredFrom: 'finnhub' | 'yahoo' | 'llm' | 'screener' | 'radar' | 'base_sweep';
   newsCount: number;
   relevanceScore: number;
   firstSeen: string;

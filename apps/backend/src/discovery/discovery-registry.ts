@@ -23,7 +23,15 @@ type DiscoverySource = 'finnhub' | 'yahoo' | 'llm' | 'screener' | 'radar' | 'bas
 
 // Pura: relevance inicial según la fuente del descubrimiento.
 export function initialRelevanceForSource(source: DiscoverySource): number {
-  return source === 'screener' ? SCREENER_INITIAL_RELEVANCE : DEFAULT_INITIAL_RELEVANCE;
+  switch (source) {
+    case 'screener':
+    case 'radar':
+    case 'base_sweep':
+      // Selecciones deliberadas: screener operado, radar sectorial, barrido técnico
+      return SCREENER_INITIAL_RELEVANCE;
+    default:
+      return DEFAULT_INITIAL_RELEVANCE;
+  }
 }
 
 // Pura: candidatos a evictar al cap — menor relevance primero, desempate por lastSeen más viejo.
