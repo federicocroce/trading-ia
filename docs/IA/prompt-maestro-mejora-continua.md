@@ -59,6 +59,8 @@ Hecho y verificado: resolución direccional path-aware de señales + R-multiples
 
 **Branch `fix/radar-cuantitativo` (2026-07-05, review final "Ready to merge: Yes"; mergeado a main — commit `bcf23ef`):** radar de ciclos cuantitativo v1 — 23 ETFs país/sector vs SPY, fases girando/odiado/tendencia/extendido/neutro (SMA200 + RS 3m/6m + saturación), proxy de flujos AUM/precio (Yahoo no publica shares de ETFs), tabla `cycle_radar_snapshots` (migraciones 0042/0043 ya aplicadas), stage fire-and-forget, tRPC `radar.getLatest`, tab "Radar". Regla: es capa de CONTEXTO, jamás señal — nada del motor importa de `radar/`. flowDelta20d necesita ~21 snapshots para activarse; con ~40 días calibrar contra flujos publicados antes de confiarle lectura. Complementa `/radar-ciclos` (informe narrativo, docs/IA/research/). V2 especificado en el spec: EDGAR Form 4, Gemini grounding, term structure cobre.
 
+**Branch `feat/universo-cobertura` (2026-07-20):** dos caños nuevos de cobertura, ambos NOMINADORES medibles (jamás señal): (1) puente radar→universo — sector "girando" nomina sus constituyentes (`radar-constituents.ts`, lista curada) vía `registerNovelTickers(source='radar')`, fail-closed si el snapshot tiene >7 días; (2) barrido semanal de bases — S&P500 estático (`sweep-universe.json`) × `detectBase` puro (castigada + reparando + volumen o RS), cron sábados 14:00, `source='base_sweep'`, aborta si >50% de fetches fallan. El embudo normal decide; los sources permiten medir expectancy por caño en `signal_tracking`.
+
 ## 6. Backlog priorizado (arrancá por acá)
 
 **A. Con impacto directo en decisiones:**
@@ -83,6 +85,8 @@ Hecho y verificado: resolución direccional path-aware de señales + R-multiples
 - ¿Vale la pena el stage de noticias completo si sentiment r=0.03? → lo que paga son macro_events/causal context para el reporte, no el sentiment; si el costo (65 min + tokens) supera eso, recortar agresivamente.
 - ¿El calibrador de pesos (weight proposals) ya tiene n suficiente post-fix para proponer pesos con evidencia? (`scoring_weight_history` estaba vacía → defaults.)
 - ¿El timingView SELL sobre un verbo COMPRAR predice peor outcome? (caso DAL 2026-07-06: COMPRAR con timing SELL 62%.) Hoy es solo caveat visible en la tarjeta de Hoy (`timingCaveatFor`, aditivo, sin tocar jerarquía). Si `signal_tracking` muestra que los COMPRAR-con-timing-SELL rinden peor, recién ahí evaluar convertirlo en gate degradante.
+- ¿El puente radar→universo nomina ganadores? → esperar n≥30 señales `source='radar'` resueltas; comparar expectancy vs discovery por noticias.
+- ¿El barrido de bases anticipa de verdad (caso IREN)? → n≥30 de `source='base_sweep'`; medir además cuántos nominados terminan generando señal BUY/WATCH con setup válido (si casi ninguno pasa el embudo, el detector está mal calibrado o el concepto no aplica).
 
 ## 8. Cómo verificar cualquier cambio (checklist de cierre)
 
