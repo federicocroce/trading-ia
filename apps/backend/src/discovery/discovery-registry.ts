@@ -57,8 +57,15 @@ export async function registerNovelTickers(
   tickers: string[],
   source: DiscoverySource,
 ): Promise<number> {
-  // Already at max? Evict lowest-relevance to make room for new candidates.
+  // Filtrar novel PRIMERO, contra el estado pre-eviction: si no hay nada nuevo que
+  // registrar (caller con lista 100% conocida — p.ej. el puente radar nominando el
+  // mismo sector scan tras scan), no tiene sentido evictar para hacer lugar a nada.
   let current = getActiveDiscoveredSymbols();
+  const known = new Set([...getActiveSymbolList(), ...current.map(s => s.symbol)]);
+  const novel = tickers.filter(t => !known.has(t));
+  if (novel.length === 0) return 0;
+
+  // Hay algo novel: ahora sí, si estamos al cap, evictar lo de menor relevance para hacer lugar.
   if (current.length >= MAX_DISCOVERED) {
     const toEvict = selectEvictionCandidates(current, EVICTION_BATCH_SIZE);
     if (toEvict.length > 0) {
@@ -76,11 +83,6 @@ export async function registerNovelTickers(
   }
   const remaining = MAX_DISCOVERED - current.length;
   if (remaining <= 0) return 0;
-
-  // Filter out already known
-  const known = new Set([...getActiveSymbolList(), ...current.map(s => s.symbol)]);
-  const novel = tickers.filter(t => !known.has(t));
-  if (novel.length === 0) return 0;
 
   // Validate (max 40 per batch — discovery throughput on busy news cycles)
   const toValidate = novel.slice(0, Math.min(40, remaining));

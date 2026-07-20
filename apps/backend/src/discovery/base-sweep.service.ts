@@ -9,7 +9,7 @@ import { getHistoricalQuotes } from '../shared/yahoo.js';
 import { envNumber } from '../shared/env-number.js';
 import { detectBase, type BaseDetection } from './base-detector.js';
 import { registerNovelTickers, getDiscoveredTickers } from './discovery-registry.js';
-import { getPortfolioPositions, getLiveWatchlistItems } from '../db/repository.js';
+import { getPortfolioPositions, getLiveWatchlistItems, getActiveSymbolList } from '../db/repository.js';
 
 // El import con `with { type: 'json' }` rompe el proyecto composite de tsc
 // (TS6307: el JSON no está listado en el file list del tsconfig). readFileSync
@@ -35,11 +35,15 @@ export async function runBaseSweep(): Promise<{
 }> {
   const cap = envNumber('SWEEP_MAX_CANDIDATES', 15);
 
-  // Excluir lo que el sistema ya mira: portfolio, descubiertos activos, watchlist viva.
+  // Excluir lo que el sistema ya mira: portfolio, descubiertos activos, watchlist viva,
+  // y la tabla symbols completa (mismo getter que registerNovelTickers usa para su
+  // known-check) — sin esto, candidatos ya conocidos consumían slots del cap y se
+  // descartaban recién en el registro (corrida real: 13 registrados de 15).
   const already = new Set<string>([
     ...getPortfolioPositions().map((p) => p.symbol),
     ...getDiscoveredTickers().map((s) => s.symbol),
     ...getLiveWatchlistItems().map((i) => i.symbol),
+    ...getActiveSymbolList(),
   ]);
   const targets = universe.filter((s) => !already.has(s));
 

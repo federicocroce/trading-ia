@@ -1,5 +1,41 @@
-import { describe, it, expect } from 'vitest';
-import { initialRelevanceForSource, selectEvictionCandidates } from './discovery-registry.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// registerNovelTickers toca DB real vía repository.js y un import lazy de db/index.js
+// para la eviction — mockeamos ambos (mismo patrón que cycle-radar.service.test.ts)
+// para poder probar la decisión de orden (filtrar novel ANTES de evictar) sin red ni DB.
+const mockGetActiveDiscoveredSymbols = vi.fn();
+const mockGetActiveSymbolList = vi.fn();
+const mockUpsertDiscoveredSymbol = vi.fn();
+const mockDeactivateExpiredDiscoveries = vi.fn();
+const mockInsertSymbol = vi.fn();
+const mockGetSymbol = vi.fn();
+vi.mock('../db/repository.js', () => ({
+  getActiveDiscoveredSymbols: (...args: unknown[]) => mockGetActiveDiscoveredSymbols(...args),
+  getActiveSymbolList: (...args: unknown[]) => mockGetActiveSymbolList(...args),
+  upsertDiscoveredSymbol: (...args: unknown[]) => mockUpsertDiscoveredSymbol(...args),
+  deactivateExpiredDiscoveries: (...args: unknown[]) => mockDeactivateExpiredDiscoveries(...args),
+  insertSymbol: (...args: unknown[]) => mockInsertSymbol(...args),
+  getSymbol: (...args: unknown[]) => mockGetSymbol(...args),
+}));
+
+// Cadena db.update(schema.discoveredSymbols).set({...}).where(...).run() usada solo
+// por la eviction — mockeada completa para poder aserir "no se llamó" sin tocar SQLite.
+const mockRun = vi.fn();
+const mockWhere = vi.fn(() => ({ run: mockRun }));
+const mockSet = vi.fn(() => ({ where: mockWhere }));
+const mockUpdate = vi.fn((..._args: unknown[]) => ({ set: mockSet }));
+vi.mock('../db/index.js', () => ({ db: { update: (...args: unknown[]) => mockUpdate(...args) } }));
+vi.mock('../db/schema.js', () => ({ discoveredSymbols: {} }));
+vi.mock('drizzle-orm', () => ({ inArray: vi.fn() }));
+
+// validateTickers pega a Yahoo (getQuote) — mockeado para que el test de "hay novel,
+// evict corre" no dependa de red.
+const mockValidateTickers = vi.fn();
+vi.mock('./ticker-validator.js', () => ({
+  validateTickers: (...args: unknown[]) => mockValidateTickers(...args),
+}));
+
+import { initialRelevanceForSource, selectEvictionCandidates, registerNovelTickers } from './discovery-registry.js';
 
 describe('initialRelevanceForSource', () => {
   it('screener entra con 30: ya pasó el embudo operable completo (quality bar, SMA200, setup+RR)', () => {
@@ -66,5 +102,55 @@ describe('selectEvictionCandidates', () => {
   it('batchSize mayor que la cantidad de filas devuelve todas', () => {
     const rows = [row('UNO', 10, null), row('DOS', 20, null)];
     expect(selectEvictionCandidates(rows, 5)).toHaveLength(2);
+  });
+});
+
+describe('registerNovelTickers — orden filtro-antes-de-evictar', () => {
+  const fullRegistry = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      symbol: `SYM${i}`,
+      relevanceScore: 10,
+      lastSeen: '2026-07-01T00:00:00.000Z',
+    }));
+
+  beforeEach(() => {
+    mockGetActiveDiscoveredSymbols.mockReset();
+    mockGetActiveSymbolList.mockReset();
+    mockUpsertDiscoveredSymbol.mockReset();
+    mockDeactivateExpiredDiscoveries.mockReset();
+    mockInsertSymbol.mockReset();
+    mockGetSymbol.mockReset();
+    mockUpdate.mockClear();
+    mockSet.mockClear();
+    mockWhere.mockClear();
+    mockRun.mockClear();
+  });
+
+  it('con el registry lleno (>=120) y una lista de tickers 100% conocida, no evicta nada y devuelve 0', async () => {
+    // Registry al cap: dispararía eviction bajo el orden viejo (evict-primero).
+    mockGetActiveDiscoveredSymbols.mockReturnValue(fullRegistry(120));
+    // El puente radar nomina lo mismo cada scan: todo lo que llega ya está en el
+    // universo vivo (watchlist/portfolio/ETFs).
+    mockGetActiveSymbolList.mockReturnValue(['XLF']);
+
+    const registered = await registerNovelTickers(['XLF'], 'radar');
+
+    expect(registered).toBe(0);
+    // La aserción que importa: la eviction (db.update sobre discoveredSymbols) NO corrió.
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(mockUpsertDiscoveredSymbol).not.toHaveBeenCalled();
+  });
+
+  it('con el registry lleno y al menos un ticker novel, sí evicta para hacer lugar', async () => {
+    mockGetActiveDiscoveredSymbols
+      .mockReturnValueOnce(fullRegistry(120)) // lectura inicial (pre-eviction)
+      .mockReturnValueOnce(fullRegistry(100)); // relectura post-eviction
+    mockGetActiveSymbolList.mockReturnValue([]);
+    mockValidateTickers.mockResolvedValue([]); // no importa si valida; lo que se prueba es el orden
+
+    const registered = await registerNovelTickers(['NEWCO'], 'radar');
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(registered).toBe(0);
   });
 });
