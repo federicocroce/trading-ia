@@ -16,12 +16,13 @@ import { TodayPage } from '@/today/TodayPage';
 import { DailySummary } from '@/daily/DailySummary';
 import { HistoricoPage } from '@/historico/HistoricoPage';
 import { CycleRadarPage } from '@/radar/CycleRadarPage';
+import { ThesesPage } from '@/theses/ThesesPage';
 import { NavigationContext } from '@/shared/navigation';
 import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
 import { WebSearchBlockedModal } from '@/pipeline/WebSearchBlockedModal';
 
-const VALID_TABS = ['hoy', 'daily', 'opportunities', 'portfolio', 'cartera', 'historico', 'radar'] as const;
+const VALID_TABS = ['hoy', 'daily', 'opportunities', 'portfolio', 'cartera', 'historico', 'radar', 'tesis'] as const;
 type TabValue = typeof VALID_TABS[number];
 const DEFAULT_TAB: TabValue = 'hoy';
 
@@ -132,6 +133,7 @@ export function App() {
                 <TabsTrigger value="cartera">Cartera</TabsTrigger>
                 <TabsTrigger value="historico">Histórico</TabsTrigger>
                 <TabsTrigger value="radar">Radar</TabsTrigger>
+                <TabsTrigger value="tesis">Tesis</TabsTrigger>
               </TabsList>
 
               {selectedSymbol ? (
@@ -160,6 +162,9 @@ export function App() {
                   </TabsContent>
                   <TabsContent value="radar" className="flex-1 overflow-y-auto">
                     <CycleRadarPage />
+                  </TabsContent>
+                  <TabsContent value="tesis" className="flex-1 overflow-y-auto">
+                    <ThesesPage />
                   </TabsContent>
                 </>
               )}

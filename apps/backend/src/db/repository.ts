@@ -2198,6 +2198,13 @@ export function getActiveTheses() {
     .all();
 }
 
+/** Todas las tesis, más nueva primero — insumo del tab "Tesis" (lista completa, no solo vivas). */
+export function getAllTheses() {
+  return db.select().from(schema.theses)
+    .orderBy(desc(schema.theses.createdAt))
+    .all();
+}
+
 export function updateThesis(id: number, data: Partial<{
   status: string;
   triggeredAt: string | null;
