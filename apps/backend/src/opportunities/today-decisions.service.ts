@@ -40,7 +40,7 @@ export interface TodayOpportunity {
   appearances: number | null;
   /** Regla del residente crónico (4ª+ aparición): viaja con la card, cita la evidencia. */
   persistenceCaveat?: string;
-  /** Regla del cooldown post stop-out (patología NEM): re-BUY tras stop reciente = 10% win / −0.69R. */
+  /** Regla de stop perforado (patología NEM): precio bajo un stop reciente del sistema = 32% win / −0.15R. */
   cooldownCaveat?: string;
   score: number;
   currentPrice: number;
