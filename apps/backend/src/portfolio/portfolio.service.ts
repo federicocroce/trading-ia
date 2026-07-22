@@ -43,6 +43,7 @@ export async function getPortfolio(): Promise<PortfolioSummary> {
       value,
       pnl,
       pnlPercent,
+      hasPriceData,
     };
   });
 

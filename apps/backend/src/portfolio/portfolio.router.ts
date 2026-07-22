@@ -34,7 +34,9 @@ export const portfolioRouter = router({
         positions: summary.positions.map((p) => ({
           symbol: p.symbol,
           value: p.value,
-          currentPrice: p.currentPrice,
+          // Si no hay precio vivo, currentPrice es un fallback a avgCost: forzamos 0 acá para
+          // que dispare el guard fail-closed de buildAllocationPlan ("Sin precio vivo de X").
+          currentPrice: p.hasPriceData ? p.currentPrice : 0,
         })),
         newCashUsd: input?.newCashUsd ?? 0,
       });

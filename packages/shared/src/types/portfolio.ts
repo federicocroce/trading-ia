@@ -7,6 +7,8 @@ export interface PortfolioPosition {
   value: number;
   pnl: number;
   pnlPercent: number;
+  /** false si Yahoo falló y currentPrice es un fallback a avgCost (no un precio vivo real). */
+  hasPriceData: boolean;
 }
 
 export interface PortfolioSummary {

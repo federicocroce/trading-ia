@@ -27,7 +27,7 @@ export function AllocationPlanPanel() {
   const [inputValue, setInputValue] = useState('0');
   const [newCashUsd, setNewCashUsd] = useState(0);
 
-  const { data, isLoading } = trpc.portfolio.allocationPlan.useQuery({ newCashUsd });
+  const { data, isLoading, isError } = trpc.portfolio.allocationPlan.useQuery({ newCashUsd });
 
   const calcular = () => {
     const parsed = Number(inputValue);
@@ -36,9 +36,6 @@ export function AllocationPlanPanel() {
 
   if (isLoading) {
     return <div className="p-6 text-muted-foreground text-sm">Calculando plan de asignación...</div>;
-  }
-  if (!data) {
-    return null;
   }
 
   return (
@@ -52,7 +49,9 @@ export function AllocationPlanPanel() {
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        {!data.ok ? (
+        {isError || !data ? (
+          <p className="text-xs text-trading-red">⚠️ No se pudo calcular el plan — error consultando el backend</p>
+        ) : !data.ok ? (
           <p className="text-xs text-trading-red">⚠️ {data.reason}</p>
         ) : (
           <>
