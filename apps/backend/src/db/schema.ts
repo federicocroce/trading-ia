@@ -861,3 +861,29 @@ export const cycleRadarSnapshots = sqliteTable('cycle_radar_snapshots', {
   stateReason: text('state_reason'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (t) => [uniqueIndex('cycle_radar_date_symbol_uq').on(t.snapshotDate, t.symbol)]);
+
+// --- Motor de tesis (macro/narrativa → condición de entrada verificable → outcome) ---
+export const theses = sqliteTable('theses', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  createdDate: text('created_date').notNull(),          // YYYY-MM-DD
+  title: text('title').notNull(),                        // "Bancos US: giro de tasas"
+  direction: text('direction').notNull(),                // 'alcista' | 'bajista'
+  narrative: text('narrative').notNull(),                // el "por qué", citando insumos
+  catalyst: text('catalyst'),                            // catalizador esperado (nullable)
+  primarySymbol: text('primary_symbol').notNull(),       // el símbolo que mide la tesis
+  symbols: text('symbols').notNull(),                    // JSON array: implementaciones posibles
+  entryConditionText: text('entry_condition_text').notNull(),
+  entryTriggerPrice: real('entry_trigger_price').notNull(),
+  entryComparator: text('entry_comparator').notNull(),   // 'above' | 'below'
+  invalidationPrice: real('invalidation_price').notNull(),
+  invalidationReason: text('invalidation_reason').notNull(),
+  horizonDays: integer('horizon_days').notNull(),
+  status: text('status').notNull().default('activa'),    // activa|gatillada|cumplida|invalidada|expirada
+  triggeredAt: text('triggered_at'),
+  resolvedAt: text('resolved_at'),
+  outcomeReturnPct: real('outcome_return_pct'),           // retorno del primarySymbol desde gatillo (o creación si nunca gatilló)
+  outcomeVsSpyPct: real('outcome_vs_spy_pct'),
+  sourceEvidence: text('source_evidence'),                // JSON: radar states, macro events, scores usados
+  llmProvider: text('llm_provider'),
+  createdAt: text('created_at').default(sql`(datetime('now'))`).notNull(),
+});
