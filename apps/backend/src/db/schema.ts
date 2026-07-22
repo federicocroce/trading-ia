@@ -881,7 +881,7 @@ export const theses = sqliteTable('theses', {
   status: text('status').notNull().default('activa'),    // activa|gatillada|cumplida|invalidada|expirada
   triggeredAt: text('triggered_at'),
   resolvedAt: text('resolved_at'),
-  outcomeReturnPct: real('outcome_return_pct'),           // retorno del primarySymbol desde gatillo (o creación si nunca gatilló)
+  outcomeReturnPct: real('outcome_return_pct'),           // retorno del primarySymbol desde el cierre de created_date hasta resolución (v1: no usa precio de gatillo)
   outcomeVsSpyPct: real('outcome_vs_spy_pct'),
   sourceEvidence: text('source_evidence'),                // JSON: radar states, macro events, scores usados
   llmProvider: text('llm_provider'),

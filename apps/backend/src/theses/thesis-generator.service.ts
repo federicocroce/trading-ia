@@ -193,6 +193,13 @@ export async function generateWeeklyTheses(): Promise<GenerateWeeklyThesesResult
     let generated = 0;
     const reasons: string[] = [];
 
+    if (parsed.length > maxThesesPerRun) {
+      const truncatedCount = parsed.length - maxThesesPerRun;
+      const msg = `LLM devolvió ${parsed.length} tesis, se truncaron ${truncatedCount} (límite THESIS_MAX_PER_RUN=${maxThesesPerRun})`;
+      console.warn(`[thesis-generator] ${msg}`);
+      reasons.push(msg);
+    }
+
     for (const raw of candidates) {
       const validated = validateThesis(raw, livePrices);
       if (!validated.ok) {

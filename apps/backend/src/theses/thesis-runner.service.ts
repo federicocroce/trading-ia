@@ -20,6 +20,12 @@
  * retorno real de tesis que tardaron en gatillar (el "reloj" arranca en la creación de la
  * tesis, no en el gatillo de entrada) — aceptado para v1; revisar si el tracking exige
  * precisión del entry real.
+ *
+ * outcomeReturnPct vs outcomeVsSpyPct son independientes: el primero solo depende del histórico
+ * de `primarySymbol` y se persiste siempre que ese histórico exista. Si falta el precio vivo o
+ * el histórico de SPY, outcomeVsSpyPct queda null pero outcomeReturnPct NO se pierde — la tesis
+ * ya es terminal en ese punto, así que tirar el dato completo por falta de SPY sería perderlo
+ * para siempre.
  */
 import type { OHLC, Price } from '@trading/shared';
 import { getQuotes, getHistoricalQuotes } from '../shared/yahoo.js';
@@ -41,33 +47,48 @@ function closeOnOrBefore(candles: OHLC[], date: string): number | null {
   return before ? before.close : null;
 }
 
+/**
+ * outcomeReturnPct depende solo del histórico de `symbol` — se calcula siempre que ese
+ * histórico exista, aunque falte SPY. outcomeVsSpyPct queda null si falta el precio vivo de
+ * SPY o su histórico: no tiramos el retorno crudo del símbolo por un problema ajeno a él.
+ */
 async function computeOutcome(
   symbol: string,
   createdDate: string,
   currentPrice: number,
   spyCurrentPrice: number | null,
-): Promise<{ outcomeReturnPct: number; outcomeVsSpyPct: number } | null> {
-  if (spyCurrentPrice === null) {
-    console.warn(`[thesis-runner] Sin precio vivo de ${SPY} — outcome de ${symbol} queda sin vs-benchmark`);
-    return null;
-  }
+): Promise<{ outcomeReturnPct: number | null; outcomeVsSpyPct: number | null }> {
+  let symbolCandles: OHLC[];
   try {
-    const [symbolCandles, spyCandles] = await Promise.all([
-      getHistoricalQuotes(symbol, OUTCOME_HISTORY_RANGE, '1d'),
-      getHistoricalQuotes(SPY, OUTCOME_HISTORY_RANGE, '1d'),
-    ]);
-    const symbolEntry = closeOnOrBefore(symbolCandles, createdDate);
+    symbolCandles = await getHistoricalQuotes(symbol, OUTCOME_HISTORY_RANGE, '1d');
+  } catch (err) {
+    console.warn(`[thesis-runner] getHistoricalQuotes falló calculando outcome de ${symbol}: ${(err as Error).message}`);
+    return { outcomeReturnPct: null, outcomeVsSpyPct: null };
+  }
+  const symbolEntry = closeOnOrBefore(symbolCandles, createdDate);
+  if (symbolEntry == null || symbolEntry <= 0) {
+    console.warn(`[thesis-runner] Sin cierre histórico de ${symbol} en ${createdDate} — outcome null`);
+    return { outcomeReturnPct: null, outcomeVsSpyPct: null };
+  }
+  const outcomeReturnPct = ((currentPrice - symbolEntry) / symbolEntry) * 100;
+
+  if (spyCurrentPrice === null) {
+    console.warn(`[thesis-runner] Sin precio vivo de ${SPY} — outcome de ${symbol} conserva outcomeReturnPct pero queda sin vs-benchmark (outcomeVsSpyPct null)`);
+    return { outcomeReturnPct, outcomeVsSpyPct: null };
+  }
+
+  try {
+    const spyCandles = await getHistoricalQuotes(SPY, OUTCOME_HISTORY_RANGE, '1d');
     const spyEntry = closeOnOrBefore(spyCandles, createdDate);
-    if (symbolEntry == null || spyEntry == null || symbolEntry <= 0 || spyEntry <= 0) {
-      console.warn(`[thesis-runner] Sin cierre histórico de ${symbol}/${SPY} en ${createdDate} — outcome null`);
-      return null;
+    if (spyEntry == null || spyEntry <= 0) {
+      console.warn(`[thesis-runner] Sin cierre histórico de ${SPY} en ${createdDate} — outcomeVsSpyPct null (outcomeReturnPct de ${symbol} sí calculado)`);
+      return { outcomeReturnPct, outcomeVsSpyPct: null };
     }
-    const outcomeReturnPct = ((currentPrice - symbolEntry) / symbolEntry) * 100;
     const spyReturnPct = ((spyCurrentPrice - spyEntry) / spyEntry) * 100;
     return { outcomeReturnPct, outcomeVsSpyPct: outcomeReturnPct - spyReturnPct };
   } catch (err) {
-    console.warn(`[thesis-runner] getHistoricalQuotes falló calculando outcome de ${symbol}: ${(err as Error).message}`);
-    return null;
+    console.warn(`[thesis-runner] getHistoricalQuotes de ${SPY} falló calculando vs-benchmark de ${symbol}: ${(err as Error).message}`);
+    return { outcomeReturnPct, outcomeVsSpyPct: null };
   }
 }
 
@@ -131,12 +152,14 @@ export async function evaluateActiveTheses(): Promise<EvaluateActiveThesesResult
     updateThesis(t.id, {
       status: newStatus,
       resolvedAt: today,
-      outcomeReturnPct: outcome?.outcomeReturnPct ?? null,
-      outcomeVsSpyPct: outcome?.outcomeVsSpyPct ?? null,
+      outcomeReturnPct: outcome.outcomeReturnPct,
+      outcomeVsSpyPct: outcome.outcomeVsSpyPct,
     });
-    const outcomeMsg = outcome
-      ? `outcome=${outcome.outcomeReturnPct.toFixed(1)}% vs SPY=${outcome.outcomeVsSpyPct.toFixed(1)}%`
-      : 'outcome no calculable (sin históricos)';
+    const outcomeMsg = outcome.outcomeReturnPct === null
+      ? 'outcome no calculable (sin históricos)'
+      : outcome.outcomeVsSpyPct === null
+        ? `outcome=${outcome.outcomeReturnPct.toFixed(1)}% (sin vs-benchmark: falta SPY)`
+        : `outcome=${outcome.outcomeReturnPct.toFixed(1)}% vs SPY=${outcome.outcomeVsSpyPct.toFixed(1)}%`;
     console.log(`[thesis-runner] Tesis #${t.id} "${t.title}" → ${newStatus} (${reason}) — ${outcomeMsg}`);
   }
 
