@@ -55,10 +55,11 @@ import {
   getInvalidSetupSymbolsByDate,
   upsertTodayProposals,
   getTodayProposalAppearances,
+  getRecentStopouts,
   getLatestCycleRadarDate,
   getCycleRadarSnapshots,
 } from '../db/repository.js';
-import { selectTodayProposals, verbFor, chronicAdjustment } from './today-proposals.js';
+import { selectTodayProposals, verbFor, chronicAdjustment, stopoutCooldownAdjustment, stopoutCooldownDays } from './today-proposals.js';
 import { buildAlertsFromScan, reconcileAlerts } from './anticipatory-alerts.js';
 import { detectRearmedSetups } from './rearm-detector.js';
 import {
@@ -1167,14 +1168,19 @@ function persistScanResult(result: OpportunityScanResult): void {
       const heldNow = new Set(getPortfolioPositions().map((p) => p.symbol.toUpperCase()));
       const proposed = selectTodayProposals(result.opportunities, heldNow);
       const priorAppearances = getTodayProposalAppearances(proposed.map((o) => o.symbol), scanDate);
+      // Cooldown post stop-out: el verbo persistido refleja la MISMA degradación que la vista.
+      const cooldownSince = new Date(new Date(scanDate + 'T00:00:00Z').getTime() - stopoutCooldownDays() * 86_400_000)
+        .toISOString().slice(0, 10);
+      const recentStopouts = getRecentStopouts(proposed.map((o) => o.symbol), cooldownSince);
       upsertTodayProposals(proposed.map((o) => {
         const nth = (priorAppearances.get(o.symbol) ?? 0) + 1;
         const adj = chronicAdjustment(verbFor(o.action), nth);
+        const cd = stopoutCooldownAdjustment(adj.verb, recentStopouts.get(o.symbol) ?? null, scanDate);
         return {
           scanId,
           scanDate,
           symbol: o.symbol,
-          verb: adj.verb,
+          verb: cd.verb,
           engineAction: o.action,
           score: Math.round(o.opportunityScore),
           entryPrice: o.tradeLevels?.entryPrice ?? null,

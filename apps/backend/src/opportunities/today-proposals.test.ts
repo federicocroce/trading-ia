@@ -4,6 +4,8 @@ import {
   verbFor,
   chronicAdjustment,
   chronicThreshold,
+  stopoutCooldownAdjustment,
+  stopoutCooldownDays,
   TODAY_PROPOSAL_LIMIT,
 } from './today-proposals.js';
 
@@ -79,6 +81,51 @@ describe('chronicThreshold (envNumber lazy)', () => {
     } finally {
       // sin finally, un fallo intermedio filtraría el env al resto del archivo
       delete process.env.HOY_CHRONIC_THRESHOLD;
+    }
+  });
+});
+
+describe('stopoutCooldownAdjustment — re-BUY tras stop-out reciente (patología NEM)', () => {
+  it('stop-out dentro de la ventana: COMPRAR degrada a OBSERVAR con caveat que cita la evidencia', () => {
+    const adj = stopoutCooldownAdjustment('COMPRAR', '2026-07-15', '2026-07-22', 10);
+    expect(adj.verb).toBe('OBSERVAR');
+    expect(adj.caveat).toMatch(/stop/i);
+    expect(adj.caveat).toContain('10%'); // cita el win rate medido del re-BUY
+  });
+
+  it('stop-out en el borde de la ventana (exactamente N días) todavía degrada', () => {
+    const adj = stopoutCooldownAdjustment('COMPRAR', '2026-07-12', '2026-07-22', 10);
+    expect(adj.verb).toBe('OBSERVAR');
+  });
+
+  it('stop-out fuera de la ventana (N+1 días) no degrada ni agrega caveat', () => {
+    expect(stopoutCooldownAdjustment('COMPRAR', '2026-07-11', '2026-07-22', 10)).toEqual({ verb: 'COMPRAR' });
+  });
+
+  it('sin stop-out registrado (null) no degrada — ausencia de stop-out es el caso normal', () => {
+    expect(stopoutCooldownAdjustment('COMPRAR', null, '2026-07-22', 10)).toEqual({ verb: 'COMPRAR' });
+  });
+
+  it('OBSERVAR con stop-out reciente: mantiene verbo (jamás sube) pero lleva caveat', () => {
+    const adj = stopoutCooldownAdjustment('OBSERVAR', '2026-07-20', '2026-07-22', 10);
+    expect(adj.verb).toBe('OBSERVAR');
+    expect(adj.caveat).toBeDefined();
+  });
+
+  it('fecha malformada no degrada de más ni de menos: NaN ⇒ sin ajuste (input interno controlado)', () => {
+    expect(stopoutCooldownAdjustment('COMPRAR', 'garbage', '2026-07-22', 10)).toEqual({ verb: 'COMPRAR' });
+  });
+});
+
+describe('stopoutCooldownDays (envNumber lazy)', () => {
+  it('default 10; respeta HOY_STOPOUT_COOLDOWN_DAYS', () => {
+    delete process.env.HOY_STOPOUT_COOLDOWN_DAYS;
+    expect(stopoutCooldownDays()).toBe(10);
+    try {
+      process.env.HOY_STOPOUT_COOLDOWN_DAYS = '5';
+      expect(stopoutCooldownDays()).toBe(5);
+    } finally {
+      delete process.env.HOY_STOPOUT_COOLDOWN_DAYS;
     }
   });
 });

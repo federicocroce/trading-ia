@@ -5,12 +5,12 @@
  * así "Hoy" y "Oportunidades" muestran SIEMPRE los mismos números.
  */
 import type { Opportunity, Price } from '@trading/shared';
-import { getPortfolioPositions, getLatestOpportunityScan, getTodayProposalAppearances } from '../db/repository.js';
+import { getPortfolioPositions, getLatestOpportunityScan, getTodayProposalAppearances, getRecentStopouts } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
 import { decidePositionVerb, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
 import { getRegimes, assetClassOf, type Regimes } from '../quant/risk.service.js';
 import { suggestPositionSize } from '../quant/risk.js';
-import { selectTodayProposals, verbFor, chronicAdjustment, type MarketVerb } from './today-proposals.js';
+import { selectTodayProposals, verbFor, chronicAdjustment, stopoutCooldownAdjustment, stopoutCooldownDays, type MarketVerb } from './today-proposals.js';
 
 export type { MarketVerb };
 
@@ -40,6 +40,8 @@ export interface TodayOpportunity {
   appearances: number | null;
   /** Regla del residente crónico (4ª+ aparición): viaja con la card, cita la evidencia. */
   persistenceCaveat?: string;
+  /** Regla del cooldown post stop-out (patología NEM): re-BUY tras stop reciente = 10% win / −0.69R. */
+  cooldownCaveat?: string;
   score: number;
   currentPrice: number;
   assetClass: 'us' | 'crypto' | 'argentina';
@@ -151,6 +153,10 @@ export async function getTodayDecisions(): Promise<TodayView> {
   // Enésima aparición: días previos registrados + 1 (hoy). Sin filas previas ni registro
   // del propio scan (tabla recién creada) el prior es 0 → appearances = 1, honesto.
   const priorAppearances = getTodayProposalAppearances(candidates.map((c) => c.symbol), scanDay);
+  // Cooldown post stop-out: query acotada a la ventana; la decisión exacta es de la función pura.
+  const cooldownSince = new Date(new Date(scanDay + 'T00:00:00Z').getTime() - stopoutCooldownDays() * 86_400_000)
+    .toISOString().slice(0, 10);
+  const recentStopouts = getRecentStopouts(candidates.map((c) => c.symbol), cooldownSince);
 
   const opportunities: TodayOpportunity[] = candidates.map((o) => {
     const entry = o.tradeLevels?.entryPrice;
@@ -160,13 +166,16 @@ export async function getTodayDecisions(): Promise<TodayView> {
       : null;
     const nth = (priorAppearances.get(o.symbol) ?? 0) + 1;
     const adj = chronicAdjustment(verbFor(o.action), nth);
+    // Composición de degradaciones: cualquiera de las dos reglas puede bajar el verbo, ninguna subirlo.
+    const cd = stopoutCooldownAdjustment(adj.verb, recentStopouts.get(o.symbol) ?? null, scanDay);
     return {
       symbol: o.symbol,
-      verb: adj.verb,
+      verb: cd.verb,
       reason: pickReason(o),
-      timingCaveat: timingCaveatFor(adj.verb, o.timingView),
+      timingCaveat: timingCaveatFor(cd.verb, o.timingView),
       appearances: nth,
       persistenceCaveat: adj.caveat,
+      cooldownCaveat: cd.caveat,
       score: Math.round(o.opportunityScore),
       currentPrice: round2(o.currentPrice),
       assetClass: assetClassOf(o.symbol),

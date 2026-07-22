@@ -2070,6 +2070,31 @@ export function getTodayProposalAppearances(symbols: string[], beforeDate: strin
   return map;
 }
 
+/**
+ * Último stop-out (hit_stop=1) por símbolo desde `sinceDate` inclusive.
+ * Alimenta el cooldown post stop-out: la ventana exacta la decide la función pura
+ * (stopoutCooldownAdjustment); acá solo se acota la query para no barrer la tabla.
+ */
+export function getRecentStopouts(symbols: string[], sinceDate: string): Map<string, string> {
+  const map = new Map<string, string>();
+  if (symbols.length === 0) return map;
+  const rows = db
+    .select({
+      symbol: signalTracking.symbol,
+      lastStopout: sql<string>`max(${signalTracking.signalDate})`,
+    })
+    .from(signalTracking)
+    .where(and(
+      inArray(signalTracking.symbol, symbols),
+      eq(signalTracking.hitStop, true),
+      gte(signalTracking.signalDate, sinceDate),
+    ))
+    .groupBy(signalTracking.symbol)
+    .all();
+  for (const r of rows) map.set(r.symbol, r.lastStopout);
+  return map;
+}
+
 export interface TodayAccuracyBucket {
   bucket: string;       // '1' | '2-3' | '4+' | 'total'
   n: number;            // señales con outcome win/loss (neutral no cuenta para win rate)
