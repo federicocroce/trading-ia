@@ -3,7 +3,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import { PortfolioTable } from './PortfolioTable';
 import { TransactionHistory } from './TransactionHistory';
-import { PortfolioDiagnosticPanel } from './PortfolioDiagnosticPanel';
 
 type PortfolioSubTab = 'holdings' | 'transactions';
 
@@ -32,7 +31,6 @@ export function PortfolioPage() {
           </TabsList>
 
           <TabsContent value="holdings" className="mt-0 space-y-4">
-            <PortfolioDiagnosticPanel />
             <PortfolioTable />
           </TabsContent>
           <TabsContent value="transactions" className="mt-0">

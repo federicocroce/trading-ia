@@ -66,6 +66,7 @@ import {
   buildAlgorithmicOpportunity,
 } from './scoring.js';
 import { buildPortfolioContext, buildPortfolioDiagnostic, computePortfolioAdjustment } from './portfolio-risk.service.js';
+import { layerForSymbol } from '../portfolio/allocation-plan.js';
 import { factorsForSymbol } from './risk-factor-map.js';
 import { toReturns } from './correlation.js';
 import { getPortfolio } from '../portfolio/portfolio.service.js';
@@ -287,8 +288,13 @@ export async function getPortfolioDiagnostic(): Promise<PortfolioDiagnostic> {
       // Use intensity 1 for classification only — this does not touch any score.
       candidateVerdicts = opps.map((o) => ({
         symbol: o.symbol,
-        verdict: o.portfolioAdjustment?.verdict
-          ?? computePortfolioAdjustment(o.symbol, factorsForSymbol(o.symbol, o.sector), returnsFromHistoricalCache(o.symbol), ctx, 1).verdict,
+        // Estructurales (núcleo/cobertura): SIEMPRE recomputar — el verdict guardado puede
+        // ser anterior al guard de coherencia (regla #4) y decir "stacks" para SPY mientras
+        // Cartera dice "comprá SPY". Para el resto, el verdict del scan es la fuente.
+        verdict: layerForSymbol(o.symbol) !== 'riesgo'
+          ? computePortfolioAdjustment(o.symbol, factorsForSymbol(o.symbol, o.sector), returnsFromHistoricalCache(o.symbol), ctx, 1).verdict
+          : (o.portfolioAdjustment?.verdict
+            ?? computePortfolioAdjustment(o.symbol, factorsForSymbol(o.symbol, o.sector), returnsFromHistoricalCache(o.symbol), ctx, 1).verdict),
       }));
     } catch { /* ignore malformed scan blob */ }
   }

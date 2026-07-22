@@ -5,6 +5,7 @@ import type {
 import { HEDGE_FACTORS } from '@trading/shared';
 import { pearson } from './correlation.js';
 import { factorsForSymbol } from './risk-factor-map.js';
+import { layerForSymbol } from '../portfolio/allocation-plan.js';
 
 export interface HoldingInput {
   symbol: string;
@@ -64,6 +65,12 @@ export function computePortfolioAdjustment(
       reason: ctx.totalValue === 0 ? 'Sin cartera de referencia.' : 'Sin factores clasificados.' };
   }
 
+  // Coherencia con el módulo Cartera (regla dura #4): los instrumentos estructurales
+  // (núcleo/cobertura) jamás se castigan como "apilan riesgo" — el diagnóstico decía
+  // "SPY apila" mientras Cartera decía "comprá SPY". El guard solo exime del veredicto
+  // negativo: si el estructural aporta factores nuevos, el camino diversifies sigue vivo.
+  const structural = layerForSymbol(symbol) !== 'riesgo';
+
   const concentration: PortfolioConcentration[] = [];
   let stackScore = 0;       // accumulates how much it piles onto heavy factors
   let novelFactors = 0;     // factors the portfolio lacks
@@ -84,7 +91,10 @@ export function computePortfolioAdjustment(
   let verdict: PortfolioAdjustment['verdict'] = 'neutral';
   let reason = 'Relación neutral con la cartera.';
 
-  if (stackScore > 0) {
+  if (stackScore > 0 && structural) {
+    // Estructural con factores solapados: neutral sin castigo — su lugar lo decide Cartera.
+    reason = 'Instrumento estructural de cartera (núcleo/cobertura) — se evalúa por capas, no apila riesgo.';
+  } else if (stackScore > 0) {
     rawDelta = -Math.min(MAX_RAW_DELTA, Math.round(stackScore * MAX_RAW_DELTA));
     verdict = 'stacks';
     const top = concentration

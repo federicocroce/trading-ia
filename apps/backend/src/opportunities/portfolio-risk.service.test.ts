@@ -55,6 +55,35 @@ describe('computePortfolioAdjustment', () => {
     expect(adj.verdict).toBe('neutral');
     expect(adj.delta).toBe(0);
   });
+
+  // Coherencia con el módulo Cartera (regla dura #4): los instrumentos estructurales
+  // (whitelists núcleo/cobertura) jamás pueden marcarse como "apilan tu riesgo" —
+  // el diagnóstico decía "SPY apila" mientras Cartera decía "comprá SPY".
+  it('SPY (núcleo estructural) jamás es stacks aunque correlacione con factores pesados', () => {
+    const riskOnHoldings = [
+      { symbol: 'GGAL', value: 10_000, returns: [0.01, -0.02, 0.03, 0.01] },
+      { symbol: 'MARA', value: 10_000, returns: [0.012, -0.018, 0.028, 0.011] },
+    ];
+    const riskCtx = buildPortfolioContext(riskOnHoldings);
+    const adj = computePortfolioAdjustment('SPY', ['us-equity', 'risk-on'],
+      [0.0105, -0.0195, 0.0295, 0.0105], riskCtx, 1);
+    expect(adj.verdict).toBe('neutral');
+    expect(adj.delta).toBe(0);
+    expect(adj.reason).toMatch(/estructural/i);
+  });
+
+  it('GLD (cobertura estructural) conserva el veredicto diversifies — el guard solo exime del castigo', () => {
+    const adj = computePortfolioAdjustment('GLD', ['gold', 'safe-haven'],
+      [-0.01, 0.02, -0.03, 0.0], ctx, 1);
+    expect(adj.verdict).toBe('diversifies');
+    expect(adj.rawDelta).toBeGreaterThan(0);
+  });
+
+  it('una acción común sigue pudiendo apilar (el guard es solo para estructurales)', () => {
+    const adj = computePortfolioAdjustment('EOG', ['oil', 'us-equity'],
+      [0.0105, -0.0205, 0.0305, 0.0102], ctx, 1);
+    expect(adj.verdict).toBe('stacks');
+  });
 });
 
 describe('buildPortfolioDiagnostic', () => {

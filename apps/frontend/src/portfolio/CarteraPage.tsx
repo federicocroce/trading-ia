@@ -1,5 +1,6 @@
 import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import { AllocationPlanPanel } from './AllocationPlanPanel';
+import { PortfolioDiagnosticPanel } from './PortfolioDiagnosticPanel';
 
 /**
  * Tab "Cartera": estructura por capas y plan de aportes, separada a propósito del
@@ -11,9 +12,10 @@ export function CarteraPage() {
     <>
       <TabInfo>
         <InfoSection title="Qué muestra">
-          La estructura de tu cartera por capas (núcleo indexado / cobertura / riesgo) contra bandas objetivo
-          configurables, las violaciones de concentración, y el plan de asignación de aportes nuevos: a qué capa
-          va cada dólar fresco para acercarte a los targets sin vender nada.
+          La estructura de tu cartera como conjunto: el diagnóstico de correlación de riesgo (concentración por
+          factor, cobertura faltante, qué candidatos apilan vs diversifican) y la estructura por capas (núcleo
+          indexado / cobertura / riesgo) contra bandas objetivo, con el plan de asignación de aportes nuevos:
+          a qué capa va cada dólar fresco para acercarte a los targets sin vender nada.
         </InfoSection>
         <InfoSection title="Cómo usarlo">
           Ingresá los USD que pensás aportar y calculá: el sistema reparte entre las capas subponderadas
@@ -23,6 +25,7 @@ export function CarteraPage() {
         </InfoSection>
       </TabInfo>
       <div className="p-4 space-y-4">
+        <PortfolioDiagnosticPanel />
         <AllocationPlanPanel />
       </div>
     </>
