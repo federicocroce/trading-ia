@@ -62,6 +62,8 @@ Hecho y verificado: resolución direccional path-aware de señales + R-multiples
 
 **Branch `feat/universo-cobertura` (2026-07-20):** dos caños nuevos de cobertura, ambos NOMINADORES medibles (jamás señal): (1) puente radar→universo — sector "girando" nomina sus constituyentes (`radar-constituents.ts`, lista curada) vía `registerNovelTickers(source='radar')`, fail-closed si el snapshot tiene >7 días; (2) barrido semanal de bases — S&P500 estático (`sweep-universe.json`) × `detectBase` puro (castigada + reparando + volumen o RS), cron sábados 14:00, `source='base_sweep'`, aborta si >50% de fetches fallan. El embudo normal decide; los sources permiten medir expectancy por caño en `signal_tracking`.
 
+**Branch `feat/modulo-cartera` (2026-07-22):** módulo Cartera v1 (modo aportes) — el sistema responde "¿dónde va cada dólar nuevo?": capas por whitelist (núcleo=ETFs índice, cobertura=oro/bonos, riesgo=resto), bandas configurables (`CARTERA_*`), violaciones informativas, aportes greedy hacia targets con instrumentos whitelisteados (SPY/GLD — jamás picks individuales; el riesgo se llena con setups del scan). `buildAllocationPlan` pura fail-closed + `portfolio.allocationPlan` + panel en tab Portfolio. Advisory total, no recomienda vender (preferencia del dueño). V2 anotado: separar tesis-macro de satélite (requiere declaración por símbolo) y estado de respaldo del motor por posición.
+
 ## 6. Backlog priorizado (arrancá por acá)
 
 **A. Con impacto directo en decisiones:**
