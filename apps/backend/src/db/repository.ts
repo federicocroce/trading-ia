@@ -2071,27 +2071,31 @@ export function getTodayProposalAppearances(symbols: string[], beforeDate: strin
 }
 
 /**
- * Último stop-out (hit_stop=1) por símbolo desde `sinceDate` inclusive.
- * Alimenta el cooldown post stop-out: la ventana exacta la decide la función pura
- * (stopoutCooldownAdjustment); acá solo se acota la query para no barrer la tabla.
+ * Stop más alto fijado por señales recientes (`sinceDate` ≤ signal_date < `beforeDate`)
+ * por símbolo. Alimenta la regla de stop perforado: si el precio actual está por DEBAJO
+ * de un stop que el propio sistema fijó hace días, comprar es doble discurso (y midió
+ * 32% win / −0.15R). `beforeDate` excluye las señales del scan de hoy — el stop nuevo
+ * de hoy no puede vetarse a sí mismo. NO usa hit_stop/resolved_at a propósito: ambas
+ * llegan semanas tarde (el resolver corre por cron); el precio vs stop es observable YA.
  */
-export function getRecentStopouts(symbols: string[], sinceDate: string): Map<string, string> {
-  const map = new Map<string, string>();
+export function getRecentStopLevels(symbols: string[], sinceDate: string, beforeDate: string): Map<string, number> {
+  const map = new Map<string, number>();
   if (symbols.length === 0) return map;
   const rows = db
     .select({
       symbol: signalTracking.symbol,
-      lastStopout: sql<string>`max(${signalTracking.signalDate})`,
+      maxStop: sql<number>`max(${signalTracking.stopLoss})`,
     })
     .from(signalTracking)
     .where(and(
       inArray(signalTracking.symbol, symbols),
-      eq(signalTracking.hitStop, true),
+      sql`${signalTracking.stopLoss} IS NOT NULL`,
       gte(signalTracking.signalDate, sinceDate),
+      lt(signalTracking.signalDate, beforeDate),
     ))
     .groupBy(signalTracking.symbol)
     .all();
-  for (const r of rows) map.set(r.symbol, r.lastStopout);
+  for (const r of rows) if (r.maxStop != null) map.set(r.symbol, r.maxStop);
   return map;
 }
 

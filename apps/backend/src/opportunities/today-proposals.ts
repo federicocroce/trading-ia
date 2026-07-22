@@ -51,42 +51,45 @@ export interface ChronicAdjustment {
   caveat?: string;
 }
 
+/** Lookback de stops recientes para la regla de perforación, configurable lazy (regla dura 3). */
+export function stopBreachLookbackDays(): number {
+  return envNumber('HOY_STOP_BREACH_LOOKBACK_DAYS', 30);
+}
+
+/**
+ * Regla de stop perforado (patología NEM, medida 2026-07-22 con definición CAUSAL —
+ * ambos datos observables al momento de la señal): BUY con precio por debajo del
+ * stop_loss de una señal previa (≤30d) del mismo símbolo = 31.9% win / −0.153R (n=91)
+ * vs 41.0% / +0.042R del resto (n=883). Además es coherencia pura (objetivo #4): el
+ * sistema dijo "salida en X" hace días — recomendar compra por debajo de X es doble
+ * discurso. COMPRAR degrada a OBSERVAR (jamás al revés) y cualquier verbo lleva caveat.
+ * Sin stop reciente (null) = caso normal. Precio no finito ⇒ sin ajuste (la perforación
+ * no puede verificarse; el dato faltante ya rechaza la señal aguas arriba).
+ * NOTA de método: una primera medición dio −0.69R pero tenía lookahead bias (usaba
+ * stops resueltos DESPUÉS de la señal) — ver prompt maestro sección 4.
+ */
+export function stopBreachAdjustment(
+  verb: MarketVerb,
+  currentPrice: number,
+  recentMaxStop: number | null,
+): ChronicAdjustment {
+  if (recentMaxStop == null || !Number.isFinite(currentPrice)) return { verb };
+  if (!(currentPrice < recentMaxStop)) return { verb };
+  const cierre = verb === 'COMPRAR' ? 'Degradado a OBSERVAR.' : 'Esperá a que arme setup nuevo por encima del stop.';
+  return {
+    verb: verb === 'COMPRAR' ? 'OBSERVAR' : verb,
+    caveat:
+      `Precio (${currentPrice.toFixed(2)}) por debajo del stop ${recentMaxStop.toFixed(2)} que el propio sistema ` +
+      `fijó hace días. Comprar bajo un stop perforado midió 32% de aciertos y R −0.15 (n=91, abr–jul 2026) ` +
+      `contra 41% / +0.04R del resto. ${cierre}`,
+  };
+}
+
 /**
  * Regla del residente crónico: nthAppearance >= umbral ⇒ COMPRAR degrada a OBSERVAR
  * (jamás al revés) y cualquier verbo lleva caveat. nth null = dato faltante ⇒ no se
  * inventa nada (fail-closed).
  */
-/** Ventana de cooldown post stop-out, configurable lazy (regla dura 3). */
-export function stopoutCooldownDays(): number {
-  return envNumber('HOY_STOPOUT_COOLDOWN_DAYS', 10);
-}
-
-/**
- * Regla del cooldown post stop-out (patología NEM, medida 2026-07-22):
- * re-BUY con stop-out del mismo símbolo en los últimos N días = 10.3% win / −0.69R
- * (n=156; robusto sin los 3 peores símbolos: 11.6% / −0.64R n=112) contra
- * 45.8% / +0.16R del BUY fresco (n=818). COMPRAR degrada a OBSERVAR (jamás al
- * revés) y cualquier verbo lleva caveat. Sin stop-out (null) = caso normal, sin
- * ajuste. Fecha malformada ⇒ NaN ⇒ sin ajuste (input interno YYYY-MM-DD controlado).
- */
-export function stopoutCooldownAdjustment(
-  verb: MarketVerb,
-  lastStopoutDate: string | null,
-  today: string,
-  cooldownDays: number = stopoutCooldownDays(),
-): ChronicAdjustment {
-  if (!lastStopoutDate) return { verb };
-  const ageDays = (new Date(today + 'T00:00:00Z').getTime() - new Date(lastStopoutDate + 'T00:00:00Z').getTime()) / 86_400_000;
-  if (!(ageDays >= 0 && ageDays <= cooldownDays)) return { verb };
-  const cierre = verb === 'COMPRAR' ? 'Degradado a OBSERVAR.' : 'Esperá a que arme setup nuevo.';
-  return {
-    verb: verb === 'COMPRAR' ? 'OBSERVAR' : verb,
-    caveat:
-      `Stop-out el ${lastStopoutDate} (hace ${Math.round(ageDays)} días). Re-comprar tras un stop reciente ` +
-      `midió 10% de aciertos y R −0.69 (n=156, abr–jul 2026) contra 46% / +0.16R del BUY fresco. ${cierre}`,
-  };
-}
-
 export function chronicAdjustment(
   verb: MarketVerb,
   nthAppearance: number | null,

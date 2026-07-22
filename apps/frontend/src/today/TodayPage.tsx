@@ -128,6 +128,7 @@ export function TodayPage() {
                 {o.reason && <p className="text-[11px] text-foreground">{o.reason}</p>}
                 {o.timingCaveat && <p className="text-[10px] text-amber-400">⚠ {o.timingCaveat}</p>}
                 {o.persistenceCaveat && <p className="text-[10px] text-amber-400">⚠ {o.persistenceCaveat}</p>}
+                {o.cooldownCaveat && <p className="text-[10px] text-red-400">⛔ {o.cooldownCaveat}</p>}
                 {(o.entry != null || o.stop != null || o.target != null) && (
                   <div className="flex gap-3 text-[10px] text-muted-foreground">
                     {o.entry != null && <span>Entrada {money(o.entry)}</span>}

@@ -4,8 +4,8 @@ import {
   verbFor,
   chronicAdjustment,
   chronicThreshold,
-  stopoutCooldownAdjustment,
-  stopoutCooldownDays,
+  stopBreachAdjustment,
+  stopBreachLookbackDays,
   TODAY_PROPOSAL_LIMIT,
 } from './today-proposals.js';
 
@@ -85,47 +85,46 @@ describe('chronicThreshold (envNumber lazy)', () => {
   });
 });
 
-describe('stopoutCooldownAdjustment — re-BUY tras stop-out reciente (patología NEM)', () => {
-  it('stop-out dentro de la ventana: COMPRAR degrada a OBSERVAR con caveat que cita la evidencia', () => {
-    const adj = stopoutCooldownAdjustment('COMPRAR', '2026-07-15', '2026-07-22', 10);
+describe('stopBreachAdjustment — BUY con precio bajo un stop reciente perforado (patología NEM)', () => {
+  it('precio bajo el stop reciente: COMPRAR degrada a OBSERVAR con caveat que cita la evidencia', () => {
+    const adj = stopBreachAdjustment('COMPRAR', 98.99, 102.78);
     expect(adj.verb).toBe('OBSERVAR');
     expect(adj.caveat).toMatch(/stop/i);
-    expect(adj.caveat).toContain('10%'); // cita el win rate medido del re-BUY
+    expect(adj.caveat).toContain('32%'); // win rate causal medido del BUY bajo stop perforado
   });
 
-  it('stop-out en el borde de la ventana (exactamente N días) todavía degrada', () => {
-    const adj = stopoutCooldownAdjustment('COMPRAR', '2026-07-12', '2026-07-22', 10);
-    expect(adj.verb).toBe('OBSERVAR');
+  it('precio por encima del stop reciente: sin ajuste', () => {
+    expect(stopBreachAdjustment('COMPRAR', 105, 102.78)).toEqual({ verb: 'COMPRAR' });
   });
 
-  it('stop-out fuera de la ventana (N+1 días) no degrada ni agrega caveat', () => {
-    expect(stopoutCooldownAdjustment('COMPRAR', '2026-07-11', '2026-07-22', 10)).toEqual({ verb: 'COMPRAR' });
+  it('precio exactamente en el stop: sin ajuste (la perforación es estricta)', () => {
+    expect(stopBreachAdjustment('COMPRAR', 102.78, 102.78)).toEqual({ verb: 'COMPRAR' });
   });
 
-  it('sin stop-out registrado (null) no degrada — ausencia de stop-out es el caso normal', () => {
-    expect(stopoutCooldownAdjustment('COMPRAR', null, '2026-07-22', 10)).toEqual({ verb: 'COMPRAR' });
+  it('sin stop reciente registrado (null): sin ajuste — ausencia es el caso normal', () => {
+    expect(stopBreachAdjustment('COMPRAR', 98.99, null)).toEqual({ verb: 'COMPRAR' });
   });
 
-  it('OBSERVAR con stop-out reciente: mantiene verbo (jamás sube) pero lleva caveat', () => {
-    const adj = stopoutCooldownAdjustment('OBSERVAR', '2026-07-20', '2026-07-22', 10);
+  it('OBSERVAR bajo stop perforado: mantiene verbo (jamás sube) pero lleva caveat', () => {
+    const adj = stopBreachAdjustment('OBSERVAR', 98.99, 102.78);
     expect(adj.verb).toBe('OBSERVAR');
     expect(adj.caveat).toBeDefined();
   });
 
-  it('fecha malformada no degrada de más ni de menos: NaN ⇒ sin ajuste (input interno controlado)', () => {
-    expect(stopoutCooldownAdjustment('COMPRAR', 'garbage', '2026-07-22', 10)).toEqual({ verb: 'COMPRAR' });
+  it('precio no finito (NaN): sin ajuste — no se puede verificar la perforación', () => {
+    expect(stopBreachAdjustment('COMPRAR', Number.NaN, 102.78)).toEqual({ verb: 'COMPRAR' });
   });
 });
 
-describe('stopoutCooldownDays (envNumber lazy)', () => {
-  it('default 10; respeta HOY_STOPOUT_COOLDOWN_DAYS', () => {
-    delete process.env.HOY_STOPOUT_COOLDOWN_DAYS;
-    expect(stopoutCooldownDays()).toBe(10);
+describe('stopBreachLookbackDays (envNumber lazy)', () => {
+  it('default 30; respeta HOY_STOP_BREACH_LOOKBACK_DAYS', () => {
+    delete process.env.HOY_STOP_BREACH_LOOKBACK_DAYS;
+    expect(stopBreachLookbackDays()).toBe(30);
     try {
-      process.env.HOY_STOPOUT_COOLDOWN_DAYS = '5';
-      expect(stopoutCooldownDays()).toBe(5);
+      process.env.HOY_STOP_BREACH_LOOKBACK_DAYS = '15';
+      expect(stopBreachLookbackDays()).toBe(15);
     } finally {
-      delete process.env.HOY_STOPOUT_COOLDOWN_DAYS;
+      delete process.env.HOY_STOP_BREACH_LOOKBACK_DAYS;
     }
   });
 });

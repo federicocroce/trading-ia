@@ -5,12 +5,12 @@
  * así "Hoy" y "Oportunidades" muestran SIEMPRE los mismos números.
  */
 import type { Opportunity, Price } from '@trading/shared';
-import { getPortfolioPositions, getLatestOpportunityScan, getTodayProposalAppearances, getRecentStopouts } from '../db/repository.js';
+import { getPortfolioPositions, getLatestOpportunityScan, getTodayProposalAppearances, getRecentStopLevels } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
 import { decidePositionVerb, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
 import { getRegimes, assetClassOf, type Regimes } from '../quant/risk.service.js';
 import { suggestPositionSize } from '../quant/risk.js';
-import { selectTodayProposals, verbFor, chronicAdjustment, stopoutCooldownAdjustment, stopoutCooldownDays, type MarketVerb } from './today-proposals.js';
+import { selectTodayProposals, verbFor, chronicAdjustment, stopBreachAdjustment, stopBreachLookbackDays, type MarketVerb } from './today-proposals.js';
 
 export type { MarketVerb };
 
@@ -153,10 +153,10 @@ export async function getTodayDecisions(): Promise<TodayView> {
   // Enésima aparición: días previos registrados + 1 (hoy). Sin filas previas ni registro
   // del propio scan (tabla recién creada) el prior es 0 → appearances = 1, honesto.
   const priorAppearances = getTodayProposalAppearances(candidates.map((c) => c.symbol), scanDay);
-  // Cooldown post stop-out: query acotada a la ventana; la decisión exacta es de la función pura.
-  const cooldownSince = new Date(new Date(scanDay + 'T00:00:00Z').getTime() - stopoutCooldownDays() * 86_400_000)
+  // Stops recientes (excluyendo el scan de hoy) para la regla de perforación.
+  const breachSince = new Date(new Date(scanDay + 'T00:00:00Z').getTime() - stopBreachLookbackDays() * 86_400_000)
     .toISOString().slice(0, 10);
-  const recentStopouts = getRecentStopouts(candidates.map((c) => c.symbol), cooldownSince);
+  const recentStops = getRecentStopLevels(candidates.map((c) => c.symbol), breachSince, scanDay);
 
   const opportunities: TodayOpportunity[] = candidates.map((o) => {
     const entry = o.tradeLevels?.entryPrice;
@@ -167,7 +167,7 @@ export async function getTodayDecisions(): Promise<TodayView> {
     const nth = (priorAppearances.get(o.symbol) ?? 0) + 1;
     const adj = chronicAdjustment(verbFor(o.action), nth);
     // Composición de degradaciones: cualquiera de las dos reglas puede bajar el verbo, ninguna subirlo.
-    const cd = stopoutCooldownAdjustment(adj.verb, recentStopouts.get(o.symbol) ?? null, scanDay);
+    const cd = stopBreachAdjustment(adj.verb, o.currentPrice, recentStops.get(o.symbol) ?? null);
     return {
       symbol: o.symbol,
       verb: cd.verb,

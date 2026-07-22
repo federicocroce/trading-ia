@@ -55,11 +55,11 @@ import {
   getInvalidSetupSymbolsByDate,
   upsertTodayProposals,
   getTodayProposalAppearances,
-  getRecentStopouts,
+  getRecentStopLevels,
   getLatestCycleRadarDate,
   getCycleRadarSnapshots,
 } from '../db/repository.js';
-import { selectTodayProposals, verbFor, chronicAdjustment, stopoutCooldownAdjustment, stopoutCooldownDays } from './today-proposals.js';
+import { selectTodayProposals, verbFor, chronicAdjustment, stopBreachAdjustment, stopBreachLookbackDays } from './today-proposals.js';
 import { buildAlertsFromScan, reconcileAlerts } from './anticipatory-alerts.js';
 import { detectRearmedSetups } from './rearm-detector.js';
 import {
@@ -1168,14 +1168,14 @@ function persistScanResult(result: OpportunityScanResult): void {
       const heldNow = new Set(getPortfolioPositions().map((p) => p.symbol.toUpperCase()));
       const proposed = selectTodayProposals(result.opportunities, heldNow);
       const priorAppearances = getTodayProposalAppearances(proposed.map((o) => o.symbol), scanDate);
-      // Cooldown post stop-out: el verbo persistido refleja la MISMA degradación que la vista.
-      const cooldownSince = new Date(new Date(scanDate + 'T00:00:00Z').getTime() - stopoutCooldownDays() * 86_400_000)
+      // Stop perforado: el verbo persistido refleja la MISMA degradación que la vista.
+      const breachSince = new Date(new Date(scanDate + 'T00:00:00Z').getTime() - stopBreachLookbackDays() * 86_400_000)
         .toISOString().slice(0, 10);
-      const recentStopouts = getRecentStopouts(proposed.map((o) => o.symbol), cooldownSince);
+      const recentStops = getRecentStopLevels(proposed.map((o) => o.symbol), breachSince, scanDate);
       upsertTodayProposals(proposed.map((o) => {
         const nth = (priorAppearances.get(o.symbol) ?? 0) + 1;
         const adj = chronicAdjustment(verbFor(o.action), nth);
-        const cd = stopoutCooldownAdjustment(adj.verb, recentStopouts.get(o.symbol) ?? null, scanDate);
+        const cd = stopBreachAdjustment(adj.verb, o.currentPrice, recentStops.get(o.symbol) ?? null);
         return {
           scanId,
           scanDate,
