@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc.js';
 import { getPortfolio } from './portfolio.service.js';
+import { buildAllocationPlan } from './allocation-plan.js';
 import * as repo from '../db/repository.js';
 import { searchSymbols } from '../shared/yahoo.js';
 import { resetPriceCache } from '../prices/prices.service.js';
@@ -23,6 +24,21 @@ export const portfolioRouter = router({
       positionCount: portfolio.positions.length,
     };
   }),
+
+  // Plan de asignación por capas (modo aportes): advisory, jamás ejecuta.
+  allocationPlan: publicProcedure
+    .input(z.object({ newCashUsd: z.number().min(0).max(10_000_000).default(0) }).optional())
+    .query(async ({ input }) => {
+      const summary = await getPortfolio();
+      return buildAllocationPlan({
+        positions: summary.positions.map((p) => ({
+          symbol: p.symbol,
+          value: p.value,
+          currentPrice: p.currentPrice,
+        })),
+        newCashUsd: input?.newCashUsd ?? 0,
+      });
+    }),
 
   // --- Symbols CRUD ---
 
