@@ -7,6 +7,7 @@ import { Sidebar } from '@/layout/Sidebar';
 import { PriceTicker } from '@/prices/PriceTicker';
 import { InfraBar } from '@/layout/InfraBar';
 import { PortfolioPage } from '@/portfolio/PortfolioPage';
+import { CarteraPage } from '@/portfolio/CarteraPage';
 import { ChatPanel } from '@/chat/ChatPanel';
 import { ChatToggle } from '@/layout/ChatToggle';
 import { SymbolDetailPage } from '@/symbol/SymbolDetailPage';
@@ -20,7 +21,7 @@ import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
 import { WebSearchBlockedModal } from '@/pipeline/WebSearchBlockedModal';
 
-const VALID_TABS = ['hoy', 'daily', 'opportunities', 'portfolio', 'historico', 'radar'] as const;
+const VALID_TABS = ['hoy', 'daily', 'opportunities', 'portfolio', 'cartera', 'historico', 'radar'] as const;
 type TabValue = typeof VALID_TABS[number];
 const DEFAULT_TAB: TabValue = 'hoy';
 
@@ -128,6 +129,7 @@ export function App() {
                   <BuyBadge />
                 </TabsTrigger>
                 <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
+                <TabsTrigger value="cartera">Cartera</TabsTrigger>
                 <TabsTrigger value="historico">Histórico</TabsTrigger>
                 <TabsTrigger value="radar">Radar</TabsTrigger>
               </TabsList>
@@ -149,6 +151,9 @@ export function App() {
                   </TabsContent>
                   <TabsContent value="portfolio" className="flex-1 overflow-y-auto">
                     <PortfolioPage />
+                  </TabsContent>
+                  <TabsContent value="cartera" className="flex-1 overflow-y-auto">
+                    <CarteraPage />
                   </TabsContent>
                   <TabsContent value="historico" className="flex-1 overflow-y-auto">
                     <HistoricoPage />

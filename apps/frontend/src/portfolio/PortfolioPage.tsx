@@ -4,7 +4,6 @@ import { TabInfo, InfoSection } from '@/shared/TabInfo';
 import { PortfolioTable } from './PortfolioTable';
 import { TransactionHistory } from './TransactionHistory';
 import { PortfolioDiagnosticPanel } from './PortfolioDiagnosticPanel';
-import { AllocationPlanPanel } from './AllocationPlanPanel';
 
 type PortfolioSubTab = 'holdings' | 'transactions';
 
@@ -34,7 +33,6 @@ export function PortfolioPage() {
 
           <TabsContent value="holdings" className="mt-0 space-y-4">
             <PortfolioDiagnosticPanel />
-            <AllocationPlanPanel />
             <PortfolioTable />
           </TabsContent>
           <TabsContent value="transactions" className="mt-0">
