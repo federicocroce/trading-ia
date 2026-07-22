@@ -15,14 +15,12 @@ function usd(value: number): string {
   return `$${value.toLocaleString('en-US', { minimumFractionDigits: 0 })}`;
 }
 
-/** Color de la barra: rojo si el motor reportó violación para esta capa, ámbar si está fuera de banda (±5pp), verde si está dentro. */
+/** Color binario: rojo si el backend reportó violación para esta capa, verde en otro caso.
+ *  La violación debe contener el nombre de la capa. Si algún día hay estados intermedios,
+ *  vendrán en el payload, no inventados en el frontend. */
 function layerBarColor(layer: { layer: string; pct: number; targetPct: number }, violations: string[]): string {
-  const esViolacionDeRiesgo =
-    layer.layer === 'riesgo' && violations.some((v) => v.toLowerCase().includes('capa de riesgo'));
-  if (esViolacionDeRiesgo) return 'bg-trading-red/70';
-  const diff = Math.abs(layer.pct - layer.targetPct);
-  if (diff <= 5) return 'bg-trading-green/60';
-  return 'bg-amber-500/60';
+  const hasViolation = violations.some((v) => v.toLowerCase().includes(layer.layer.toLowerCase()));
+  return hasViolation ? 'bg-trading-red/70' : 'bg-trading-green/60';
 }
 
 export function AllocationPlanPanel() {
