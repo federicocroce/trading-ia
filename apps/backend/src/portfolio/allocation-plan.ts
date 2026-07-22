@@ -38,6 +38,8 @@ export interface AllocationPlanOk {
   layers: LayerBreakdown[];
   violations: string[]; // texto en español, una por regla violada
   contributions: Array<{ layer: CarteraLayer; usd: number; instruments: string[]; nota: string }>;
+  /** Excedente sin destino: mantener líquido — nuevos targets el próximo rebalanceo o setups del scan. */
+  unallocatedUsd: number;
 }
 
 export interface AllocationPlanFail {
@@ -121,7 +123,10 @@ export function buildAllocationPlan(input: AllocationInput): AllocationPlan {
 
   // Regla 5: reparto del aporte, proporcional al déficit en USD de las capas subponderadas.
   // El riesgo JAMÁS recibe aporte sugerido (se llena con setups del scan, no con plata fresca).
+  // Cap: ninguna contribución puede exceder el déficit de su propia capa — si el aporte supera
+  // el déficit total, el sobrante NO se fuerza a ninguna capa, queda explícito en unallocatedUsd.
   const contributions: AllocationPlanOk['contributions'] = [];
+  let unallocatedUsd = 0;
   if (newCashUsd > 0) {
     const deficitByLayer: Partial<Record<'nucleo' | 'cobertura', number>> = {};
     for (const layer of ['nucleo', 'cobertura'] as const) {
@@ -138,17 +143,28 @@ export function buildAllocationPlan(input: AllocationInput): AllocationPlan {
       for (const layer of ['nucleo', 'cobertura'] as const) {
         const deficit = deficitByLayer[layer];
         if (deficit === undefined) continue;
-        const raw = (newCashUsd * deficit) / sumDeficits;
-        const rounded = Math.floor(raw);
+        const proporcional = (newCashUsd * deficit) / sumDeficits;
+        const capeado = Math.min(proporcional, deficit); // fix ALTA: jamás por encima del déficit propio
+        const rounded = Math.floor(capeado);
         shares.push({ layer, deficit, usd: rounded });
         sumRounded += rounded;
       }
-      // Redondeo a enteros de USD; el residuo va a la capa con mayor déficit.
-      const residual = newCashUsd - sumRounded;
-      if (residual > 0 && shares.length > 0) {
-        const mayorDeficit = shares.reduce((max, s) => (s.deficit > max.deficit ? s : max));
-        mayorDeficit.usd += residual;
+      // Redondeo a enteros de USD: el residuo (por floor, o por el cap de arriba) intenta entrar
+      // primero en la capa con mayor déficit, luego en la otra, respetando siempre el cap de cada
+      // una; lo que no tiene destino (sobra el déficit total) queda en unallocatedUsd.
+      let residual = newCashUsd - sumRounded;
+      const ordenPorDeficit = [...shares].sort((a, b) => b.deficit - a.deficit);
+      for (const s of ordenPorDeficit) {
+        if (residual <= 0) break;
+        const espacio = Math.floor(s.deficit) - s.usd;
+        const aplicar = Math.min(residual, Math.max(0, espacio));
+        if (aplicar > 0) {
+          s.usd += aplicar;
+          residual -= aplicar;
+        }
       }
+      unallocatedUsd += residual;
+
       for (const s of shares) {
         contributions.push({
           layer: s.layer,
@@ -157,6 +173,9 @@ export function buildAllocationPlan(input: AllocationInput): AllocationPlan {
           nota: 'Aporte sugerido para acercar la capa al target',
         });
       }
+    } else {
+      // Ninguna capa defensiva está subponderada: el aporte entero queda líquido (sin destino).
+      unallocatedUsd += newCashUsd;
     }
 
     // El riesgo puede estar subponderado, pero jamás recibe aporte: se explicita con nota y usd 0.
@@ -170,5 +189,5 @@ export function buildAllocationPlan(input: AllocationInput): AllocationPlan {
     }
   }
 
-  return { ok: true, totalValue, layers, violations, contributions };
+  return { ok: true, totalValue, layers, violations, contributions, unallocatedUsd };
 }
