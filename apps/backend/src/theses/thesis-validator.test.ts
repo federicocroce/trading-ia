@@ -199,3 +199,57 @@ describe('validateThesis — grupo 5: números no finitos/negativos', () => {
     expect(negativeInvalidation.ok).toBe(false);
   });
 });
+
+describe('validateThesis — grupo 6: invalidación del lado correcto del trigger', () => {
+  it('rechaza alcista cuando invalidationPrice >= entryTriggerPrice', () => {
+    const livePrices = new Map([['JPM', 200]]);
+
+    // alcista con invalidationPrice > entryTriggerPrice pero < livePrice (pasa Grupo 3, falla Grupo 6)
+    // livePrice=200, entryTriggerPrice=205, invalidationPrice=202 => 202 < 200? No, falla en Grupo 3
+    // Necesitamos livePrice más alto: livePrice=210, entryTriggerPrice=205, invalidationPrice=207
+    const alcistaInvAltoQueTrigger = validateThesis(
+      { ...validRawAlcista(), entryTriggerPrice: 205, invalidationPrice: 207 },
+      new Map([['JPM', 210]]),
+    );
+    expect(alcistaInvAltoQueTrigger.ok).toBe(false);
+    if (!alcistaInvAltoQueTrigger.ok) {
+      expect(alcistaInvAltoQueTrigger.reason).toMatch(/invalidaci[oó]n/i);
+      expect(alcistaInvAltoQueTrigger.reason).toMatch(/debajo|below|menor/i);
+      expect(alcistaInvAltoQueTrigger.reason).toMatch(/trigger|entrada|entry/i);
+    }
+
+    // alcista con invalidationPrice = entryTriggerPrice (pasa Grupo 3, falla Grupo 6)
+    // livePrice=210, entryTriggerPrice=205, invalidationPrice=205
+    const alcistaInvIgualTrigger = validateThesis(
+      { ...validRawAlcista(), entryTriggerPrice: 205, invalidationPrice: 205 },
+      new Map([['JPM', 210]]),
+    );
+    expect(alcistaInvIgualTrigger.ok).toBe(false);
+  });
+
+  it('rechaza bajista cuando invalidationPrice <= entryTriggerPrice', () => {
+    const livePrices = new Map([['USO', 75]]);
+
+    // bajista con invalidationPrice < entryTriggerPrice pero > livePrice (pasa Grupo 3, falla Grupo 6)
+    // livePrice=75, entryTriggerPrice=68, invalidationPrice=70 => 70 > 75? No, falla en Grupo 3
+    // Necesitamos livePrice más bajo: livePrice=60, entryTriggerPrice=68, invalidationPrice=65
+    const bajistaInvBajoQueTrigger = validateThesis(
+      { ...validRawBajista(), entryTriggerPrice: 68, invalidationPrice: 65 },
+      new Map([['USO', 60]]),
+    );
+    expect(bajistaInvBajoQueTrigger.ok).toBe(false);
+    if (!bajistaInvBajoQueTrigger.ok) {
+      expect(bajistaInvBajoQueTrigger.reason).toMatch(/invalidaci[oó]n/i);
+      expect(bajistaInvBajoQueTrigger.reason).toMatch(/arriba|above|mayor/i);
+      expect(bajistaInvBajoQueTrigger.reason).toMatch(/trigger|entrada|entry/i);
+    }
+
+    // bajista con invalidationPrice = entryTriggerPrice (pasa Grupo 3, falla Grupo 6)
+    // livePrice=60, entryTriggerPrice=68, invalidationPrice=68
+    const bajistaInvIgualTrigger = validateThesis(
+      { ...validRawBajista(), entryTriggerPrice: 68, invalidationPrice: 68 },
+      new Map([['USO', 60]]),
+    );
+    expect(bajistaInvIgualTrigger.ok).toBe(false);
+  });
+});

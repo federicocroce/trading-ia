@@ -157,6 +157,18 @@ export function validateThesis(raw: unknown, livePrices: Map<string, number>): V
     return fail('nivel de invalidación (invalidationPrice) debe ser mayor al precio vivo en una tesis bajista');
   }
 
+  // --- Grupo 6: invalidación del lado correcto del trigger (relacional con entryTriggerPrice) ---
+  if (direction === 'alcista' && invalidationPrice >= entryTriggerPrice) {
+    return fail(
+      `invalidación (${invalidationPrice}) debe quedar por debajo del trigger de entrada (${entryTriggerPrice}) en tesis alcista`,
+    );
+  }
+  if (direction === 'bajista' && invalidationPrice <= entryTriggerPrice) {
+    return fail(
+      `invalidación (${invalidationPrice}) debe quedar por arriba del trigger de entrada (${entryTriggerPrice}) en tesis bajista`,
+    );
+  }
+
   const catalyst: string | null = typeof r.catalyst === 'string' ? r.catalyst : null;
 
   return {
