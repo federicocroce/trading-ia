@@ -72,10 +72,20 @@ export function startCronJobs(): void {
       } catch (err) {
         console.error('[Cron] Pipeline pre-market error:', (err as Error).message);
       }
+
+      // Evaluador de tesis: fire-and-forget con try/catch propio — un fallo acá no debe
+      // afectar el log/estado del pipeline de arriba (son independientes).
+      try {
+        const { evaluateActiveTheses } = await import('../theses/thesis-runner.service.js');
+        const r = await evaluateActiveTheses();
+        console.log(`[Cron] Evaluador de tesis: ${r.transitions} transición(es) de ${r.evaluated} activas/gatilladas`);
+      } catch (err) {
+        console.error('[Cron] Evaluador de tesis error:', (err as Error).message);
+      }
     },
     { timezone: 'America/New_York' },
   );
-  console.log('[Cron] Scheduled: pipeline pre-market diario 7:30 ET (lun-vie)');
+  console.log('[Cron] Scheduled: pipeline pre-market diario 7:30 ET (lun-vie) + evaluador de tesis');
 
   // Barrido de bases: sábados 14:00 — mercado cerrado, cola Yahoo libre.
   // ~500 fetches secuenciales (≈10-15 min). Fire-and-forget como el radar.
@@ -88,4 +98,19 @@ export function startCronJobs(): void {
     }
   });
   console.log('[Cron] Scheduled: barrido de bases sábados 14:00');
+
+  // Generador semanal de tesis: lunes 10:00 UTC — mercado ya reaccionó al fin de semana,
+  // el radar y el scan del viernes/lunes ya están frescos. Fire-and-forget, fail-closed
+  // internamente (ver thesis-generator.service.ts).
+  cron.schedule('0 10 * * 1', async () => {
+    console.log('[Cron] Generador semanal de tesis...');
+    try {
+      const { generateWeeklyTheses } = await import('../theses/thesis-generator.service.js');
+      const r = await generateWeeklyTheses();
+      console.log(`[Cron] Tesis semanales: ${r.generated} generadas, ${r.discarded} descartadas`);
+    } catch (err) {
+      console.error('[Cron] Generador semanal de tesis falló:', (err as Error).message);
+    }
+  });
+  console.log('[Cron] Scheduled: generador semanal de tesis lunes 10:00 UTC');
 }

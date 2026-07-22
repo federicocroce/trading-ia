@@ -2156,3 +2156,62 @@ export function getTodayProposalAccuracy(): { total: TodayAccuracyBucket | null;
 
   return { total: toBucket('total', totWins, totLosses, totalAvgR), byBucket };
 }
+
+// ==================== THESES (motor de tesis) ====================
+// FRONTERA: estos getters/writers son el único punto de contacto de theses/ con el resto del
+// sistema. theses/ LEE de opportunities/radar/macro a través de los getters de arriba (scans,
+// snapshots, cycle radar, macro events) — pero ningún dominio de scan/radar/macro importa nada
+// de acá ni de theses/. La dependencia es unidireccional: theses/ conoce el scan, el scan no
+// conoce theses/.
+
+export function insertThesis(data: {
+  createdDate: string;
+  title: string;
+  direction: string;
+  narrative: string;
+  catalyst: string | null;
+  primarySymbol: string;
+  symbols: string; // JSON stringified
+  entryConditionText: string;
+  entryTriggerPrice: number;
+  entryComparator: string;
+  invalidationPrice: number;
+  invalidationReason: string;
+  horizonDays: number;
+  sourceEvidence: string;
+  llmProvider: string;
+}): void {
+  db.insert(schema.theses).values(data).run();
+}
+
+/** Tesis creadas en una fecha dada — usado para la idempotencia del generador semanal. */
+export function getThesesByCreatedDate(date: string) {
+  return db.select().from(schema.theses)
+    .where(eq(schema.theses.createdDate, date))
+    .all();
+}
+
+/** Tesis todavía "vivas" (no llegaron a un estado terminal) — insumo del evaluador diario. */
+export function getActiveTheses() {
+  return db.select().from(schema.theses)
+    .where(inArray(schema.theses.status, ['activa', 'gatillada']))
+    .all();
+}
+
+export function updateThesis(id: number, data: Partial<{
+  status: string;
+  triggeredAt: string | null;
+  resolvedAt: string | null;
+  outcomeReturnPct: number | null;
+  outcomeVsSpyPct: number | null;
+}>): void {
+  db.update(schema.theses).set(data).where(eq(schema.theses.id, id)).run();
+}
+
+/** Eventos macro desde `sinceDate` (inclusive) hasta hoy — insumo del generador semanal. */
+export function getRecentMacroEvents(sinceDate: string) {
+  return db.select().from(schema.macroEvents)
+    .where(gte(schema.macroEvents.date, sinceDate))
+    .orderBy(desc(schema.macroEvents.date))
+    .all();
+}
