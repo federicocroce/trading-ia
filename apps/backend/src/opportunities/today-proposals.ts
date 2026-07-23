@@ -59,6 +59,23 @@ export interface ChronicAdjustment {
   caveat?: string;
 }
 
+/**
+ * Arbitraje tesis vs scan cuando una tesis gatillada aparece en Hoy (regla #4, coherencia):
+ * las voces pueden diferir, pero el ranking es explícito — el veredicto del scan MANDA,
+ * la tesis es opinión. Solo hay conflicto real cuando apuntan en direcciones opuestas
+ * (alcista vs VENDER/REVISAR; bajista vs COMPRAR). Neutralidad o ausencia ≠ conflicto.
+ */
+export function thesisConflictCaveat(direction: string, scanVerb: string | null): string | null {
+  if (scanVerb == null) return null;
+  const conflictoAlcista = direction === 'alcista' && (scanVerb === 'VENDER' || scanVerb === 'REVISAR');
+  const conflictoBajista = direction === 'bajista' && scanVerb === 'COMPRAR';
+  if (!conflictoAlcista && !conflictoBajista) return null;
+  return (
+    `La tesis (${direction}) contradice al scan técnico (${scanVerb}). Jerarquía del sistema: ` +
+    `el scan manda — la tesis es opinión LLM y queda registrada para medir quién tenía razón.`
+  );
+}
+
 /** Lookback de stops recientes para la regla de perforación, configurable lazy (regla dura 3). */
 export function stopBreachLookbackDays(): number {
   return envNumber('HOY_STOP_BREACH_LOOKBACK_DAYS', 30);

@@ -5,6 +5,7 @@ import {
   chronicAdjustment,
   chronicThreshold,
   stopBreachAdjustment,
+  thesisConflictCaveat,
   stopBreachLookbackDays,
   TODAY_PROPOSAL_LIMIT,
 } from './today-proposals.js';
@@ -148,5 +149,32 @@ describe('stopBreachLookbackDays (envNumber lazy)', () => {
     } finally {
       delete process.env.HOY_STOP_BREACH_LOOKBACK_DAYS;
     }
+  });
+});
+
+describe('thesisConflictCaveat — arbitraje tesis vs scan en Hoy (jerarquía: el scan manda)', () => {
+  it('tesis alcista + scan VENDER/REVISAR: caveat que nombra la jerarquía', () => {
+    for (const verb of ['VENDER', 'REVISAR']) {
+      const c = thesisConflictCaveat('alcista', verb);
+      expect(c).toBeTruthy();
+      expect(c!).toMatch(/scan|técnic/i);
+    }
+  });
+
+  it('tesis alcista + scan COMPRAR: sin caveat (acuerdo, no conflicto)', () => {
+    expect(thesisConflictCaveat('alcista', 'COMPRAR')).toBeNull();
+  });
+
+  it('tesis alcista + scan OBSERVAR/MANTENER: sin caveat (neutralidad no es conflicto)', () => {
+    expect(thesisConflictCaveat('alcista', 'OBSERVAR')).toBeNull();
+    expect(thesisConflictCaveat('alcista', 'MANTENER')).toBeNull();
+  });
+
+  it('tesis bajista + scan COMPRAR: caveat (conflicto inverso)', () => {
+    expect(thesisConflictCaveat('bajista', 'COMPRAR')).toBeTruthy();
+  });
+
+  it('símbolo sin veredicto del scan (null): sin caveat — ausencia no es conflicto', () => {
+    expect(thesisConflictCaveat('alcista', null)).toBeNull();
   });
 });

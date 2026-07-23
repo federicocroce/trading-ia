@@ -104,6 +104,35 @@ export function TodayPage() {
         })}
       </section>
 
+      {/* ---- Tesis gatilladas (convergencia: la opinión toca su entrada → aparece ACÁ) ---- */}
+      {data && data.triggeredTheses.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">⚡ Tesis gatilladas</h3>
+          {data.triggeredTheses.map((t) => (
+            <Card size="sm" key={t.id}>
+              <CardContent className="py-2 space-y-1">
+                <div className="flex items-center gap-2">
+                  <Badge className={`text-[10px] font-bold ${t.direction === 'alcista' ? 'bg-trading-green/20 text-trading-green' : 'bg-trading-red/20 text-trading-red'}`}>
+                    {t.direction.toUpperCase()}
+                  </Badge>
+                  <span className="text-sm font-bold">{t.primarySymbol}</span>
+                  <span className="text-[11px] text-muted-foreground truncate">{t.title}</span>
+                  {t.scanVerb && <span className="text-[10px] text-muted-foreground ml-auto">scan: {t.scanVerb}</span>}
+                </div>
+                <div className="flex gap-3 text-[10px] text-muted-foreground">
+                  <span>Gatillo {t.entryTriggerPrice}</span>
+                  <span>Inválida {t.invalidationPrice}</span>
+                  <span>Horizonte {t.horizonDays}d</span>
+                  {t.triggeredAt && <span>gatillada {t.triggeredAt.slice(0, 10)}</span>}
+                </div>
+                {t.conflictCaveat && <p className="text-[10px] text-amber-400">⚠ {t.conflictCaveat}</p>}
+                <p className="text-[10px] text-muted-foreground/80">Opinión LLM medida — no es una orden. Detalle y track record en la tab Tesis.</p>
+              </CardContent>
+            </Card>
+          ))}
+        </section>
+      )}
+
       {/* ---- Oportunidades ---- */}
       <section className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Oportunidades (no las tenés)</h3>

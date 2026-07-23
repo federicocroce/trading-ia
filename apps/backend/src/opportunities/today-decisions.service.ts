@@ -10,7 +10,10 @@ import { getQuotes } from '../shared/yahoo.js';
 import { decidePositionVerb, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
 import { getRegimes, assetClassOf, type Regimes } from '../quant/risk.service.js';
 import { suggestPositionSize } from '../quant/risk.js';
-import { selectTodayProposals, verbFor, chronicAdjustment, stopBreachAdjustment, stopBreachLookbackDays, type MarketVerb } from './today-proposals.js';
+import { selectTodayProposals, verbFor, chronicAdjustment, stopBreachAdjustment, stopBreachLookbackDays, thesisConflictCaveat, type MarketVerb } from './today-proposals.js';
+// Convergencia (regla #4): las tesis gatilladas aparecen EN Hoy — única superficie de decisión.
+// Solo LECTURA de theses; nada del scan importa hacia allá (la frontera sigue intacta).
+import { getActiveTheses } from '../db/repository.js';
 
 export type { MarketVerb };
 
@@ -53,10 +56,30 @@ export interface TodayOpportunity {
   suggestedDollars?: number;
 }
 
+/** Tesis gatillada visible en Hoy: la opinión tocó su entrada — decisión del dueño, arbitrada. */
+export interface TriggeredThesis {
+  id: number;
+  title: string;
+  direction: string;
+  primarySymbol: string;
+  entryTriggerPrice: number;
+  invalidationPrice: number;
+  horizonDays: number;
+  createdDate: string;
+  triggeredAt: string | null;
+  narrative: string;
+  /** Verbo del scan para el mismo símbolo hoy (cartera u oportunidades), null si no está. */
+  scanVerb: string | null;
+  /** Presente solo si tesis y scan apuntan en direcciones opuestas — el scan manda. */
+  conflictCaveat: string | null;
+}
+
 export interface TodayView {
   generatedAt: string;
   portfolio: TodayPosition[];
   opportunities: TodayOpportunity[];
+  /** Aditivo (regla #4): tesis gatilladas convergen en Hoy — nada accionable vive solo en otra tab. */
+  triggeredTheses: TriggeredThesis[];
   regimes: Regimes;
   portfolioValue: number;
   scanDate?: string;
@@ -187,5 +210,35 @@ export async function getTodayDecisions(): Promise<TodayView> {
     };
   });
 
-  return { generatedAt, portfolio, opportunities, regimes, portfolioValue, scanDate: scan?.scannedAt };
+  // Tesis gatilladas → Hoy, con arbitraje explícito contra el verbo del scan del mismo símbolo.
+  // Fail-closed liviano: si la lectura de tesis falla, Hoy sale igual (sin la sección, con log).
+  let triggeredTheses: TriggeredThesis[] = [];
+  try {
+    const verbBySymbol = new Map<string, string>();
+    for (const o of opportunities) verbBySymbol.set(o.symbol.toUpperCase(), o.verb);
+    for (const p of portfolio) verbBySymbol.set(p.symbol.toUpperCase(), p.verb);
+    triggeredTheses = getActiveTheses()
+      .filter((t) => t.status === 'gatillada')
+      .map((t) => {
+        const scanVerb = verbBySymbol.get(t.primarySymbol.toUpperCase()) ?? null;
+        return {
+          id: t.id,
+          title: t.title,
+          direction: t.direction,
+          primarySymbol: t.primarySymbol,
+          entryTriggerPrice: t.entryTriggerPrice,
+          invalidationPrice: t.invalidationPrice,
+          horizonDays: t.horizonDays,
+          createdDate: t.createdDate,
+          triggeredAt: t.triggeredAt,
+          narrative: t.narrative,
+          scanVerb,
+          conflictCaveat: thesisConflictCaveat(t.direction, scanVerb),
+        };
+      });
+  } catch (err) {
+    console.warn('[today] Lectura de tesis gatilladas falló:', (err as Error).message);
+  }
+
+  return { generatedAt, portfolio, opportunities, triggeredTheses, regimes, portfolioValue, scanDate: scan?.scannedAt };
 }
