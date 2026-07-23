@@ -48,13 +48,11 @@ const THESIS_SYSTEM_PROMPT = `Sos un analista de tesis de inversión de mediano 
 
 Te paso: régimen de mercado, radar de ciclos por país/sector, eventos macro recientes, top oportunidades del último scan técnico, y los PRECIOS VIVOS de los símbolos candidatos.
 
-Devolvé EXCLUSIVAMENTE un array JSON (sin texto adicional, sin markdown, sin fences \`\`\`) de 1 a 3 tesis. Cada tesis es un objeto con EXACTAMENTE estos campos:
+Devolvé EXCLUSIVAMENTE un array JSON (sin texto adicional, sin markdown, sin fences \`\`\`) de 1 a 3 tesis. Cada tesis es un objeto con EXACTAMENTE estos campos, EN ESTE ORDEN (los campos numéricos/estructurales van primero para que sobrevivan si el output se corta antes de terminar; "narrative" va último por ser el más largo):
 
 {
   "title": string (máx 120 caracteres),
   "direction": "alcista" | "bajista",
-  "narrative": string (mínimo 100 caracteres — el "por qué", citando los insumos que te di),
-  "catalyst": string | null (catalizador esperado, opcional),
   "primarySymbol": string (DEBE ser uno de los símbolos con precio vivo listado; DEBE estar incluido en "symbols"),
   "symbols": string[] (máximo 5 símbolos, DEBEN venir de la lista de precios vivos — nunca inventes tickers),
   "entryConditionText": string (condición de entrada en lenguaje legible, ej "ruptura de máximos de 3 meses con volumen"),
@@ -62,7 +60,9 @@ Devolvé EXCLUSIVAMENTE un array JSON (sin texto adicional, sin markdown, sin fe
   "entryComparator": "above" | "below" (si el trigger se toca subiendo o bajando),
   "invalidationPrice": number (nivel que mata la tesis),
   "invalidationReason": string (por qué ese nivel invalida la tesis),
-  "horizonDays": integer (entre 5 y 120)
+  "horizonDays": integer (entre 5 y 120),
+  "catalyst": string | null (catalizador esperado, opcional),
+  "narrative": string (entre 100 y 500 caracteres — el "por qué". OBLIGATORIO citar por nombre AL MENOS un insumo concreto de los que te di: un símbolo con su score/veredicto del scan, un estado+categoría del radar de ciclos, o un evento macro con su fecha. Prohibido usar generalidades tipo "el sector muestra fortaleza" sin anclarlas a un dato concreto de la lista)
 }
 
 REGLAS DURAS (una tesis que las viola se descarta entera, no se corrige):
@@ -71,7 +71,8 @@ REGLAS DURAS (una tesis que las viola se descarta entera, no se corrige):
 3. En tesis bajista: invalidationPrice > precio vivo Y invalidationPrice > entryTriggerPrice.
 4. horizonDays entero entre 5 y 120.
 5. primarySymbol y todos los símbolos de "symbols" deben venir de la lista de PRECIOS VIVOS que te doy — nunca inventes un ticker que no esté ahí.
-6. narrative de al menos 100 caracteres con sustancia real (no relleno), citando los insumos concretos que te di (radar/macro/scan).
+6. narrative entre 100 y 500 caracteres, con sustancia real (no relleno) y citando por nombre al menos un insumo concreto (símbolo+score del scan, estado+categoría del radar, o evento macro con fecha) — no alcanza con vaguedades genéricas.
+7. Generá el JSON completo y compacto: sé conciso en narrative (no superes los 500 caracteres) para no cortar el output antes de cerrar el array — un output truncado descarta la tesis entera.
 
 Si con los insumos dados no hay ninguna tesis de calidad, devolvé un array vacío []. Preferí devolver menos tesis (o ninguna) antes que inventar niveles o símbolos.`;
 
@@ -147,7 +148,11 @@ export async function generateWeeklyTheses(): Promise<GenerateWeeklyThesesResult
   try {
     const macroLookbackDays = envNumber('THESIS_MACRO_LOOKBACK_DAYS', 7);
     const topOpportunitiesLimit = envNumber('THESIS_TOP_OPPORTUNITIES_LIMIT', 10);
-    const maxTokens = envNumber('THESIS_LLM_MAX_TOKENS', 4096);
+    // 4096 no alcanzaba: Gemini 2.5 gasta parte del presupuesto de maxOutputTokens en "thinking"
+    // interno (no hay thinkingConfig en gemini.ts) antes de emitir el JSON visible — la corrida
+    // real del 2026-07-23 se truncó a mitad de la primera narrative y perdió todos los campos
+    // posteriores (primarySymbol incluido). 10000 da margen para thinking + hasta 3 tesis completas.
+    const maxTokens = envNumber('THESIS_LLM_MAX_TOKENS', 10000);
     const maxThesesPerRun = envNumber('THESIS_MAX_PER_RUN', 3);
 
     // --- 1. Insumos ---
