@@ -24,16 +24,24 @@ export interface ProposalCandidate {
 
 export const TODAY_PROPOSAL_LIMIT = 6;
 
-/** Filtra BUY/WATCH no tenidos, ordena por score desc y corta el top N. Devuelve las mismas filas que recibe. */
+/**
+ * Filtra BUY/WATCH no tenidos. INVARIANTE (regla #4, coherencia): ningún BUY del motor
+ * queda fuera de Hoy — "Hoy" es la ÚNICA superficie de decisión y no puede decir "nada
+ * para comprar" mientras Oportunidades muestra un BUY. BUYs primero (todos, por score;
+ * si superan el límite, el límite cede), después los mejores WATCH hasta completar N.
+ */
 export function selectTodayProposals<T extends ProposalCandidate>(
   opps: T[],
   heldSet: Set<string>,
   limit: number = TODAY_PROPOSAL_LIMIT,
 ): T[] {
-  return opps
-    .filter((o) => !heldSet.has(o.symbol.toUpperCase()) && (o.action === 'BUY' || o.action === 'WATCH'))
-    .sort((a, b) => b.opportunityScore - a.opportunityScore)
-    .slice(0, limit);
+  const eligible = opps.filter(
+    (o) => !heldSet.has(o.symbol.toUpperCase()) && (o.action === 'BUY' || o.action === 'WATCH'),
+  );
+  const byScore = (a: T, b: T) => b.opportunityScore - a.opportunityScore;
+  const buys = eligible.filter((o) => o.action === 'BUY').sort(byScore);
+  const watches = eligible.filter((o) => o.action === 'WATCH').sort(byScore);
+  return [...buys, ...watches.slice(0, Math.max(0, limit - buys.length))];
 }
 
 export function verbFor(action: string): MarketVerb {

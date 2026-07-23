@@ -14,7 +14,11 @@ function opp(symbol: string, action: string, score: number) {
 }
 
 describe('selectTodayProposals (misma selección para la vista y el registro)', () => {
-  it('filtra a BUY/WATCH, excluye tenidos, ordena por score desc y corta el top N', () => {
+  // INVARIANTE (2026-07-23): ningún BUY del motor queda fuera de Hoy. BUYs primero
+  // (todos, por score), después los mejores WATCH hasta completar el límite. Antes se
+  // mezclaba por score y un BUY score 55 podía perder el lugar contra WATCHs 56+ —
+  // "Hoy" decía "nada para comprar" mientras Oportunidades mostraba un BUY.
+  it('filtra a BUY/WATCH, excluye tenidos; BUYs primero aunque tengan menos score', () => {
     const opps = [
       opp('AAA', 'BUY', 50),
       opp('BBB', 'SELL', 99),   // SELL afuera
@@ -23,7 +27,25 @@ describe('selectTodayProposals (misma selección para la vista y el registro)', 
       opp('EEE', 'BUY', 90),    // tenida → afuera
     ];
     const out = selectTodayProposals(opps, new Set(['EEE']));
-    expect(out.map((o) => o.symbol)).toEqual(['CCC', 'AAA']);
+    expect(out.map((o) => o.symbol)).toEqual(['AAA', 'CCC']);
+  });
+
+  it('un BUY jamás queda afuera aunque el límite se llene de WATCHs con más score', () => {
+    const opps = [
+      ...Array.from({ length: 8 }, (_, i) => opp(`W${i}`, 'WATCH', 90 - i)), // 8 WATCH 90..83
+      opp('XLC', 'BUY', 55), // el caso real: BUY con score menor a todos los WATCH
+    ];
+    const out = selectTodayProposals(opps, new Set());
+    expect(out[0].symbol).toBe('XLC'); // BUY primero
+    expect(out.length).toBe(TODAY_PROPOSAL_LIMIT); // 1 BUY + 5 mejores WATCH
+    expect(out.filter((o) => o.action === 'WATCH').map((o) => o.symbol)).toEqual(['W0', 'W1', 'W2', 'W3', 'W4']);
+  });
+
+  it('si hay más BUYs que el límite, se muestran TODOS los BUYs (el límite cede)', () => {
+    const opps = Array.from({ length: 8 }, (_, i) => opp(`B${i}`, 'BUY', 100 - i));
+    const out = selectTodayProposals(opps, new Set());
+    expect(out.length).toBe(8);
+    expect(out.every((o) => o.action === 'BUY')).toBe(true);
   });
 
   it('la exclusión de tenidos es case-insensitive', () => {
@@ -31,8 +53,8 @@ describe('selectTodayProposals (misma selección para la vista y el registro)', 
     expect(out).toEqual([]);
   });
 
-  it('corta en TODAY_PROPOSAL_LIMIT por default', () => {
-    const many = Array.from({ length: 10 }, (_, i) => opp(`S${i}`, 'BUY', 100 - i));
+  it('corta en TODAY_PROPOSAL_LIMIT por default (los WATCH llenan hasta el límite; los BUY no se cortan)', () => {
+    const many = Array.from({ length: 10 }, (_, i) => opp(`S${i}`, 'WATCH', 100 - i));
     expect(selectTodayProposals(many, new Set()).length).toBe(TODAY_PROPOSAL_LIMIT);
   });
 
