@@ -33,6 +33,9 @@ export interface GenerateWeeklyThesesResult {
   reasons: string[];
 }
 
+// Guard in-flight contra invocaciones concurrentes de generateWeeklyTheses en el mismo proceso.
+let generacionEnCurso = false;
+
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -122,14 +125,25 @@ function buildUserMessage(input: {
 export async function generateWeeklyTheses(): Promise<GenerateWeeklyThesesResult> {
   const today = todayStr();
 
-  // Idempotencia: ya hay tesis de hoy (re-corrida manual o doble disparo del cron) → skip.
+  // Guard in-flight contra invocaciones concurrentes. El backend es un solo proceso Node —
+  // esto cierra completamente la race condition sin necesidad de locks distribuidos.
+  if (generacionEnCurso) {
+    const msg = 'Generación ya en curso — invocación concurrente ignorada';
+    console.warn(`[thesis-generator] ${msg}`);
+    return { generated: 0, discarded: 0, reasons: [msg] };
+  }
+
+  // Idempotencia entre corridas: ya hay tesis de hoy (re-corrida manual posterior o doble
+  // disparo del cron) → skip. Combinado con el guard in-flight arriba, garantiza que
+  // solo una generación ocurre por createdDate.
   const existingToday = getThesesByCreatedDate(today);
   if (existingToday.length > 0) {
-    const msg = `ya existen ${existingToday.length} tesis con createdDate=${today} — skip (idempotencia)`;
+    const msg = `ya existen ${existingToday.length} tesis con createdDate=${today} — skip (idempotencia entre corridas)`;
     console.log(`[thesis-generator] ${msg}`);
     return { generated: 0, discarded: 0, reasons: [msg] };
   }
 
+  generacionEnCurso = true;
   try {
     const macroLookbackDays = envNumber('THESIS_MACRO_LOOKBACK_DAYS', 7);
     const topOpportunitiesLimit = envNumber('THESIS_TOP_OPPORTUNITIES_LIMIT', 10);
@@ -235,5 +249,7 @@ export async function generateWeeklyTheses(): Promise<GenerateWeeklyThesesResult
     const msg = (err as Error).message ?? String(err);
     console.error('[thesis-generator] Falló:', msg);
     return { generated: 0, discarded: 0, reasons: [msg] };
+  } finally {
+    generacionEnCurso = false;
   }
 }
