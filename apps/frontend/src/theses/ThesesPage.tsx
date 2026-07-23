@@ -141,8 +141,12 @@ function TrackRecordFooter({ theses }: { theses: ThesisRow[] }) {
 
   const cumplidas = terminal.filter(t => t.status === 'cumplida').length;
   const pctCumplidas = (cumplidas / terminal.length) * 100;
-  const returns = terminal.map(t => t.outcomeReturnPct).filter((v): v is number => v !== null);
-  const vsSpy = terminal.map(t => t.outcomeVsSpyPct).filter((v): v is number => v !== null);
+  // Excluir tesis expirada del retorno medio: una tesis expirada jamás gatilló, por lo que su
+  // retorno "no se operó" — contarla sería humo. El conteo de "resueltas" incluye expiradas
+  // (para cerrar el ciclo de la tesis), pero el retorno medio solo sobre cumplidas e invalidadas.
+  const operadas = terminal.filter(t => t.status !== 'expirada');
+  const returns = operadas.map(t => t.outcomeReturnPct).filter((v): v is number => v !== null);
+  const vsSpy = operadas.map(t => t.outcomeVsSpyPct).filter((v): v is number => v !== null);
   const avgReturn = returns.length > 0 ? returns.reduce((s, v) => s + v, 0) / returns.length : null;
   const avgVsSpy = vsSpy.length > 0 ? vsSpy.reduce((s, v) => s + v, 0) / vsSpy.length : null;
 

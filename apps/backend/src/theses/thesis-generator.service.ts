@@ -5,9 +5,10 @@
  * estrictas sobre el shape y las restricciones de `validateThesis`, y persiste solo las tesis
  * que sobreviven esa validación.
  *
- * FRONTERA: este servicio solo LEE de opportunities/radar/macro a través de los getters de
- * `db/repository.ts` — jamás importa nada hacia esos dominios. La relación es unidireccional:
- * theses/ conoce el scan/radar/macro, el scan/radar/macro no conoce theses/.
+ * FRONTERA: este servicio LEE de opportunities/radar/macro a través de los getters de
+ * `db/repository.ts` y del régimen de mercado vía `evidence-signals/market-regime.service.ts` —
+ * jamás importa nada hacia esos dominios. La relación es unidireccional: theses/ conoce el
+ * scan/radar/macro/régimen, esos dominios no conocen theses/.
  *
  * Fail-closed: LLM caído, JSON malformado, o sin insumos suficientes → siempre devuelve
  * `{generated:0, discarded:0, reasons:[...]}` con log — nunca lanza hacia el cron.

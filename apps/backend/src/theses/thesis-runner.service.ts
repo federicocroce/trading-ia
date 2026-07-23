@@ -35,6 +35,9 @@ import { evaluateThesis, type ThesisState } from './thesis-evaluator.js';
 const SPY = 'SPY';
 const OUTCOME_HISTORY_RANGE = '1y';
 
+// Guard in-flight contra invocaciones concurrentes de evaluateActiveTheses en el mismo proceso.
+let evaluacionEnCurso = false;
+
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -98,70 +101,83 @@ export interface EvaluateActiveThesesResult {
 }
 
 export async function evaluateActiveTheses(): Promise<EvaluateActiveThesesResult> {
-  const active = getActiveTheses();
-  if (active.length === 0) {
-    console.log('[thesis-runner] Sin tesis activas/gatilladas — nada que evaluar');
+  // Guard in-flight contra invocaciones concurrentes. El backend es un solo proceso Node —
+  // esto cierra completamente la race condition sin necesidad de locks distribuidos.
+  if (evaluacionEnCurso) {
+    const msg = 'Evaluación ya en curso — invocación concurrente ignorada';
+    console.warn(`[thesis-runner] ${msg}`);
     return { evaluated: 0, transitions: 0 };
   }
 
-  const symbols = [...new Set([...active.map((t) => t.primarySymbol), SPY])];
-  let quotes: Price[];
+  evaluacionEnCurso = true;
   try {
-    quotes = await getQuotes(symbols);
-  } catch (err) {
-    console.error('[thesis-runner] getQuotes falló — sin transiciones esta corrida:', (err as Error).message);
-    return { evaluated: 0, transitions: 0 };
-  }
-  const priceMap = new Map(quotes.map((q) => [q.symbol, q.current]));
-  const spyPrice = priceMap.get(SPY) ?? null;
-
-  const today = todayStr();
-  let transitions = 0;
-
-  for (const t of active) {
-    const price = priceMap.get(t.primarySymbol) ?? null;
-    if (price === null) {
-      console.warn(`[thesis-runner] Sin precio vivo de ${t.primarySymbol} (tesis #${t.id}) — sin transición esta corrida`);
-      continue;
+    const active = getActiveTheses();
+    if (active.length === 0) {
+      console.log('[thesis-runner] Sin tesis activas/gatilladas — nada que evaluar');
+      return { evaluated: 0, transitions: 0 };
     }
 
-    const state: ThesisState = {
-      status: t.status,
-      direction: t.direction,
-      entryTriggerPrice: t.entryTriggerPrice,
-      entryComparator: t.entryComparator,
-      invalidationPrice: t.invalidationPrice,
-      horizonDays: t.horizonDays,
-      createdDate: t.createdDate,
-      triggeredAt: t.triggeredAt,
-    };
+    const symbols = [...new Set([...active.map((t) => t.primarySymbol), SPY])];
+    let quotes: Price[];
+    try {
+      quotes = await getQuotes(symbols);
+    } catch (err) {
+      console.error('[thesis-runner] getQuotes falló — sin transiciones esta corrida:', (err as Error).message);
+      return { evaluated: 0, transitions: 0 };
+    }
+    const priceMap = new Map(quotes.map((q) => [q.symbol, q.current]));
+    const spyPrice = priceMap.get(SPY) ?? null;
 
-    const { newStatus, reason } = evaluateThesis(state, price, today);
-    if (!newStatus) continue;
+    const today = todayStr();
+    let transitions = 0;
 
-    transitions++;
+    for (const t of active) {
+      const price = priceMap.get(t.primarySymbol) ?? null;
+      if (price === null) {
+        console.warn(`[thesis-runner] Sin precio vivo de ${t.primarySymbol} (tesis #${t.id}) — sin transición esta corrida`);
+        continue;
+      }
 
-    if (newStatus === 'gatillada') {
-      updateThesis(t.id, { status: newStatus, triggeredAt: today });
-      console.log(`[thesis-runner] Tesis #${t.id} "${t.title}" → gatillada (${reason})`);
-      continue;
+      const state: ThesisState = {
+        status: t.status,
+        direction: t.direction,
+        entryTriggerPrice: t.entryTriggerPrice,
+        entryComparator: t.entryComparator,
+        invalidationPrice: t.invalidationPrice,
+        horizonDays: t.horizonDays,
+        createdDate: t.createdDate,
+        triggeredAt: t.triggeredAt,
+      };
+
+      const { newStatus, reason } = evaluateThesis(state, price, today);
+      if (!newStatus) continue;
+
+      transitions++;
+
+      if (newStatus === 'gatillada') {
+        updateThesis(t.id, { status: newStatus, triggeredAt: today });
+        console.log(`[thesis-runner] Tesis #${t.id} "${t.title}" → gatillada (${reason})`);
+        continue;
+      }
+
+      // Terminal: cumplida | invalidada | expirada — calcula outcome (best-effort, ver nota v1 arriba).
+      const outcome = await computeOutcome(t.primarySymbol, t.createdDate, price, spyPrice);
+      updateThesis(t.id, {
+        status: newStatus,
+        resolvedAt: today,
+        outcomeReturnPct: outcome.outcomeReturnPct,
+        outcomeVsSpyPct: outcome.outcomeVsSpyPct,
+      });
+      const outcomeMsg = outcome.outcomeReturnPct === null
+        ? 'outcome no calculable (sin históricos)'
+        : outcome.outcomeVsSpyPct === null
+          ? `outcome=${outcome.outcomeReturnPct.toFixed(1)}% (sin vs-benchmark: falta SPY)`
+          : `outcome=${outcome.outcomeReturnPct.toFixed(1)}% vs SPY=${outcome.outcomeVsSpyPct.toFixed(1)}%`;
+      console.log(`[thesis-runner] Tesis #${t.id} "${t.title}" → ${newStatus} (${reason}) — ${outcomeMsg}`);
     }
 
-    // Terminal: cumplida | invalidada | expirada — calcula outcome (best-effort, ver nota v1 arriba).
-    const outcome = await computeOutcome(t.primarySymbol, t.createdDate, price, spyPrice);
-    updateThesis(t.id, {
-      status: newStatus,
-      resolvedAt: today,
-      outcomeReturnPct: outcome.outcomeReturnPct,
-      outcomeVsSpyPct: outcome.outcomeVsSpyPct,
-    });
-    const outcomeMsg = outcome.outcomeReturnPct === null
-      ? 'outcome no calculable (sin históricos)'
-      : outcome.outcomeVsSpyPct === null
-        ? `outcome=${outcome.outcomeReturnPct.toFixed(1)}% (sin vs-benchmark: falta SPY)`
-        : `outcome=${outcome.outcomeReturnPct.toFixed(1)}% vs SPY=${outcome.outcomeVsSpyPct.toFixed(1)}%`;
-    console.log(`[thesis-runner] Tesis #${t.id} "${t.title}" → ${newStatus} (${reason}) — ${outcomeMsg}`);
+    return { evaluated: active.length, transitions };
+  } finally {
+    evaluacionEnCurso = false;
   }
-
-  return { evaluated: active.length, transitions };
 }
