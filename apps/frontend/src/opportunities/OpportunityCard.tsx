@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { WatchlistButton } from '@/shared/WatchlistButton';
 import { SymbolLink } from '@/shared/SymbolLink';
+import { trpc } from '@/shared/trpc';
 import { ReturnEstimateBar } from './ReturnEstimateBar';
 
 type TASignal = 'bullish' | 'bearish' | 'neutral';
@@ -346,6 +347,16 @@ export function OpportunityCard({ opportunity, forceExpanded = false }: { opport
   const cfg = actionConfig[opportunity.action] ?? actionConfig['WATCH'];
   const tl = opportunity.tradeLevels;
 
+  // Paridad con Hoy (regla #4): si el motor dice BUY pero Hoy lo degradó (crónico / stop
+  // perforado), esta card lo AVISA — misma verdad en las dos tabs, sin sorpresas cruzadas.
+  // Query compartida con la vista Hoy (react-query dedupea; no agrega requests).
+  const { data: todayView } = trpc.opportunities.today.useQuery(undefined, { staleTime: 60_000 });
+  const hoyEntry = opportunity.action === 'BUY'
+    ? todayView?.opportunities.find((o) => o.symbol === opportunity.symbol)
+    : undefined;
+  const degradadaEnHoy = hoyEntry != null && hoyEntry.verb !== 'COMPRAR';
+  const razonDegradacion = hoyEntry?.cooldownCaveat ?? hoyEntry?.persistenceCaveat ?? null;
+
   return (
     <Card className={`border-l-4 ${cfg.borderColor} transition-all`}>
       <CardContent className="py-3 px-3 space-y-2">
@@ -405,6 +416,20 @@ export function OpportunityCard({ opportunity, forceExpanded = false }: { opport
             </TooltipTrigger>
             <TooltipContent>{cfg.description}</TooltipContent>
           </Tooltip>
+
+          {/* Paridad con Hoy: BUY del motor degradado por reglas medidas → avisar acá también */}
+          {degradadaEnHoy && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded cursor-help shrink-0 bg-amber-500/20 text-amber-400">
+                  En Hoy: {hoyEntry!.verb} (degradada)
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {razonDegradacion ?? 'Degradada en Hoy por una regla de disciplina medida.'}
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           {/* Confidence */}
           <ConfidenceBar percent={opportunity.confidence} />

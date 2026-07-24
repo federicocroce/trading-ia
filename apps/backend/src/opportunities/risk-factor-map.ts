@@ -35,6 +35,50 @@ const SYMBOL_FACTORS: Record<string, RiskFactor[]> = {
   TIP: ['rates', 'safe-haven'],
   // Broad US
   SPY: ['us-equity', 'risk-on'],
+  // Ampliación 2026-07-23 — candidatos frecuentes que caían "sin clasificar" (el sector
+  // 'etfs-sectors' del discovery es bolsa mixta y no sirve como fallback):
+  // Mineras / EM
+  VALE: ['emerging-markets', 'risk-on'],
+  // Financieras US (incluye constituyentes del radar XLF)
+  BLK: ['us-equity', 'risk-on'],
+  JPM: ['us-equity', 'risk-on'],
+  BAC: ['us-equity', 'risk-on'],
+  WFC: ['us-equity', 'risk-on'],
+  GS: ['us-equity', 'risk-on'],
+  MS: ['us-equity', 'risk-on'],
+  C: ['us-equity', 'risk-on'],
+  AXP: ['us-equity', 'risk-on'],
+  SCHW: ['us-equity', 'risk-on'],
+  SPGI: ['us-equity', 'risk-on'],
+  TFC: ['us-equity', 'risk-on'],
+  // Industriales / defensa US
+  GE: ['us-equity'],
+  RTX: ['us-equity'],
+  BA: ['us-equity'],
+  LMT: ['us-equity'],
+  NOC: ['us-equity'],
+  SHW: ['us-equity'],
+  CAT: ['us-equity'],
+  // Semis (constituyentes del radar SMH)
+  NVDA: ['semis', 'us-equity'],
+  AMD: ['semis', 'us-equity'],
+  AVGO: ['semis', 'us-equity'],
+  MU: ['semis', 'us-equity'],
+  QCOM: ['semis', 'us-equity'],
+  AMAT: ['semis', 'us-equity'],
+  LRCX: ['semis', 'us-equity'],
+  INTC: ['semis', 'us-equity'],
+  TXN: ['semis', 'us-equity'],
+  ASML: ['semis', 'us-equity'],
+  SMH: ['semis', 'us-equity'],
+  SOXX: ['semis', 'us-equity'],
+  // Índices amplios US
+  QQQ: ['us-equity', 'risk-on'],
+  VTI: ['us-equity', 'risk-on'],
+  VOO: ['us-equity', 'risk-on'],
+  IVV: ['us-equity', 'risk-on'],
+  DIA: ['us-equity', 'risk-on'],
+  IWM: ['us-equity', 'risk-on'],
 };
 
 /** Sector → factors fallback (sector strings come from getSectorForSymbolDynamic). */

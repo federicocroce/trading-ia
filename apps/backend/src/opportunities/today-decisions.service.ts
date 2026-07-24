@@ -45,6 +45,8 @@ export interface TodayOpportunity {
   persistenceCaveat?: string;
   /** Regla de stop perforado (patología NEM): precio bajo un stop reciente del sistema = 32% win / −0.15R. */
   cooldownCaveat?: string;
+  /** Relación con TU cartera (del scan): diversifica / apila / neutral, con la razón. null = scan viejo sin el dato. */
+  diversification?: { verdict: 'stacks' | 'diversifies' | 'neutral'; reason: string } | null;
   score: number;
   currentPrice: number;
   assetClass: 'us' | 'crypto' | 'argentina';
@@ -199,6 +201,9 @@ export async function getTodayDecisions(): Promise<TodayView> {
       appearances: nth,
       persistenceCaveat: adj.caveat,
       cooldownCaveat: cd.caveat,
+      diversification: o.portfolioAdjustment
+        ? { verdict: o.portfolioAdjustment.verdict, reason: o.portfolioAdjustment.reason }
+        : null,
       score: Math.round(o.opportunityScore),
       currentPrice: round2(o.currentPrice),
       assetClass: assetClassOf(o.symbol),

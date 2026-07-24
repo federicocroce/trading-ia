@@ -158,6 +158,16 @@ export function TodayPage() {
                 {o.timingCaveat && <p className="text-[10px] text-amber-400">⚠ {o.timingCaveat}</p>}
                 {o.persistenceCaveat && <p className="text-[10px] text-amber-400">⚠ {o.persistenceCaveat}</p>}
                 {o.cooldownCaveat && <p className="text-[10px] text-red-400">⛔ {o.cooldownCaveat}</p>}
+                {/* Relación con TU cartera: el dato ya lo calcula el scan — acá se decide con él a la vista */}
+                {o.diversification?.verdict === 'diversifies' && (
+                  <p className="text-[10px] text-trading-green">🧩 {o.diversification.reason}</p>
+                )}
+                {o.diversification?.verdict === 'stacks' && (
+                  <p className="text-[10px] text-red-400">⚠ {o.diversification.reason}</p>
+                )}
+                {o.diversification?.verdict === 'neutral' && o.diversification.reason.includes('Sin factores') && (
+                  <p className="text-[10px] text-muted-foreground/70">◌ Relación con tu cartera: sin clasificar</p>
+                )}
                 {(o.entry != null || o.stop != null || o.target != null) && (
                   <div className="flex gap-3 text-[10px] text-muted-foreground">
                     {o.entry != null && <span>Entrada {money(o.entry)}</span>}
