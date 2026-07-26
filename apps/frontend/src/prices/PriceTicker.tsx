@@ -1,6 +1,7 @@
 import { Separator } from '@/components/ui/separator';
 import { trpc } from '@/shared/trpc';
 import { useNavigation } from '@/shared/navigation';
+import { useMarketRefetchInterval } from '@/shared/useMarketRefetchInterval';
 import type { TopMover } from '@trading/shared';
 
 function MoverItem({ mover, direction, onClick }: { mover: TopMover; direction: 'up' | 'down'; onClick: () => void }) {
@@ -25,6 +26,7 @@ function MoverItem({ mover, direction, onClick }: { mover: TopMover; direction: 
 
 export function PriceTicker() {
   const { goToSymbol } = useNavigation();
+  const refetchInterval = useMarketRefetchInterval();
 
   const { data: movers } = trpc.prices.getMarketMovers.useQuery(undefined, {
     staleTime: 10 * 60_000,
@@ -32,7 +34,7 @@ export function PriceTicker() {
   });
 
   const { data: prices } = trpc.prices.getAll.useQuery(undefined, {
-    refetchInterval: 60_000,
+    refetchInterval,
   });
 
   // Si hay movers de FMP, usarlos. Sino fallback al watchlist ordenado por |changePercent|

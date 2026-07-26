@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { trpc } from './trpc';
+import { useMarketRefetchInterval } from './useMarketRefetchInterval';
 
 export type WatchlistStatus = 'live' | 'triggered' | 'invalidated' | 'expired' | 'archived';
 
@@ -27,8 +28,10 @@ export function isResolved(status: WatchlistStatus): boolean {
 
 /** Mapa símbolo → estado de ciclo de vida del watchlist. */
 export function useWatchlistStatusMap(): Map<string, WatchlistStatusItem> {
+  const refetchInterval = useMarketRefetchInterval();
   const { data } = trpc.opportunities.watchlistStatus.useQuery(undefined, {
     staleTime: 60_000,
+    refetchInterval,
   });
   return useMemo(
     () => new Map((data ?? []).map((i) => [i.symbol, i as WatchlistStatusItem])),

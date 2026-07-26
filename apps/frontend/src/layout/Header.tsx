@@ -11,6 +11,7 @@ import { MacroRegimeWidget } from '@/macro/MacroRegimeWidget';
 import { useAiModeModal } from '@/shared/AiModeModal';
 import { PipelineConfig } from '@/intelligence/PipelineConfig';
 import { getMarketStatus } from '@/shared/marketStatus';
+import { useMarketRefetchInterval } from '@/shared/useMarketRefetchInterval';
 
 function MarketStatusBadge() {
   const [now, setNow] = useState(() => new Date());
@@ -49,7 +50,8 @@ const SECTOR_PRESETS: { label: string; value: string; sectors: string[] | undefi
 ];
 
 export function Header() {
-  const { data: summary } = trpc.portfolio.summary.useQuery(undefined, { refetchInterval: 60_000 });
+  const refetchInterval = useMarketRefetchInterval();
+  const { data: summary } = trpc.portfolio.summary.useQuery(undefined, { refetchInterval });
   const { run, isRunning, todayRun } = usePipeline();
   const [presetKey, setPresetKey] = useState('all');
   const { selectMode, modal } = useAiModeModal();

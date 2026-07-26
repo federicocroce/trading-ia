@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/table';
 import { trpc } from '@/shared/trpc';
 import { WatchlistButton } from '@/shared/WatchlistButton';
+import { useMarketRefetchInterval } from '@/shared/useMarketRefetchInterval';
 import { PriceChart, type PeriodChange } from './PriceChart';
 
 interface SymbolDetailPageProps {
@@ -20,16 +21,17 @@ interface SymbolDetailPageProps {
 
 export function SymbolDetailPage({ symbol, onBack }: SymbolDetailPageProps) {
   const [periodChange, setPeriodChange] = useState<PeriodChange | null>(null);
+  const refetchInterval = useMarketRefetchInterval();
   const { data: symbols } = trpc.portfolio.symbols.list.useQuery();
   const stock = symbols?.find((s) => s.symbol === symbol);
 
   const { data: price } = trpc.prices.getBySymbol.useQuery(
     { symbol },
-    { refetchInterval: 60_000 },
+    { refetchInterval },
   );
 
   const { data: portfolio } = trpc.portfolio.get.useQuery(undefined, {
-    refetchInterval: 30_000,
+    refetchInterval,
   });
 
   const { data: fundamentals } = trpc.prices.getFundamentals.useQuery(

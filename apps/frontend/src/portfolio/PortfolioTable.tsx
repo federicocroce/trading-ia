@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trpc } from '@/shared/trpc';
 import { useNavigation } from '@/shared/navigation';
+import { useMarketRefetchInterval } from '@/shared/useMarketRefetchInterval';
 import { TableSkeleton } from '@/shared/Skeleton';
 import { PositionDialog } from './PositionDialog';
 import { TransactionDialog } from './TransactionDialog';
@@ -85,14 +86,15 @@ export function PortfolioTable() {
 
   const { goToSymbol } = useNavigation();
   const utils = trpc.useUtils();
+  const refetchInterval = useMarketRefetchInterval();
   const { data: portfolio, isLoading } = trpc.portfolio.get.useQuery(undefined, {
-    refetchInterval: 60_000,
+    refetchInterval,
   });
   const { data: scan } = trpc.opportunities.scan.useQuery(undefined, {
     staleTime: 5 * 60_000,
   });
   // Fuente ÚNICA de la DECISIÓN: la misma función que "Hoy" (trailing stop + tu costo).
-  const { data: today } = trpc.opportunities.today.useQuery(undefined, { staleTime: 60_000 });
+  const { data: today } = trpc.opportunities.today.useQuery(undefined, { staleTime: 60_000, refetchInterval });
 
   // Build lookup map from latest scan: symbol → opportunity (score/análisis del motor)
   const opportunityMap = new Map(

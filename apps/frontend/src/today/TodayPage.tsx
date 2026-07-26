@@ -2,6 +2,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { trpc } from '@/shared/trpc';
 import { useNavigation } from '@/shared/navigation';
+import { useMarketRefetchInterval } from '@/shared/useMarketRefetchInterval';
 
 const PORTFOLIO_VERB: Record<string, { label: string; cls: string; border: string }> = {
   VENDER: { label: 'VENDER', cls: 'bg-red-500/20 text-red-400', border: 'border-l-red-500' },
@@ -30,7 +31,8 @@ function relTime(iso?: string): string {
 }
 
 export function TodayPage() {
-  const { data, isLoading } = trpc.opportunities.today.useQuery(undefined, { staleTime: 60_000 });
+  const refetchInterval = useMarketRefetchInterval();
+  const { data, isLoading } = trpc.opportunities.today.useQuery(undefined, { staleTime: 60_000, refetchInterval });
   const { data: accuracy } = trpc.opportunities.todayAccuracy.useQuery(undefined, { staleTime: 300_000 });
   const { goToSymbol } = useNavigation();
 
