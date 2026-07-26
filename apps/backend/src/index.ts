@@ -28,6 +28,11 @@ const app = new Hono();
 
 const FRONTEND_URL = process.env.FRONTEND_URL ?? 'http://localhost:5050';
 const PORT = Number(process.env.PORT ?? 3030);
+// Interfaz de escucha. Default 127.0.0.1: el server de Node liga a TODAS las
+// interfaces si no se le dice nada, y no hay auth en tRPC — cualquiera en la
+// misma red leía la cartera con un curl (el CORS solo frena navegadores).
+// BIND_HOST permite exponerlo a propósito (p. ej. para abrirlo desde el celular).
+const HOST = process.env.BIND_HOST ?? '127.0.0.1';
 
 // CORS
 app.use('/*', cors({ origin: FRONTEND_URL }));
@@ -45,8 +50,8 @@ app.use(
 );
 
 // Start server — serve() returns the underlying http.Server
-const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
-  console.log(`🚀 Backend running on http://localhost:${info.port}`);
+const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
+  console.log(`🚀 Backend running on http://localhost:${info.port} (bind: ${HOST})`);
   console.log(`   tRPC:      http://localhost:${info.port}/trpc`);
   console.log(`   WebSocket: ws://localhost:${info.port}/ws/prices`);
   console.log(`   Health:    http://localhost:${info.port}/health`);

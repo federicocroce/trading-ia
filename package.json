@@ -12,7 +12,8 @@
     "build": "npm run build --workspace=packages/shared && npm run build --workspaces --if-present",
     "build:shared": "npm run build --workspace=packages/shared",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "clean": "rm -rf node_modules packages/*/dist apps/*/dist"
+    "clean": "rm -rf node_modules packages/*/dist apps/*/dist",
+    "db:backup": "./scripts/backup-db.sh"
   },
   "engines": {
     "node": ">=20"

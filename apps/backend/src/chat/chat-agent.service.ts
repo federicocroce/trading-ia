@@ -10,6 +10,10 @@
  *  - Sin Bash, sin Edit/Write, sin web: solo Read/Grep/Glob + consultar_db.
  *  - consultar_db: guard de SQL (una sentencia SELECT/WITH) + conexión readonly
  *    (better-sqlite3 rechaza escrituras a nivel motor) + cap de filas y celdas.
+ *  - Read/Grep/Glob: gate de rutas (path-guard) que niega .env, claves privadas
+ *    y cualquier cosa fuera del repo. El agente lee noticias de fuentes externas
+ *    por SQL, así que una inyección en el cuerpo de un artículo podría pedirle
+ *    que lea las credenciales y las devuelva en la respuesta.
  *  - Timeout duro por turno vía AbortController (CHAT_AGENT_TIMEOUT_MS).
  *
  * Auth: usa las credenciales del login de Claude Code (~/.claude), sin API key.
@@ -26,6 +30,7 @@ import {
 } from '@anthropic-ai/claude-agent-sdk';
 import { ANALYST_SYSTEM_PROMPT } from '@trading/shared';
 import { validateReadonlySql } from './sql-guard.js';
+import { checkPathAccess } from './path-guard.js';
 import { buildChatSituationContext } from './chat.service.js';
 import { dbPath } from '../db/index.js';
 import { envNumber } from '../shared/env-number.js';
@@ -34,6 +39,8 @@ import { broadcastChatAgentEvent } from '../shared/ws-manager.js';
 const REPO_ROOT = resolve(import.meta.dirname, '../../../..');
 const MAX_ROWS = 200;
 const MAX_CELL_CHARS = 500;
+/** Tools cuyas rutas pasan por el gate de path-guard. */
+const FILE_TOOLS = new Set(['Read', 'Grep', 'Glob']);
 
 // -- tool: consultar_db ------------------------------------------------------
 
@@ -180,6 +187,35 @@ ${situationContext}`;
         includePartialMessages: true,
         maxTurns: 25,
         mcpServers: { trading: tradingDbServer },
+        // Gate de rutas sobre las tools de archivo. El allowlist de tools no alcanza:
+        // Read acepta rutas absolutas, así que sin esto el .env queda al alcance.
+        hooks: {
+          PreToolUse: [
+            {
+              hooks: [
+                async (input) => {
+                  if (input.hook_event_name !== 'PreToolUse') return {};
+                  if (!FILE_TOOLS.has(input.tool_name)) return {};
+                  const args = (input.tool_input ?? {}) as Record<string, unknown>;
+                  // Read usa file_path; Grep/Glob usan path.
+                  const target = typeof args.file_path === 'string' ? args.file_path
+                    : typeof args.path === 'string' ? args.path
+                    : undefined;
+                  const verdict = checkPathAccess(target, REPO_ROOT);
+                  if (verdict.allowed) return {};
+                  console.warn(`[chat-agent] Ruta bloqueada (${input.tool_name}): ${target}`);
+                  return {
+                    hookSpecificOutput: {
+                      hookEventName: 'PreToolUse' as const,
+                      permissionDecision: 'deny' as const,
+                      permissionDecisionReason: verdict.reason ?? 'Acceso denegado.',
+                    },
+                  };
+                },
+              ],
+            },
+          ],
+        },
         allowedTools: ['Read', 'Grep', 'Glob', 'mcp__trading__consultar_db'],
         disallowedTools: [
           'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',
