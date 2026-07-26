@@ -1,6 +1,8 @@
 import type { Price, OHLC, FundamentalData } from '@trading/shared';
 import { reportOk, reportError } from './service-health.js';
 import { withRetry } from './retry.js';
+import { envNumber } from './env-number.js';
+import { createFetchGate, type FetchGate } from './fetch-gate.js';
 
 const SVC_PRICES = 'Yahoo Precios';
 const SVC_FUNDAMENTALS = 'Yahoo Fundamentales';
@@ -24,35 +26,29 @@ const YAHOO_HEADERS = {
 // market-regime bursts pile on top. A single shared ceiling keeps every fan-out
 // under one limit instead of each blasting the universe in parallel — retries
 // then succeed because the burst is spread out, not because Yahoo "recovered".
+//
+// El gate tiene carril de prioridad: las llamadas interactivas (navegar a un
+// símbolo) saltan por delante del barrido del ticker si el pipe está lleno.
 const _rawFetch = globalThis.fetch;
-const YAHOO_MAX_CONCURRENT = 6;
-let yahooActive = 0;
-const yahooQueue: Array<() => void> = [];
-
-function acquireSlot(): Promise<void> {
-  if (yahooActive < YAHOO_MAX_CONCURRENT) {
-    yahooActive++;
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => yahooQueue.push(resolve));
+let _yahooGate: FetchGate | null = null;
+function yahooGate(): FetchGate {
+  // Lazy: envNumber se lee dentro de la función (el hoisting ESM corre antes de dotenv).
+  if (!_yahooGate) _yahooGate = createFetchGate(envNumber('YAHOO_MAX_CONCURRENT', 6));
+  return _yahooGate;
 }
 
-function releaseSlot(): void {
-  const next = yahooQueue.shift();
-  if (next) {
-    next(); // hand the slot directly to the next waiter (active count unchanged)
-  } else {
-    yahooActive--;
-  }
-}
-
-/** fetch() wrapper that bounds total concurrent Yahoo connections. */
-async function yfetch(input: string, init?: RequestInit): Promise<Response> {
-  await acquireSlot();
+/** fetch() wrapper que acota las conexiones concurrentes a Yahoo. */
+async function yfetch(
+  input: string,
+  init?: RequestInit,
+  opts?: { priority?: boolean },
+): Promise<Response> {
+  const gate = yahooGate();
+  await gate.acquire(opts);
   try {
     return await _rawFetch(input, init);
   } finally {
-    releaseSlot();
+    gate.release();
   }
 }
 
@@ -87,11 +83,11 @@ interface YahooResponse {
   };
 }
 
-export async function getQuote(symbol: string): Promise<Price> {
+export async function getQuote(symbol: string, opts?: { priority?: boolean }): Promise<Price> {
   const url = `${YAHOO_BASE}/${encodeURIComponent(symbol)}?interval=1d&range=1d`;
 
   const res = await withRetry(
-    () => yfetch(url, { headers: YAHOO_HEADERS }),
+    () => yfetch(url, { headers: YAHOO_HEADERS }, opts),
     `Yahoo:${symbol}`,
     { maxRetries: 2, baseDelayMs: 1000 },
   );
@@ -135,21 +131,144 @@ export async function getQuote(symbol: string): Promise<Price> {
   };
 }
 
-export async function getQuotes(symbols: string[]): Promise<Price[]> {
-  const results = await Promise.allSettled(
-    symbols.map((s) => getQuote(s))
+// --- Batch quotes (endpoint v7/quote) ---
+// Un request trae hasta ~50 símbolos; reemplaza el fan-out 1-request-por-símbolo
+// que saturaba el limitador global y disparaba el throttling de Yahoo.
+
+interface RawV7Quote {
+  symbol: string;
+  regularMarketPrice?: number;
+  regularMarketPreviousClose?: number;
+  regularMarketOpen?: number;
+  regularMarketDayHigh?: number;
+  regularMarketDayLow?: number;
+  marketState?: string;
+}
+
+interface YahooV7QuoteResponse {
+  quoteResponse?: {
+    result?: RawV7Quote[] | null;
+    error?: { code: string; description: string } | null;
+  };
+}
+
+/** Parte una lista en grupos de a lo sumo `size` (puro). */
+export function chunkSymbols(symbols: string[], size: number): string[][] {
+  const chunks: string[][] = [];
+  for (let i = 0; i < symbols.length; i += size) {
+    chunks.push(symbols.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/**
+ * Mapea un item del endpoint v7 a Price (puro). Fail-closed: sin
+ * `regularMarketPrice` devuelve null en vez de inventar un precio 0.
+ * El change se computa desde previousClose para paridad con getQuote().
+ */
+export function parseV7Quote(raw: RawV7Quote, now: number): Price | null {
+  const current = raw.regularMarketPrice;
+  if (current == null || !Number.isFinite(current)) return null;
+
+  const previousClose = raw.regularMarketPreviousClose ?? current;
+  const change = current - previousClose;
+  const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+
+  return {
+    symbol: raw.symbol,
+    open: raw.regularMarketOpen ?? current,
+    current,
+    high: raw.regularMarketDayHigh ?? current,
+    low: raw.regularMarketDayLow ?? current,
+    previousClose,
+    change,
+    changePercent,
+    timestamp: now,
+    marketState: raw.marketState,
+  };
+}
+
+/** Trae quotes en lote vía v7/quote (chunked). Devuelve solo los que Yahoo resolvió. */
+export async function getQuotesBatch(symbols: string[], chunkSize?: number): Promise<Price[]> {
+  if (symbols.length === 0) return [];
+
+  const auth = await ensureCrumb();
+  if (!auth) {
+    // Sin crumb no hay endpoint batch; el caller decide el fallback.
+    throw new Error('Yahoo batch quotes: sin crumb/cookie');
+  }
+
+  const now = Date.now();
+  // Yahoo throttlea (503) intermitentemente en v7/quote; menos requests = menos exposición.
+  // El tope se lee lazy (landmine env). Los 503 se reintentan DENTRO de withRetry.
+  const size = chunkSize ?? envNumber('YAHOO_QUOTE_CHUNK', 30);
+  const chunks = chunkSymbols(symbols, size);
+  const perChunk = await Promise.allSettled(
+    chunks.map(async (chunk) => {
+      const url =
+        `https://query1.finance.yahoo.com/v7/finance/quote` +
+        `?symbols=${encodeURIComponent(chunk.join(','))}&crumb=${encodeURIComponent(auth.crumb)}`;
+      const data = await withRetry(
+        async () => {
+          const res = await yfetch(url, { headers: { ...YAHOO_HEADERS, Cookie: auth.cookie } });
+          if (res.status === 401) {
+            yahooCrumb = null;
+            yahooCookie = null;
+          }
+          // Tirar acá (no afuera) para que withRetry reintente los 503/5xx transitorios.
+          if (!res.ok) throw new Error(`Yahoo batch HTTP ${res.status}`);
+          return (await res.json()) as YahooV7QuoteResponse;
+        },
+        `Yahoo:batch(${chunk.length})`,
+        { maxRetries: 3, baseDelayMs: 800 },
+      );
+      return data.quoteResponse?.result ?? [];
+    }),
   );
 
   const prices: Price[] = [];
+  for (const r of perChunk) {
+    if (r.status === 'fulfilled') {
+      for (const raw of r.value) {
+        const p = parseV7Quote(raw, now);
+        if (p) prices.push(p);
+      }
+    } else {
+      console.warn('[Yahoo] Batch chunk falló:', r.reason?.message);
+    }
+  }
+
+  if (prices.length > 0) reportOk(SVC_PRICES);
+  return prices;
+}
+
+export async function getQuotes(symbols: string[]): Promise<Price[]> {
+  if (symbols.length === 0) return [];
+
+  // 1. Intento en lote (pocos requests). Si el batch entero falla (sin crumb, etc.),
+  //    caemos al fan-out per-símbolo para no perder toda la data.
+  let batched: Price[] = [];
+  try {
+    batched = await getQuotesBatch(symbols);
+  } catch (err) {
+    console.warn('[Yahoo] Batch no disponible, fallback per-símbolo:', (err as Error).message);
+  }
+
+  const got = new Set(batched.map((p) => p.symbol));
+  const missing = symbols.filter((s) => !got.has(s));
+  if (missing.length === 0) return batched;
+
+  // 2. Fallback acotado solo para los símbolos que el batch no resolvió.
+  const results = await Promise.allSettled(missing.map((s) => getQuote(s)));
   for (const r of results) {
     if (r.status === 'fulfilled') {
-      prices.push(r.value);
+      batched.push(r.value);
     } else {
       console.warn(`[Yahoo] Failed:`, r.reason?.message);
     }
   }
 
-  return prices;
+  return batched;
 }
 
 // --- Historical OHLC data ---
@@ -158,9 +277,10 @@ export async function getHistoricalQuotes(
   symbol: string,
   range: string = '6mo',
   interval: string = '1d',
+  opts?: { priority?: boolean },
 ): Promise<OHLC[]> {
   const url = `${YAHOO_BASE}/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}`;
-  const res = await yfetch(url, { headers: YAHOO_HEADERS });
+  const res = await yfetch(url, { headers: YAHOO_HEADERS }, opts);
 
   if (!res.ok) {
     throw new Error(`Yahoo Finance HTTP ${res.status} for ${symbol} (historical)`);
@@ -438,7 +558,7 @@ function parseFundamentalsFromSummary(
   };
 }
 
-export async function getFundamentals(symbol: string): Promise<FundamentalData> {
+export async function getFundamentals(symbol: string, opts?: { priority?: boolean }): Promise<FundamentalData> {
   const modules = 'defaultKeyStatistics,financialData,summaryDetail,incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory,earningsTrend,calendarEvents';
 
   // Try with crumb auth first
@@ -448,7 +568,7 @@ export async function getFundamentals(symbol: string): Promise<FundamentalData> 
       const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}&crumb=${encodeURIComponent(auth.crumb)}`;
       const res = await yfetch(url, {
         headers: { ...YAHOO_HEADERS, Cookie: auth.cookie },
-      });
+      }, opts);
 
       if (res.ok) {
         const data = (await res.json()) as YahooQuoteSummary;
@@ -477,7 +597,7 @@ export async function getFundamentals(symbol: string): Promise<FundamentalData> 
   // Fallback: try without auth (may work for some endpoints)
   try {
     const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`;
-    const res = await yfetch(url, { headers: YAHOO_HEADERS });
+    const res = await yfetch(url, { headers: YAHOO_HEADERS }, opts);
     if (res.ok) {
       const data = (await res.json()) as YahooQuoteSummary;
       const result = data.quoteSummary?.result?.[0];
