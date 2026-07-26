@@ -1,8 +1,12 @@
 import { router, publicProcedure } from '../trpc.js';
 import { getLatestCycleRadarDate, getCycleRadarSnapshots, countCycleRadarDates } from '../db/repository.js';
-import { RADAR_UNIVERSE } from './cycle-radar.service.js';
+import { RADAR_UNIVERSE, runCycleRadar } from './cycle-radar.service.js';
 
 export const radarRouter = router({
+  // Corrida manual del radar de ciclos. runCycleRadar tiene guard `radarRunning`
+  // interno: doble click no apila corridas — la segunda vuelve con skipped.
+  run: publicProcedure.mutation(() => runCycleRadar()),
+
   getLatest: publicProcedure.query(() => {
     const date = getLatestCycleRadarDate();
     if (!date) return { date: null, snapshots: [], historyDays: 0, missing: [] };

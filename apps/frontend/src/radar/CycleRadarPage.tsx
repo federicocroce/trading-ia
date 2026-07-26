@@ -1,8 +1,23 @@
 import { trpc } from '@/shared/trpc';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { printWithTitle } from '@/shared/printWithTitle';
 import { usePrintSection } from '@/shared/usePrintSection';
+
+// Botón de corrida manual. El radar tarda ~30s (fetchea ~30 canastas de Yahoo);
+// el guard `radarRunning` del backend evita apilar corridas si se cliquea doble.
+function RunRadarButton() {
+  const utils = trpc.useUtils();
+  const run = trpc.radar.run.useMutation({
+    onSuccess: () => utils.radar.getLatest.invalidate(),
+  });
+  return (
+    <Button size="sm" variant="secondary" onClick={() => run.mutate()} disabled={run.isPending}>
+      {run.isPending ? 'Corriendo radar…' : 'Correr radar ahora'}
+    </Button>
+  );
+}
 
 // Orden y estilo por fase: "despertándose" (lo que busca el radar) primero.
 // Los nombres son deliberadamente coloquiales: la tab la lee una persona, no un quant.
@@ -73,8 +88,9 @@ export function CycleRadarPage() {
   if (!data || !data.date) {
     return (
       <Card>
-        <CardContent className="p-4 text-sm text-muted-foreground">
-          Sin snapshots del radar todavía — se genera con el pipeline diario (o corrida manual).
+        <CardContent className="p-4 text-sm text-muted-foreground space-y-3">
+          <p>Sin snapshots del radar todavía — se genera con el pipeline diario (o corrida manual).</p>
+          <RunRadarButton />
         </CardContent>
       </Card>
     );
@@ -95,6 +111,8 @@ export function CycleRadarPage() {
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center justify-between text-base">
             <span>En criollo, hoy:</span>
+            <div className="flex items-center gap-2">
+            <RunRadarButton />
             <button
               onClick={() => printWithTitle('radar', data.date)}
               title="Imprimir / Guardar como PDF"
@@ -107,6 +125,7 @@ export function CycleRadarPage() {
               </svg>
               PDF
             </button>
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-1.5 text-sm">
