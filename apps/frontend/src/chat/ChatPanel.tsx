@@ -95,7 +95,7 @@ export function ChatPanel() {
   };
 
   return (
-    <aside className="w-96 bg-card border-l border-border flex flex-col">
+    <aside className="w-96 h-full bg-card border-l border-border flex flex-col">
       <div className="p-4 flex items-start justify-between">
         <div>
           <h2 className="text-sm font-semibold">Chat con Claude</h2>
@@ -116,7 +116,7 @@ export function ChatPanel() {
       </div>
       <Separator />
 
-      <ScrollArea className="flex-1 p-4">
+      <ScrollArea className="flex-1 min-h-0 p-4">
         <div className="space-y-3">
           {messages.length === 0 && (
             <div className="space-y-2">
