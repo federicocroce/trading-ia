@@ -236,7 +236,13 @@ describe('getQuotes (batch v7 + fallback per-símbolo)', () => {
     });
     const { getQuotes } = await cargarYahoo(fetchMock);
 
-    const precios = await getQuotes(['AAA', 'BBB']);
+    // Timers falsos: withRetry espera 800ms reales de backoff y no vale la pena
+    // pagarlos en cada corrida de la suite.
+    vi.useFakeTimers();
+    const pendiente = getQuotes(['AAA', 'BBB']);
+    await vi.runAllTimersAsync();
+    const precios = await pendiente;
+    vi.useRealTimers();
 
     expect(llamadas.v7).toHaveLength(2);
     expect(llamadas.chart).toEqual([]);
@@ -267,7 +273,11 @@ describe('getQuotes (batch v7 + fallback per-símbolo)', () => {
     });
     const { getQuotes } = await cargarYahoo(fetchMock);
 
-    await getQuotes(['AAA']);
+    vi.useFakeTimers();
+    const pendiente = getQuotes(['AAA']);
+    await vi.runAllTimersAsync();
+    await pendiente;
+    vi.useRealTimers();
     expect(llamadas.crumb).toBe(1); // el reintento no lo repidió
 
     await getQuotes(['BBB']);
