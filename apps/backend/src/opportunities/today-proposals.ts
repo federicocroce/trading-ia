@@ -1,20 +1,56 @@
 /**
- * Selección pura del top de "Oportunidades (no las tenés)" de Hoy + regla del residente crónico.
+ * Selección pura de los "Candidatos operables" de Hoy + reglas medidas de degradación.
  *
  * Compartida entre la vista (today-decisions.service), el registro post-scan
  * (opportunities.service → persistScanResult) y el backfill, para que lo guardado sea
  * EXACTAMENTE lo mostrado — fuente única, sin doble discurso.
  *
- * Evidencia (signal_tracking × reconstrucción de opportunity_scans, abr–jul 2026, 165 scans):
- *   1ª aparición en el top:  win rate 53.6%, R prom +0.28 (n=110)
- *   2ª–3ª aparición:         win rate 50.0%, R prom +0.31 (n=118)
- *   4ª o más:                win rate 40.4%, R prom −0.05 (n=260)
- * El residente crónico no tiene edge medido → desde el umbral, COMPRAR degrada a OBSERVAR.
- * Solo degrada, jamás sube — misma dirección que el gate del LLM (applyLlmAction).
+ * ────────────────────────────────────────────────────────────────────────────
+ * CAMBIO 2026-07-27 — se apagó el ranking (test de atribución, prompt maestro §4).
+ *
+ * Medido contra sortear del MISMO universo que el sistema escanea, con horizonte fijo
+ * y test pareado por fecha:
+ *   top-6 por score vs azar : −0.79% (t=−1.50) a 7d ; −1.48% (t=−1.63) a 30d
+ *   rankear dentro del piso : −0.75% (t=−2.22, SIGNIF) a 7d
+ * O sea: ordenar por score es indistinguible del azar y se inclina a destruir valor.
+ * Mostrar un "top-6 ordenado" comunicaba una jerarquía que no existe.
+ *
+ * Qué se apagó: el orden por score, el corte en 6, y el verbo COMPRAR (que sugería
+ * una recomendación de fuerza que la medición no sostiene).
+ * Qué se conservó: los FILTROS (quality bar, anti-hype, setup válido) y las dos reglas
+ * de degradación que SÍ tienen medición propia (crónico y stop perforado, abajo).
+ * El score se sigue calculando y persistiendo para poder re-medirlo; solo deja de
+ * ordenar y de mostrarse.
+ *
+ * Qué NO se apagó y por qué: la separación BUY vs WATCH del motor. NO es un ranking de
+ * fuerza — es un hecho verificable sobre el estado del papel HOY: BUY = tiene setup de
+ * entrada válido (entrada/stop/target coherentes, RR≥2); WATCH = todavía no. Colapsarlas
+ * fue un error de diseño que se probó y se revirtió el mismo día: el scan típico trae
+ * ~5 BUY y ~99 WATCH, así que la vista mostraba 101 tarjetas rotuladas "operable" cuando
+ * 99 no tenían punto de entrada — precisamente el humo que el objetivo #3 prohíbe.
+ * ⚠️ Disclosure obligatoria en la UI: tener setup válido NO midió mejor retorno que no
+ * tenerlo (COMPRAR +1.01% t=0.59 vs OBSERVAR +4.48% t=2.22 contra SPY). La separación es
+ * de ACCIONABILIDAD, no de calidad esperada, y así hay que mostrarla.
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ * Evidencia del residente crónico (signal_tracking × opportunity_scans, abr–jul 2026):
+ *   1ª aparición:  win rate 53.6%, R prom +0.28 (n=110)
+ *   2ª–3ª:         win rate 50.0%, R prom +0.31 (n=118)
+ *   4ª o más:      win rate 40.4%, R prom −0.05 (n=260)
+ * Desde el umbral, OPERABLE pasa a EN ESPERA. Solo degrada, jamás sube — misma
+ * dirección que el gate del LLM (applyLlmAction).
  */
 import { envNumber } from '../shared/env-number.js';
 
-export type MarketVerb = 'COMPRAR' | 'OBSERVAR';
+/**
+ * Verbo del mercado. NO es una escala de fuerza esperada, es el ESTADO del papel hoy:
+ *   - `OPERABLE`       — tiene setup de entrada válido ahora (motor: BUY).
+ *   - `EN SEGUIMIENTO` — sin punto de entrada todavía (motor: WATCH).
+ *   - `EN ESPERA`      — una regla MEDIDA lo marcó (crónico o stop perforado).
+ * Entre dos del mismo estado NO hay preferencia: el sistema no sabe cuál es mejor y no
+ * finge saberlo. Y tener setup válido tampoco midió mejor retorno (ver cabecera).
+ */
+export type MarketVerb = 'OPERABLE' | 'EN SEGUIMIENTO' | 'EN ESPERA';
 
 export interface ProposalCandidate {
   symbol: string;
@@ -22,30 +58,33 @@ export interface ProposalCandidate {
   opportunityScore: number;
 }
 
-export const TODAY_PROPOSAL_LIMIT = 6;
-
 /**
- * Filtra BUY/WATCH no tenidos. INVARIANTE (regla #4, coherencia): ningún BUY del motor
- * queda fuera de Hoy — "Hoy" es la ÚNICA superficie de decisión y no puede decir "nada
- * para comprar" mientras Oportunidades muestra un BUY. BUYs primero (todos, por score;
- * si superan el límite, el límite cede), después los mejores WATCH hasta completar N.
+ * Filtra a BUY/WATCH no tenidos y devuelve TODO lo elegible en orden alfabético.
+ *
+ * Sin corte y sin orden por score, a propósito (ver cabecera): cualquier "top-N" es la
+ * operación exactamente refutada por el test de atribución. El orden alfabético es
+ * neutral por construcción — no admite lectura de preferencia.
+ *
+ * INVARIANTE (regla #4, coherencia): ningún BUY del motor queda fuera de Hoy — "Hoy" es
+ * la ÚNICA superficie de decisión y no puede decir "nada para comprar" mientras
+ * Oportunidades muestra un BUY. Ahora se cumple trivialmente: no hay corte que lo saque.
  */
 export function selectTodayProposals<T extends ProposalCandidate>(
   opps: T[],
   heldSet: Set<string>,
-  limit: number = TODAY_PROPOSAL_LIMIT,
 ): T[] {
-  const eligible = opps.filter(
-    (o) => !heldSet.has(o.symbol.toUpperCase()) && (o.action === 'BUY' || o.action === 'WATCH'),
-  );
-  const byScore = (a: T, b: T) => b.opportunityScore - a.opportunityScore;
-  const buys = eligible.filter((o) => o.action === 'BUY').sort(byScore);
-  const watches = eligible.filter((o) => o.action === 'WATCH').sort(byScore);
-  return [...buys, ...watches.slice(0, Math.max(0, limit - buys.length))];
+  return opps
+    .filter((o) => !heldSet.has(o.symbol.toUpperCase()) && (o.action === 'BUY' || o.action === 'WATCH'))
+    .sort((a, b) => a.symbol.localeCompare(b.symbol));
 }
 
+/**
+ * Estado base del candidato: si el motor le encontró setup de entrada válido hoy o no.
+ * Es un HECHO sobre el papel, no una recomendación de fuerza — el verbo COMPRAR se apagó
+ * justamente porque sugería lo segundo (prompt maestro §4).
+ */
 export function verbFor(action: string): MarketVerb {
-  return action === 'BUY' ? 'COMPRAR' : 'OBSERVAR';
+  return action === 'BUY' ? 'OPERABLE' : 'EN SEGUIMIENTO';
 }
 
 /** Umbral configurable lazy (regla dura 3). HOY_CHRONIC_THRESHOLD=999 lo desactiva en la práctica. */
@@ -63,12 +102,12 @@ export interface ChronicAdjustment {
  * Arbitraje tesis vs scan cuando una tesis gatillada aparece en Hoy (regla #4, coherencia):
  * las voces pueden diferir, pero el ranking es explícito — el veredicto del scan MANDA,
  * la tesis es opinión. Solo hay conflicto real cuando apuntan en direcciones opuestas
- * (alcista vs VENDER/REVISAR; bajista vs COMPRAR). Neutralidad o ausencia ≠ conflicto.
+ * (alcista vs VENDER/REVISAR; bajista vs OPERABLE). Neutralidad o ausencia ≠ conflicto.
  */
 export function thesisConflictCaveat(direction: string, scanVerb: string | null): string | null {
   if (scanVerb == null) return null;
   const conflictoAlcista = direction === 'alcista' && (scanVerb === 'VENDER' || scanVerb === 'REVISAR');
-  const conflictoBajista = direction === 'bajista' && scanVerb === 'COMPRAR';
+  const conflictoBajista = direction === 'bajista' && scanVerb === 'OPERABLE';
   if (!conflictoAlcista && !conflictoBajista) return null;
   return (
     `La tesis (${direction}) contradice al scan técnico (${scanVerb}). Jerarquía del sistema: ` +
@@ -87,7 +126,7 @@ export function stopBreachLookbackDays(): number {
  * stop_loss de una señal previa (≤30d) del mismo símbolo = 31.9% win / −0.153R (n=91)
  * vs 41.0% / +0.042R del resto (n=883). Además es coherencia pura (objetivo #4): el
  * sistema dijo "salida en X" hace días — recomendar compra por debajo de X es doble
- * discurso. COMPRAR degrada a OBSERVAR (jamás al revés) y cualquier verbo lleva caveat.
+ * discurso. OPERABLE pasa a EN ESPERA (jamás al revés) y cualquier verbo lleva caveat.
  * Sin stop reciente (null) = caso normal. Precio no finito ⇒ sin ajuste (la perforación
  * no puede verificarse; el dato faltante ya rechaza la señal aguas arriba).
  * NOTA de método: una primera medición dio −0.69R pero tenía lookahead bias (usaba
@@ -100,9 +139,9 @@ export function stopBreachAdjustment(
 ): ChronicAdjustment {
   if (recentMaxStop == null || !Number.isFinite(currentPrice)) return { verb };
   if (!(currentPrice < recentMaxStop)) return { verb };
-  const cierre = verb === 'COMPRAR' ? 'Degradado a OBSERVAR.' : 'Esperá a que arme setup nuevo por encima del stop.';
+  const cierre = verb === 'OPERABLE' ? 'Pasa a EN ESPERA.' : 'Esperá a que arme setup nuevo por encima del stop.';
   return {
-    verb: verb === 'COMPRAR' ? 'OBSERVAR' : verb,
+    verb: 'EN ESPERA',
     caveat:
       `Precio (${currentPrice.toFixed(2)}) por debajo del stop ${recentMaxStop.toFixed(2)} que el propio sistema ` +
       `fijó hace días. Comprar bajo un stop perforado midió 32% de aciertos y R −0.15 (n=91, abr–jul 2026) ` +
@@ -111,7 +150,7 @@ export function stopBreachAdjustment(
 }
 
 /**
- * Regla del residente crónico: nthAppearance >= umbral ⇒ COMPRAR degrada a OBSERVAR
+ * Regla del residente crónico: nthAppearance >= umbral ⇒ OPERABLE pasa a EN ESPERA
  * (jamás al revés) y cualquier verbo lleva caveat. nth null = dato faltante ⇒ no se
  * inventa nada (fail-closed).
  */
@@ -121,11 +160,11 @@ export function chronicAdjustment(
   threshold: number = chronicThreshold(),
 ): ChronicAdjustment {
   if (nthAppearance == null || nthAppearance < threshold) return { verb };
-  const cierre = verb === 'COMPRAR' ? 'Degradado a OBSERVAR.' : 'Sin apuro: si fuera a despegar, ya lo habría hecho.';
+  const cierre = verb === 'OPERABLE' ? 'Pasa a EN ESPERA.' : 'Sin apuro: si fuera a despegar, ya lo habría hecho.';
   return {
-    verb: verb === 'COMPRAR' ? 'OBSERVAR' : verb,
+    verb: 'EN ESPERA',
     caveat:
-      `${nthAppearance}ª aparición en el top de Hoy. Los residentes crónicos (${threshold}ª o más) ` +
+      `${nthAppearance}ª aparición en Hoy. Los residentes crónicos (${threshold}ª o más) ` +
       `históricamente no tienen edge: 40% de aciertos y R −0.05 (n=260, abr–jul 2026), ` +
       `contra +0.3R de las apariciones frescas. ${cierre}`,
   };

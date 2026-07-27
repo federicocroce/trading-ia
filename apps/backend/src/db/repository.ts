@@ -2013,7 +2013,7 @@ export interface TodayProposalInsert {
   scanId: number;
   scanDate: string; // YYYY-MM-DD
   symbol: string;
-  verb: string;         // COMPRAR | OBSERVAR (lo mostrado, post-degradación)
+  verb: string;         // OPERABLE | EN ESPERA desde 2026-07-27; COMPRAR | OBSERVAR en filas previas
   engineAction: string; // BUY | WATCH
   score: number;
   entryPrice: number | null;
@@ -2117,7 +2117,7 @@ export interface TodayAccuracyBucket {
 export function getTodayProposalAccuracy(): { total: TodayAccuracyBucket | null; byBucket: TodayAccuracyBucket[] } {
   // Guard anti-SELL: si el símbolo flipeó a SELL en un scan posterior del mismo día, el tracking
   // de esa fila mide un short (win = precio cayó) — dirección invertida respecto a la card
-  // COMPRAR/OBSERVAR que efectivamente se mostró. Hoy da 0 filas; guard preventivo.
+  // card que efectivamente se mostró. Hoy da 0 filas; guard preventivo.
   const rows = db.all<{ bucket: string; wins: number; losses: number; avg_r: number | null }>(sql`
     SELECT CASE WHEN tp.nth_appearance = 1 THEN '1'
                 WHEN tp.nth_appearance <= 3 THEN '2-3'

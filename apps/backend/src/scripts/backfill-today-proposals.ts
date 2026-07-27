@@ -14,7 +14,17 @@
  *   semántica original ("si hay varios scans en el día, gana el último — igual que la vista").
  * - Idempotente: re-correrlo no toca nada ya registrado, solo inserta lo que falte.
  *
- * Uso: npm run db:backfill-hoy --workspace=apps/backend
+ * ⚠️ CERRADO EL 2026-07-27 — NO RE-CORRER SIN LEER ESTO.
+ * Ese día se apagó el ranking (prompt maestro §4): `selectTodayProposals` dejó de cortar
+ * en 6 y de ordenar por score, y `verbFor` pasó a devolver siempre OPERABLE. Re-correr el
+ * backfill ahora insertaría, para cualquier scan histórico sin filas, un conjunto MUCHO más
+ * grande y con otro vocabulario de verbo — mezclando dos regímenes de selección en la misma
+ * tabla sin ninguna marca que los distinga, y arruinando toda medición forward que compare
+ * "lo que Hoy mostró" a lo largo del tiempo. El backfill ya cumplió su función (629 filas
+ * históricas). Si algún día hay que rellenar huecos nuevos, primero hay que decidir cómo se
+ * marca el régimen — no simplemente sacar este guard.
+ *
+ * Uso: npm run db:backfill-hoy --workspace=apps/backend (requiere BACKFILL_HOY_FORCE=1)
  */
 import 'dotenv/config';
 import { asc } from 'drizzle-orm';
@@ -32,6 +42,18 @@ interface RawOpp {
 }
 
 function main(): void {
+  // Guard de integridad: ver cabecera. El régimen de selección cambió el 2026-07-27.
+  if (process.env.BACKFILL_HOY_FORCE !== '1') {
+    console.error(
+      '[Backfill Hoy] ABORTADO. Este backfill se cerró el 2026-07-27, cuando se apagó el\n' +
+      'ranking: selectTodayProposals ya no corta en 6 ni ordena por score, y verbFor devuelve\n' +
+      'siempre OPERABLE. Re-correrlo mezclaría dos regímenes de selección en today_proposals\n' +
+      'sin marca que los distinga y arruinaría la medición forward.\n' +
+      'Si REALMENTE sabés lo que hacés: BACKFILL_HOY_FORCE=1 npm run db:backfill-hoy --workspace=apps/backend',
+    );
+    process.exit(1);
+  }
+
   const scans = db
     .select({
       id: schema.opportunityScans.id,

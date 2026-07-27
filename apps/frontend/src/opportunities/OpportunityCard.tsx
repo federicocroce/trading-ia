@@ -354,7 +354,7 @@ export function OpportunityCard({ opportunity, forceExpanded = false }: { opport
   const hoyEntry = opportunity.action === 'BUY'
     ? todayView?.opportunities.find((o) => o.symbol === opportunity.symbol)
     : undefined;
-  const degradadaEnHoy = hoyEntry != null && hoyEntry.verb !== 'COMPRAR';
+  const degradadaEnHoy = hoyEntry != null && hoyEntry.verb !== 'OPERABLE';
   const razonDegradacion = hoyEntry?.cooldownCaveat ?? hoyEntry?.persistenceCaveat ?? null;
 
   return (
