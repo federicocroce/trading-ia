@@ -141,9 +141,12 @@ async function main() {
     bucket.push(r);
   }
 
-  // PRNG determinístico: la corrida tiene que ser reproducible.
+  // PRNG determinístico: la corrida tiene que ser reproducible. `Math.imul` es obligatorio —
+  // con `*` a secas el producto supera 2^53 y pierde precisión antes del enmascarado.
+  // Igual el sorteo es solo un CONTROL: el baseline aleatorio exacto es la cohorte D
+  // (la esperanza de un sorteo sin reemplazo es la media poblacional).
   let seed = 12345;
-  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const rnd = () => ((seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff) / 0x7fffffff);
 
   const A: number[] = [], B: number[] = [], C: number[] = [], D: number[] = [], E: number[] = [];
   const paired: number[] = [];   // A − B por scan
