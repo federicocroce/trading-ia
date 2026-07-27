@@ -11,8 +11,7 @@ import { getHistoricalQuotes } from '../shared/yahoo.js';
 import {
   resolveTrackedSignal,
   computeRMultiple,
-  computeBenchmarkReturn,
-  computeAlpha,
+  benchmarkFields,
   type TrackedSignalInput,
   type PriceCandle,
 } from '../intelligence/outcome-resolver.js';
@@ -165,10 +164,13 @@ export async function resolveExpiredSignals(): Promise<number> {
       // Benchmark en la MISMA ventana [signalDate, resolvedDate]. El alpha usa el
       // retorno DIRECCIONAL (res.resolutionReturn), no el crudo: el capital estuvo
       // desplegado en la señal en vez de en el índice.
-      const benchmarkReturn =
-        benchCandles != null && res.resolvedDate != null && res.outcome !== 'invalid'
-          ? computeBenchmarkReturn(signal.signalDate, res.resolvedDate, benchCandles)
-          : null;
+      const bm = benchmarkFields(
+        signal.signalDate,
+        res.outcome !== 'invalid' ? res.resolvedDate : null,
+        benchCandles,
+        res.resolutionReturn,
+        bench,
+      );
 
       resolveSignal(signal.id, {
         priceAfter7d,
@@ -181,10 +183,7 @@ export async function resolveExpiredSignals(): Promise<number> {
         rMultiple: res.resolutionPrice != null && res.outcome !== 'invalid'
           ? computeRMultiple(signal.action as any, signal.entryPrice, signal.stopLoss, res.resolutionPrice)
           : null,
-        resolutionDate: res.outcome !== 'invalid' ? res.resolvedDate : null,
-        benchmarkSymbol: benchmarkReturn != null ? bench : null,
-        benchmarkReturn,
-        alphaVsBenchmark: computeAlpha(res.resolutionReturn, benchmarkReturn),
+        ...bm,
       });
       if (res.outcome !== 'invalid') resolved++;
     } catch {

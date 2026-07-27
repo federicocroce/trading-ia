@@ -348,3 +348,39 @@ export function computeAlpha(
   if (signalReturn == null || benchmarkReturn == null) return null;
   return Math.round((signalReturn - benchmarkReturn) * 10_000) / 10_000;
 }
+
+/**
+ * Campos de benchmark listos para `resolveSignal`, en una sola llamada.
+ *
+ * Existe para que NINGÚN resolver pueda cerrar una señal sin alpha. `signal_tracking` tiene
+ * DOS productores que comparten la misma cola (`getPendingSignals`): el path-aware de
+ * `opportunities/signal-tracking.service.ts` y el de `evidence-signals/signal-resolver.service.ts`.
+ * Si solo uno calculara el benchmark, la columna quedaría con agujeros justo en las filas que
+ * gana el otro — y el agujero sería invisible (null se lee igual que "sin cobertura").
+ *
+ * `signalReturn` va DIRECCIONAL (a favor de la señal). Fail-closed: sin fecha de resolución,
+ * sin serie o sin cobertura, los tres campos salen null juntos y coherentes.
+ */
+export function benchmarkFields(
+  signalDate: string,
+  resolutionDate: string | null,
+  benchmarkCandles: PriceCandle[] | null,
+  signalReturn: number | null,
+  symbol: string,
+): {
+  resolutionDate: string | null;
+  benchmarkSymbol: string | null;
+  benchmarkReturn: number | null;
+  alphaVsBenchmark: number | null;
+} {
+  if (resolutionDate == null || benchmarkCandles == null || benchmarkCandles.length === 0) {
+    return { resolutionDate, benchmarkSymbol: null, benchmarkReturn: null, alphaVsBenchmark: null };
+  }
+  const benchmarkReturn = computeBenchmarkReturn(signalDate, resolutionDate, benchmarkCandles);
+  return {
+    resolutionDate,
+    benchmarkSymbol: benchmarkReturn != null ? symbol : null,
+    benchmarkReturn,
+    alphaVsBenchmark: computeAlpha(signalReturn, benchmarkReturn),
+  };
+}

@@ -1,6 +1,24 @@
 import { getPendingSignals, resolveSignal } from '../db/repository.js';
 import { getHistoricalQuotes, getQuote } from '../shared/yahoo.js';
-import { computeRMultiple } from '../intelligence/outcome-resolver.js';
+import { computeRMultiple, benchmarkFields, type PriceCandle } from '../intelligence/outcome-resolver.js';
+import { envString } from '../shared/env-number.js';
+
+/**
+ * Serie del benchmark para la corrida. Este resolver comparte la cola `getPendingSignals`
+ * con `opportunities/signal-tracking.service.ts`: si solo aquel calculara el alpha, las filas
+ * que gana ESTE quedarían con la columna en null y el agujero sería invisible (null se lee
+ * igual que "sin cobertura"). Se carga una vez por corrida y se pasa a cada resolución.
+ */
+async function loadBenchmark(): Promise<{ symbol: string; candles: PriceCandle[] | null }> {
+  const symbol = envString('BENCHMARK_SYMBOL', 'SPY');
+  try {
+    const ohlc = await getHistoricalQuotes(symbol, '2y', '1d');
+    return { symbol, candles: ohlc.map((c) => ({ date: c.date, high: c.high, low: c.low, close: c.close })) };
+  } catch {
+    console.warn(`[SignalResolver] sin serie de ${symbol}: alpha queda null en esta corrida`);
+    return { symbol, candles: null };
+  }
+}
 
 const DAYS_7 = 7 * 24 * 60 * 60 * 1000;
 const DAYS_30 = 30 * 24 * 60 * 60 * 1000;
@@ -10,7 +28,10 @@ let resolving = false;
 /**
  * Returns price closest to targetDate from an OHLC array.
  */
-function priceAtDate(ohlc: Array<{ date: string; close: number; high: number; low: number }>, targetDate: Date): number | null {
+function candleAtDate(
+  ohlc: Array<{ date: string; close: number; high: number; low: number }>,
+  targetDate: Date,
+): { date: string; close: number } | null {
   if (!ohlc.length) return null;
   const targetTs = targetDate.getTime();
   const sorted = [...ohlc].sort((a, b) => {
@@ -18,7 +39,11 @@ function priceAtDate(ohlc: Array<{ date: string; close: number; high: number; lo
     const db = Math.abs(new Date(b.date).getTime() - targetTs);
     return da - db;
   });
-  return sorted[0].close;
+  return { date: sorted[0].date, close: sorted[0].close };
+}
+
+function priceAtDate(ohlc: Array<{ date: string; close: number; high: number; low: number }>, targetDate: Date): number | null {
+  return candleAtDate(ohlc, targetDate)?.close ?? null;
 }
 
 /**
@@ -63,7 +88,10 @@ function maxDrawdownPct(
   return Math.round(((worstLow - entryPrice) / entryPrice) * 10000) / 100;
 }
 
-async function resolveOne(signal: ReturnType<typeof getPendingSignals>[0]): Promise<void> {
+async function resolveOne(
+  signal: ReturnType<typeof getPendingSignals>[0],
+  bench: { symbol: string; candles: PriceCandle[] | null },
+): Promise<void> {
   // Only resolve evidence-v2 signals
   if (signal.sector !== 'evidence-v2') return;
 
@@ -94,6 +122,7 @@ async function resolveOne(signal: ReturnType<typeof getPendingSignals>[0]): Prom
           ? Math.round(((priceAtHit - signal.entryPrice) / signal.entryPrice) * 10000) / 100
           : null;
 
+        const hitDate = (targetWins ? targetHitAt : stopHitAt)!;
         resolveSignal(signal.id, {
           priceAfter30d: priceAtHit,
           returnAfter30d: returnAtHit,
@@ -104,6 +133,15 @@ async function resolveOne(signal: ReturnType<typeof getPendingSignals>[0]): Prom
           rMultiple: priceAtHit != null
             ? computeRMultiple(signal.action as 'BUY' | 'SELL', signal.entryPrice, signal.stopLoss, priceAtHit)
             : null,
+          // Alpha en la ventana real [señal, hit]. `returnAtHit` es crudo: para SELL el
+          // retorno a favor de la señal es el opuesto.
+          ...benchmarkFields(
+            signal.signalDate,
+            hitDate.slice(0, 10),
+            bench.candles,
+            returnAtHit == null ? null : (signal.action === 'SELL' ? -returnAtHit : returnAtHit),
+            bench.symbol,
+          ),
         });
         console.log(`[SignalResolver] ⚡ Early exit ${signal.symbol} → ${targetWins ? 'WIN (target)' : 'LOSS (stop)'} hit on ${targetHitAt ?? stopHitAt}`);
         return;
@@ -128,7 +166,10 @@ async function resolveOne(signal: ReturnType<typeof getPendingSignals>[0]): Prom
 
     if (is30dOld) {
       const price7d = priceAtDate(ohlc, new Date(signalTs + DAYS_7));
-      const price30d = priceAtDate(ohlc, new Date(signalTs + DAYS_30));
+      // Se necesita la FECHA además del precio: la ventana del benchmark tiene que ser la
+      // misma que la de la señal, y `candleAtDate` puede caer días antes o después del +30d.
+      const candle30d = candleAtDate(ohlc, new Date(signalTs + DAYS_30));
+      const price30d = candle30d?.close ?? null;
       const returnAfter7d = price7d != null
         ? Math.round(((price7d - signal.entryPrice) / signal.entryPrice) * 10000) / 100
         : null;
@@ -180,6 +221,13 @@ async function resolveOne(signal: ReturnType<typeof getPendingSignals>[0]): Prom
         rMultiple: price30d != null
           ? computeRMultiple(signal.action as 'BUY' | 'SELL', signal.entryPrice, signal.stopLoss, price30d)
           : null,
+        ...benchmarkFields(
+          signal.signalDate,
+          candle30d?.date.slice(0, 10) ?? null,
+          bench.candles,
+          returnAfter30d == null ? null : (signal.action === 'SELL' ? -returnAfter30d : returnAfter30d),
+          bench.symbol,
+        ),
       });
 
       console.log(`[SignalResolver] ✓ ${signal.symbol} (${signal.signalDate}) → ${outcome.toUpperCase()} | 30d return: ${returnAfter30d != null ? (returnAfter30d > 0 ? '+' : '') + returnAfter30d + '%' : 'N/A'}`);
@@ -200,6 +248,9 @@ export async function runSignalResolver(): Promise<{ processed: number; resolved
     const pending = getPendingSignals().filter((s) => s.sector === 'evidence-v2');
     if (!pending.length) return { processed: 0, resolved: 0 };
 
+    // Una sola carga del benchmark por corrida (ver loadBenchmark).
+    const bench = await loadBenchmark();
+
     console.log(`[SignalResolver] Procesando ${pending.length} señales pendientes...`);
 
     for (const signal of pending) {
@@ -207,7 +258,7 @@ export async function runSignalResolver(): Promise<{ processed: number; resolved
       if (ageMs >= 7 * 24 * 60 * 60 * 1000) {
         processed++;
         const wasOld = ageMs >= 30 * 24 * 60 * 60 * 1000;
-        await resolveOne(signal);
+        await resolveOne(signal, bench);
         if (wasOld) resolved++;
         // Small delay to avoid hammering Yahoo
         await new Promise((r) => setTimeout(r, 300));

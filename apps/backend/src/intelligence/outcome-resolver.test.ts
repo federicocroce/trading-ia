@@ -6,6 +6,7 @@ import {
   computeRMultiple,
   computeBenchmarkReturn,
   computeAlpha,
+  benchmarkFields,
   type PriceCandle,
   type AlertResolutionInput,
   type TrackedSignalInput,
@@ -317,5 +318,49 @@ describe('computeAlpha', () => {
     expect(computeAlpha(null, 2)).toBeNull();
     expect(computeAlpha(5, null)).toBeNull();
     expect(computeAlpha(null, null)).toBeNull();
+  });
+});
+
+describe('benchmarkFields (para que ningún resolver cierre una señal sin alpha)', () => {
+  const bench = [
+    candle('2026-06-01', 101, 99, 100),
+    candle('2026-06-10', 111, 109, 110),
+  ];
+
+  it('arma los cuatro campos coherentes cuando hay cobertura', () => {
+    const f = benchmarkFields('2026-06-01', '2026-06-10', bench, 15, 'SPY');
+    expect(f.resolutionDate).toBe('2026-06-10');
+    expect(f.benchmarkSymbol).toBe('SPY');
+    expect(f.benchmarkReturn).toBeCloseTo(10);
+    expect(f.alphaVsBenchmark).toBeCloseTo(5);
+  });
+
+  it('sin fecha de resolución: los cuatro campos salen vacíos juntos', () => {
+    expect(benchmarkFields('2026-06-01', null, bench, 15, 'SPY')).toEqual({
+      resolutionDate: null, benchmarkSymbol: null, benchmarkReturn: null, alphaVsBenchmark: null,
+    });
+  });
+
+  it('sin serie de benchmark: conserva la fecha pero no inventa alpha', () => {
+    for (const serie of [null, []]) {
+      const f = benchmarkFields('2026-06-01', '2026-06-10', serie, 15, 'SPY');
+      expect(f.resolutionDate).toBe('2026-06-10');
+      expect(f.benchmarkSymbol).toBeNull();
+      expect(f.benchmarkReturn).toBeNull();
+      expect(f.alphaVsBenchmark).toBeNull();
+    }
+  });
+
+  it('serie que no cubre la ventana: no se rotula un benchmark que no se midió', () => {
+    const f = benchmarkFields('2026-06-01', '2026-08-30', bench, 15, 'SPY');
+    expect(f.benchmarkReturn).toBeNull();
+    expect(f.benchmarkSymbol).toBeNull();
+    expect(f.alphaVsBenchmark).toBeNull();
+  });
+
+  it('sin retorno direccional de la señal no hay alpha, pero sí benchmark', () => {
+    const f = benchmarkFields('2026-06-01', '2026-06-10', bench, null, 'SPY');
+    expect(f.benchmarkReturn).toBeCloseTo(10);
+    expect(f.alphaVsBenchmark).toBeNull();
   });
 });

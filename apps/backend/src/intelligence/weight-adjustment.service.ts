@@ -37,7 +37,7 @@ export function invalidateWeightsCache(): void {
   _cacheExpiry = 0;
 }
 
-function pearson(xs: number[], ys: number[]): number {
+export function pearson(xs: number[], ys: number[]): number {
   if (xs.length !== ys.length || xs.length < 3) return 0;
   const n = xs.length;
   const meanX = xs.reduce((a, b) => a + b, 0) / n;
@@ -47,6 +47,47 @@ function pearson(xs: number[], ys: number[]): number {
   const denY = Math.sqrt(ys.reduce((sum, y) => sum + (y - meanY) ** 2, 0));
   if (denX === 0 || denY === 0) return 0;
   return num / (denX * denY);
+}
+
+const MIN_SIGNALS = 20;
+
+/** Fila mínima que necesita la calibración: los tres ejes y el exceso sobre el índice. */
+export interface AxisSample {
+  techScore: number | null;
+  fundScore: number | null;
+  sentScore: number | null;
+  alphaVsBenchmark: number | null;
+}
+
+/**
+ * Correlación de cada eje contra el ALPHA (exceso sobre el índice) en la ventana de la señal.
+ *
+ * ⚠️ CAMBIO 2026-07-27 — antes esto correlacionaba contra `outcome` (win=1 / loss=0), que se
+ * define contra el propio stop/target del sistema, o sea contra CERO. Con ese objetivo un eje
+ * que seleccionaba señales de +0.5% en ventanas donde el índice hizo +2% salía premiado por
+ * destruir valor. Los pesos que salgan de acá gobiernan el score (vía propuesta aprobada →
+ * scoring_weight_history → getActiveWeights), así que el objetivo tiene que ser el correcto.
+ *
+ * Fail-closed: una fila sin alguno de los ejes, o sin alpha (benchmark sin cobertura en esa
+ * ventana), se DESCARTA. Jamás se imputa 0 — un 0 imputado es "el eje no dijo nada / el
+ * índice no se movió", dos afirmaciones falsas que sesgarían la correlación hacia el ruido.
+ *
+ * Devuelve null si no quedan al menos `minRows` filas medibles: sin base no se proponen pesos.
+ */
+export function axisCorrelationsVsBenchmark(
+  rows: AxisSample[],
+  minRows = MIN_SIGNALS,
+): { technical: number; fundamental: number; sentiment: number } | null {
+  const usable = rows.filter(
+    (r) => r.techScore != null && r.fundScore != null && r.sentScore != null && r.alphaVsBenchmark != null,
+  );
+  if (usable.length < minRows) return null;
+  const alpha = usable.map((r) => r.alphaVsBenchmark!);
+  return {
+    technical: pearson(usable.map((r) => r.techScore!), alpha),
+    fundamental: pearson(usable.map((r) => r.fundScore!), alpha),
+    sentiment: pearson(usable.map((r) => r.sentScore!), alpha),
+  };
 }
 
 function normalizeWeights(raw: { technical: number; fundamental: number; sentiment: number }, minEach = 0.10) {
@@ -62,8 +103,6 @@ function normalizeWeights(raw: { technical: number; fundamental: number; sentime
     sentiment: Math.round((1 - techRounded - fundRounded) * 100) / 100,
   };
 }
-
-const MIN_SIGNALS = 20;
 
 export function shouldGenerateProposal(): boolean {
   const pending = db.select().from(scoringWeightProposals).where(eq(scoringWeightProposals.status, 'pending')).get();
@@ -91,25 +130,17 @@ export function generateWeightProposal(): { id: number } | null {
 
   if (signals.length < MIN_SIGNALS) return null;
 
-  // 'invalid' ya está excluido de `signals` arriba — lo que llega acá es win/loss/neutral.
-  const outcomeVal = (o: string | null) => o === 'win' ? 1 : o === 'loss' ? 0 : 0.5;
-
-  const stSignals = signals.filter(s => s.shortTermScore != null);
+  // Objetivo = ALPHA sobre el índice, no win/loss (que se mide contra cero). Ver
+  // axisCorrelationsVsBenchmark. Fail-closed: sin filas medibles no se propone nada.
   const mtSignals = signals;
+  const stSignals = signals.filter(s => s.shortTermScore != null);
 
-  const stOutcomes = stSignals.map(s => outcomeVal(s.outcome));
-  const mtOutcomes = mtSignals.map(s => outcomeVal(s.outcome));
-
-  const stCorr = {
-    technical: pearson(stSignals.map(s => s.techScore!), stOutcomes),
-    fundamental: pearson(stSignals.map(s => s.fundScore!), stOutcomes),
-    sentiment: pearson(stSignals.map(s => s.sentScore!), stOutcomes),
-  };
-  const mtCorr = {
-    technical: pearson(mtSignals.map(s => s.techScore!), mtOutcomes),
-    fundamental: pearson(mtSignals.map(s => s.fundScore!), mtOutcomes),
-    sentiment: pearson(mtSignals.map(s => s.sentScore!), mtOutcomes),
-  };
+  const stCorr = axisCorrelationsVsBenchmark(stSignals);
+  const mtCorr = axisCorrelationsVsBenchmark(mtSignals);
+  if (stCorr == null || mtCorr == null) {
+    console.log('[weight-adjustment] Sin suficientes señales con alpha medido — no se propone nada');
+    return null;
+  }
 
   const proposedWeights: ScoringWeights = {
     shortTerm: normalizeWeights(stCorr),
