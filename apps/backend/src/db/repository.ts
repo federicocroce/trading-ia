@@ -957,6 +957,10 @@ export function resolveSignal(id: number, data: {
   hitStop?: boolean | null;
   outcome: string;
   rMultiple?: number | null;
+  resolutionDate?: string | null;
+  benchmarkSymbol?: string | null;
+  benchmarkReturn?: number | null;
+  alphaVsBenchmark?: number | null;
 }) {
   return db.update(schema.signalTracking)
     .set({ ...data, resolvedAt: new Date().toISOString() })

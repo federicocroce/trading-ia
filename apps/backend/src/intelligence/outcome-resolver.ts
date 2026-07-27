@@ -288,3 +288,63 @@ export function computeRMultiple(
   const move = isShort ? entryPrice - resolutionPrice : resolutionPrice - entryPrice;
   return Math.round((move / risk) * 100) / 100;
 }
+
+// ---------------------------------------------------------------------------
+// 4) Benchmark — el costo de oportunidad de NO haber comprado el índice.
+//
+// Una señal con retorno positivo puede seguir siendo una mala decisión si el
+// índice rindió más en la misma ventana. Sin esta medición el sistema es ciego
+// a su propio costo de oportunidad: mide contra cero en vez de contra la
+// alternativa real (comprar SPY y no hacer nada).
+// ---------------------------------------------------------------------------
+
+/**
+ * Máximo de días calendario que puede alejarse la vela elegida de la fecha pedida.
+ * Cubre fines de semana largos y feriados; más que eso significa que la serie NO
+ * cubre la ventana y el dato no existe (fail-closed) en vez de medir otra ventana.
+ */
+const BENCHMARK_MAX_GAP_DAYS = 7;
+
+/** Primera vela EN O DESPUÉS de la fecha (cubre feriados y fines de semana). */
+function closeOnOrAfter(candles: PriceCandle[], date: string): number | null {
+  let best: PriceCandle | null = null;
+  for (const c of candles) {
+    if (c.date >= date && (best === null || c.date < best.date)) best = c;
+  }
+  if (best == null || best.close <= 0) return null;
+  // Vela demasiado lejos = la serie no cubre esa punta de la ventana.
+  if (daysBetween(date, best.date) > BENCHMARK_MAX_GAP_DAYS) return null;
+  return best.close;
+}
+
+/**
+ * Retorno % del benchmark en la MISMA ventana que la señal [signalDate, resolutionDate].
+ * Fail-closed: si falta cualquiera de las dos puntas devuelve null — jamás 0, que
+ * se leería como "el índice no se movió" y regalaría alpha inexistente.
+ */
+export function computeBenchmarkReturn(
+  signalDate: string,
+  resolutionDate: string,
+  benchmarkCandles: PriceCandle[],
+): number | null {
+  if (resolutionDate < signalDate) return null;
+  const start = closeOnOrAfter(benchmarkCandles, signalDate);
+  const end = closeOnOrAfter(benchmarkCandles, resolutionDate);
+  if (start == null || end == null) return null;
+  return pctChange(start, end);
+}
+
+/**
+ * Exceso de retorno de la señal sobre el benchmark en la misma ventana.
+ * `signalReturn` va DIRECCIONAL (a favor de la señal, como `resolutionReturn`):
+ * el capital estuvo desplegado en la señal en vez de en el índice, así que un
+ * short que gana 3% mientras el índice sube 5% igual destruyó valor relativo.
+ * Fail-closed en null.
+ */
+export function computeAlpha(
+  signalReturn: number | null | undefined,
+  benchmarkReturn: number | null | undefined,
+): number | null {
+  if (signalReturn == null || benchmarkReturn == null) return null;
+  return Math.round((signalReturn - benchmarkReturn) * 10_000) / 10_000;
+}

@@ -8,3 +8,9 @@ export function envNumber(name: string, fallback: number): number {
   const n = Number(process.env[name]);
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
+
+/** Igual que envNumber pero para strings: lectura lazy y vacío tratado como ausente. */
+export function envString(name: string, fallback: string): string {
+  const v = process.env[name]?.trim();
+  return v ? v : fallback;
+}

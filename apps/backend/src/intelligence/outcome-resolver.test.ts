@@ -4,6 +4,8 @@ import {
   resolveCausalOutcome,
   resolveTrackedSignal,
   computeRMultiple,
+  computeBenchmarkReturn,
+  computeAlpha,
   type PriceCandle,
   type AlertResolutionInput,
   type TrackedSignalInput,
@@ -253,5 +255,67 @@ describe('computeRMultiple', () => {
     expect(computeRMultiple('BUY', 100, null, 110)).toBeNull();
     expect(computeRMultiple('BUY', 100, 100, 110)).toBeNull(); // stop == entry
     expect(computeRMultiple('BUY', 100, 120, 110)).toBeNull(); // stop incoherente
+  });
+});
+
+describe('computeBenchmarkReturn', () => {
+  // Velas de benchmark: el índice sube de 100 a 110 entre el 01 y el 10.
+  const bench = [
+    candle('2026-06-01', 101, 99, 100),
+    candle('2026-06-05', 106, 104, 105),
+    candle('2026-06-10', 111, 109, 110),
+  ];
+
+  it('mide el retorno del benchmark en la MISMA ventana de la señal', () => {
+    expect(computeBenchmarkReturn('2026-06-01', '2026-06-10', bench)).toBeCloseTo(10);
+  });
+
+  it('ventana parcial usa el cierre de la vela de resolución', () => {
+    expect(computeBenchmarkReturn('2026-06-01', '2026-06-05', bench)).toBeCloseTo(5);
+  });
+
+  it('toma la primera vela EN O DESPUÉS de cada fecha (feriados / fin de semana)', () => {
+    // 06-02 y 06-08 no son ruedas: debe caer en 06-05 y 06-10 respectivamente.
+    expect(computeBenchmarkReturn('2026-06-02', '2026-06-08', bench)).toBeCloseTo(4.76, 1);
+  });
+
+  it('ventana de cero días da 0 (misma vela)', () => {
+    expect(computeBenchmarkReturn('2026-06-05', '2026-06-05', bench)).toBe(0);
+  });
+
+  it('fail-closed: sin vela para la fecha de señal devuelve null', () => {
+    expect(computeBenchmarkReturn('2026-05-01', '2026-06-10', [bench[2]])).toBeNull();
+  });
+
+  it('fail-closed: sin vela para la fecha de resolución devuelve null', () => {
+    expect(computeBenchmarkReturn('2026-06-01', '2026-06-20', bench)).toBeNull();
+  });
+
+  it('fail-closed: serie vacía o precio inválido devuelve null', () => {
+    expect(computeBenchmarkReturn('2026-06-01', '2026-06-10', [])).toBeNull();
+    expect(computeBenchmarkReturn('2026-06-01', '2026-06-10', [
+      candle('2026-06-01', 0, 0, 0),
+      candle('2026-06-10', 111, 109, 110),
+    ])).toBeNull();
+  });
+});
+
+describe('computeAlpha', () => {
+  it('resta el retorno del benchmark al retorno direccional de la señal', () => {
+    expect(computeAlpha(5, 2)).toBeCloseTo(3);
+  });
+
+  it('una señal ganadora que le gana MENOS al índice tiene alpha negativo', () => {
+    expect(computeAlpha(1, 4)).toBeCloseTo(-3);
+  });
+
+  it('una señal perdedora en un índice que cae puede tener alpha positivo', () => {
+    expect(computeAlpha(-2, -6)).toBeCloseTo(4);
+  });
+
+  it('fail-closed: cualquier insumo null devuelve null (jamás 0 silencioso)', () => {
+    expect(computeAlpha(null, 2)).toBeNull();
+    expect(computeAlpha(5, null)).toBeNull();
+    expect(computeAlpha(null, null)).toBeNull();
   });
 });
