@@ -1,6 +1,8 @@
 # Prompt maestro — mejora continua del trading dashboard
 
-> **Uso**: pegá este documento (o referencialo) como prompt inicial de cualquier sesión de IA que vaya a trabajar en este repo — incluido `/ralph-loop` para corridas nocturnas autónomas. Contiene todo lo que una sesión fresca necesita: objetivo, reglas duras, estado, evidencia, backlog y verificación. Última actualización: 2026-07-05 (post radar-cuantitativo, branch sin mergear).
+> **Uso**: pegá este documento (o referencialo) como prompt inicial de cualquier sesión de IA que vaya a trabajar en este repo — incluido `/ralph-loop` para corridas nocturnas autónomas. Contiene todo lo que una sesión fresca necesita: objetivo, reglas duras, estado, evidencia, backlog y verificación.
+>
+> **Última actualización: 2026-07-27** (branch `feat/benchmark-alpha`, sin mergear). Esa tanda **reescribió el objetivo (§1)** y refutó con datos propios la premisa que lo sostenía. Si venís de una versión anterior de este documento: leé §1 y los bullets ⭐ de §4 ANTES de tocar nada — varias líneas de trabajo que antes eran prioritarias ahora están explícitamente fuera de alcance.
 
 ---
 
@@ -21,7 +23,8 @@ Federico es un swing trader argentino individual. La app existe para **que compo
 ## 2. La app
 
 - **Repo**: `/Users/federicocroce/Docu/Fede/trading` — monorepo npm workspaces: `apps/backend` (Hono + tRPC + SQLite/drizzle), `apps/frontend` (React + Vite + Tailwind), `packages/shared` (tipos).
-- **Flujo core**: pipeline diario (cron pre-market 7:30 ET, lun-vie) → noticias (RSS/NewsAPI) → extracción de tickers → screener de mercado (Yahoo) → scan técnico+fundamental de ~110-130 símbolos → scoring compuesto → veredictos con niveles → digest/reporte con LLM (capa narrativa) → vista "Hoy" con verbos de decisión.
+- **Flujo core**: pipeline diario (cron pre-market 7:30 ET, lun-vie) → noticias (RSS/NewsAPI) → extracción de tickers → screener de mercado (Yahoo) → scan técnico+fundamental de ~110-130 símbolos → scoring compuesto → veredictos con niveles → digest/reporte con LLM (capa narrativa) → vista "Hoy".
+- **La vista "Hoy" (2026-07-27)** ordena por prioridad de decisión, no por score: (1) tus posiciones con su verbo de guardián, (2) **dónde va el próximo aporte** (módulo Cartera), (3) tesis gatilladas, (4) **satélite** con setup de entrada —alfabético, sin ranking—, (5) en seguimiento. El score se calcula y persiste pero NO se muestra ni ordena en ninguna superficie.
 - **Datos**: `data/trading.db` (SQLite). Tablas clave: `opportunity_scans`/`opportunity_snapshots`, `signal_tracking` (resolución path-aware de señales, R-multiples), `anticipatory_alerts` (kinds: anticipatory/stop_breach/rearm), `discovered_symbols`, `anti_hype_rejections`, `market_digests`/`market_reports`, `unified_analysis_results`.
 - **LLMs**: Gemini 2.5 Pro/Flash, Groq llama-3.3-70b, OpenRouter free (nemotron-3-ultra-550b, gpt-oss-120b, nemotron-3-nano-reasoning, llama-3.3-70b), LM Studio local, Sonnet en chat. Router con fallbacks + circuit breaker + timeouts 90s + tracking de tokens.
 - **Branch de trabajo**: `feat/outcome-resolver` (remote `github-personal:federicocroce/trading-ia.git`). Trabajá siempre en branches `fix/...` desde ahí; merge solo con review aprobado.
@@ -36,8 +39,8 @@ Federico es un swing trader argentino individual. La app existe para **que compo
 3. **Quality bar**: acciones requieren marketCap ≥$500M Y precio ≥$5 (fail-closed si falta dato); ETF/commodity solo precio; crypto exenta. Riesgo del setup: stop ≤3×ATR y riesgo ≤10% o `setupQuality='invalid'` → BUY degradado a WATCH, sin sizing.
 4. **envNumber lazy** (`apps/backend/src/shared/env-number.ts`): toda constante configurable se lee DENTRO de la función. Jamás `process.env` a nivel módulo (el hoisting ESM corre antes de `dotenv.config()` — ya causó env vars inertes).
 5. **Payloads tRPC aditivos**: campos nuevos por spread sobre el shape existente. Jamás wrappers que rompan consumidores (ya se revirtió una violación).
-6. **Tests canónicos**: `npm run test --workspace=apps/backend` — ÚNICO conteo válido (454 al 2026-07-05 en branch fix/radar-cuantitativo; 420 en feat/outcome-resolver hasta su merge). El vitest de la raíz barre worktrees stale y da conteos falsos: NUNCA usarlo ni citarlo. Todo claim de verificación se re-corre antes de aceptarse (un implementador ya fabricó "587 tests" inexistentes).
-7. **Convenciones**: comentarios en español, imports ESM con `.js`, TDD (test rojo primero) para toda lógica, funciones de decisión puras (sin I/O) para testearlas sin mocks. Commits terminan con `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`.
+6. **Tests canónicos**: `npm run test --workspace=apps/backend` — ÚNICO conteo válido (**644 al 2026-07-27** en `feat/benchmark-alpha`; 618 en el punto de partida de esa tanda). El vitest de la raíz barre worktrees stale y da conteos falsos: NUNCA usarlo ni citarlo. Todo claim de verificación se re-corre antes de aceptarse (un implementador ya fabricó "587 tests" inexistentes).
+7. **Convenciones**: comentarios en español, imports ESM con `.js`, TDD (test rojo primero) para toda lógica, funciones de decisión puras (sin I/O) para testearlas sin mocks. Commits terminan con la línea `Co-Authored-By:` del modelo que hizo el trabajo (histórico: Claude Fable 5; tanda del 2026-07-27: Claude Opus 5).
 8. **Migraciones drizzle**: journal reparado en P2; toda migración nueva lleva `when` mayor a las existentes. Verificar que la columna exista en la DB viva antes de asumir que un insert funciona. **LANDMINE**: `initDatabase()` corre migrate() en CADA boot del backend — generar una migración = asumir que se aplica en el próximo arranque; el backup va ANTES de `db:generate` si el backend puede arrancar en el medio.
 9. **Proceso**: planes en `docs/superpowers/plans/YYYY-MM-DD-*.md`; ejecución subagent-driven (implementador fresco por task + review por task + review final whole-branch en el modelo más capaz); ledger durable en `.superpowers/sdd/progress.md` — leelo SIEMPRE antes de empezar (tasks marcadas complete NO se repiten).
 
