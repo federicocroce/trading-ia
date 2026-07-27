@@ -22,6 +22,7 @@
     "db:backfill-r": "tsx src/scripts/backfill-r-multiple.ts",
     "db:backfill-hoy": "tsx src/scripts/backfill-today-proposals.ts",
     "db:backfill-benchmark": "tsx src/scripts/backfill-benchmark-alpha.ts",
+    "analyze:attribution": "tsx src/scripts/attribution-test.ts",
     "db:repair-journal": "tsx src/scripts/repair-migration-timestamps.ts"
   },
   "dependencies": {
