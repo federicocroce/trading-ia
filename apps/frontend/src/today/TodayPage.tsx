@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { trpc } from '@/shared/trpc';
 import { useNavigation } from '@/shared/navigation';
 import { useMarketRefetchInterval } from '@/shared/useMarketRefetchInterval';
+import { AllocationPlanPanel } from '@/portfolio/AllocationPlanPanel';
 
 const PORTFOLIO_VERB: Record<string, { label: string; cls: string; border: string }> = {
   VENDER: { label: 'VENDER', cls: 'bg-red-500/20 text-red-400', border: 'border-l-red-500' },
@@ -116,6 +117,17 @@ export function TodayPage() {
         })}
       </section>
 
+      {/* ---- Dónde va el próximo aporte ----
+           Segundo bloque a propósito (objetivo #2 reescrito el 2026-07-27): el retorno lo
+           da el aporte recurrente compuesto sobre el núcleo indexado, no acertar el papel.
+           El panel ya existía enterrado en la tab Portfolio; acá es donde se decide. */}
+      <section className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Dónde va el próximo aporte
+        </h3>
+        <AllocationPlanPanel />
+      </section>
+
       {/* ---- Tesis gatilladas (convergencia: la opinión toca su entrada → aparece ACÁ) ---- */}
       {data && data.triggeredTheses.length > 0 && (
         <section className="space-y-2">
@@ -148,13 +160,14 @@ export function TodayPage() {
       {/* ---- Oportunidades ---- */}
       <section className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Con setup de entrada hoy (no los tenés){conSetup.length ? ` · ${conSetup.length}` : ''}
+          Satélite · con setup de entrada hoy{conSetup.length ? ` · ${conSetup.length}` : ''}
         </h3>
         {conSetup.length > 0 && (
           <p className="text-[10px] text-muted-foreground/80">
-            Orden alfabético. El orden NO indica preferencia: medido contra sortear del mismo universo,
-            rankear por score no le gana al azar (−0.79%, t=−1.50 a 7d). Todos pasan los mismos filtros
-            de calidad y el sistema no sabe cuál es mejor — elegí por diversificación contra tu cartera.
+            <strong>Esto es el satélite, no el producto.</strong> Existe para que tomes una apuesta acotada
+            con niveles y sizing, y quede medida — no porque el sistema sepa cuál va a subir. Orden alfabético:
+            rankear por score no le gana a sortear del mismo universo (−0.79%, t=−1.50), y las señales no
+            muestran alpha contra SPY. Todos pasan los mismos filtros; elegí por diversificación contra tu cartera.
           </p>
         )}
         {data && conSetup.length === 0 && (
@@ -263,7 +276,10 @@ export function TodayPage() {
       )}
 
       <p className="text-[10px] text-muted-foreground border-t border-border pt-3">
-        El sistema no garantiza nada. Su valor honesto: protegerte el capital en lo que tenés y darte una watchlist corta. La decisión final es tuya.
+        El sistema no predice, y está medido: sus señales no muestran alpha contra SPY y su ranking no le gana
+        a sortear del mismo universo. Lo que sí hace, y es lo que vale: protegerte el capital en lo que ya tenés
+        (stops, jerarquía de salida), decidir dónde va cada aporte nuevo, y dejar registrada y medible cada
+        apuesta del satélite. La decisión final es tuya.
       </p>
     </div>
   );
