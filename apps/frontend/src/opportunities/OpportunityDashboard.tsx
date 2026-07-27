@@ -24,22 +24,17 @@ interface SectorSummary {
   sectorOutlook: string;
 }
 
+// Coherencia con Hoy (2026-07-27): el score dejó de rankear porque, medido contra sortear
+// del mismo universo, no informa (A−D −0.79%, t=−1.50). Acá se sacan las DOS superficies
+// que lo usaban como ranking —el promedio por sector y el "Top:" del sector— y queda solo
+// el conteo, que es un hecho. El score sigue visible DENTRO del drilldown de cada card,
+// donde explica cómo el motor llegó a la acción; eso no es rankear, es auditar.
 function SectorSummaryCard({ summary }: { summary: SectorSummary }) {
-  const scoreColor = summary.avgScore >= 55 ? 'text-green-500' : summary.avgScore >= 40 ? 'text-yellow-500' : 'text-muted-foreground';
-
   return (
     <Card size="sm">
       <CardContent className="py-2 px-3">
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-medium">{summary.label}</span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className={`text-[11px] font-mono font-semibold cursor-help ${scoreColor}`}>{summary.avgScore}</span>
-            </TooltipTrigger>
-            <TooltipContent>
-              Score promedio del sector (0-100). Promedio de los scores de oportunidad de los {summary.symbolCount} activos analizados en {summary.label}.
-            </TooltipContent>
-          </Tooltip>
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -54,14 +49,6 @@ function SectorSummaryCard({ summary }: { summary: SectorSummary }) {
             </TooltipTrigger>
             <TooltipContent>Cantidad de activos analizados en este sector.</TooltipContent>
           </Tooltip>
-          {summary.topOpportunity && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge variant="outline" className="text-[8px] h-3.5 cursor-help">Top: {summary.topOpportunity}</Badge>
-              </TooltipTrigger>
-              <TooltipContent>Activo con mayor score de oportunidad en {summary.label}.</TooltipContent>
-            </Tooltip>
-          )}
         </div>
       </CardContent>
     </Card>
@@ -421,16 +408,31 @@ export function OpportunityDashboard() {
           filtered = filtered.filter((o) => o.classification?.instrumentType === instrumentFilter);
         }
 
-        return filtered.length === 0 ? (
+        // Orden ALFABÉTICO, no por score. El backend devuelve el scan ordenado por score y no
+        // se toca (hay consumidores aguas abajo que podrían depender de ese orden); acá se
+        // reordena solo para MOSTRAR. Coherencia con Hoy: rankear por score no le gana a
+        // sortear del mismo universo (A−D −0.79%, t=−1.50), así que ninguna superficie puede
+        // presentar un orden como si fuera una preferencia.
+        const ordenadas = [...filtered].sort((a, b) => a.symbol.localeCompare(b.symbol));
+
+        return ordenadas.length === 0 ? (
           <div className="text-muted-foreground text-sm py-4">
             No se encontraron oportunidades con los filtros seleccionados.
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {filtered.map((o) => (
-              <OpportunityCard key={o.symbol} opportunity={o} forceExpanded={allExpanded} />
-            ))}
-          </div>
+          <>
+            <p className="text-[10px] text-muted-foreground/80 mb-2">
+              Orden alfabético — el orden NO indica preferencia. Esta vista es el <strong>drilldown</strong>:
+              muestra cómo el motor llegó a cada acción (cadena de decisión, ejes, conflictos, niveles).
+              El score aparece dentro de cada card porque explica esa cadena, no porque ordene:
+              medido contra el índice no separa ganadores (r=0.064, no significativo).
+            </p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {ordenadas.map((o) => (
+                <OpportunityCard key={o.symbol} opportunity={o} forceExpanded={allExpanded} />
+              ))}
+            </div>
+          </>
         );
       })()}
 

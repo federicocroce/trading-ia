@@ -18,8 +18,25 @@ const EVICTION_BATCH_SIZE = 20;  // when at cap, evict bottom 20 by relevance to
 const SCREENER_INITIAL_RELEVANCE = 30;  // ya pasó el embudo operable: vale ~3 menciones de noticias
 const DEFAULT_INITIAL_RELEVANCE = 10;   // una mención
 
-// Fuentes de descubrimiento: noticias/screener original + radar de ciclos y barrido de bases (Task 2).
-type DiscoverySource = 'finnhub' | 'yahoo' | 'llm' | 'screener' | 'radar' | 'base_sweep';
+/**
+ * Fuentes de descubrimiento.
+ *
+ * ⚠️ `finnhub` y `yahoo` son LEGACY y NO identifican el feed que encontró el ticker.
+ * Hasta el 2026-07-27 la etiqueta se asignaba al LOTE entero con
+ * `sourceStats.includes('Finnhub') ? 'finnhub' : 'yahoo'` (news-aggregator.service.ts), o sea
+ * según qué feeds habían corrido en esa pasada — no según quién mencionó el ticker. Además
+ * `web-search.service.ts` registraba sus hallazgos también como 'yahoo'. Consecuencia: toda
+ * medición que compare 'yahoo' contra 'finnhub' compara CONFIGURACIONES DEL PIPELINE EN EL
+ * TIEMPO, no fuentes — no es interpretable. Las filas viejas quedan con esas etiquetas; para
+ * analizar, agrupar ambas (más 'llm') como "descubrimiento por prensa/web".
+ *
+ * Desde el 2026-07-27 se registran con la fuente REAL: `news:<feed>` normalizado a `news`
+ * cuando no se puede atribuir, y `web_search` para el caño de búsqueda web.
+ */
+type DiscoverySource =
+  | 'finnhub' | 'yahoo'          // legacy, no interpretables (ver arriba)
+  | 'news' | 'web_search'        // reemplazos honestos
+  | 'llm' | 'screener' | 'radar' | 'base_sweep';
 
 // Pura: relevance inicial según la fuente del descubrimiento.
 export function initialRelevanceForSource(source: DiscoverySource): number {
