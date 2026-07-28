@@ -8,15 +8,27 @@ import { readFileSync } from 'node:fs';
 import { getHistoricalQuotes } from '../shared/yahoo.js';
 import { envNumber } from '../shared/env-number.js';
 import { detectBase, type BaseDetection } from './base-detector.js';
+import { readUniverse, universeAgeDays } from './sweep-universe.js';
 import { registerNovelTickers, getDiscoveredTickers } from './discovery-registry.js';
 import { getPortfolioPositions, getLiveWatchlistItems, getActiveSymbolList } from '../db/repository.js';
 
 // El import con `with { type: 'json' }` rompe el proyecto composite de tsc
 // (TS6307: el JSON no está listado en el file list del tsconfig). readFileSync
 // + JSON.parse evita el problema y sigue resolviendo relativo a este módulo.
-const universe = JSON.parse(
-  readFileSync(new URL('./sweep-universe.json', import.meta.url), 'utf-8'),
-) as string[];
+// `readUniverse` acepta el formato nuevo ({capturedAt, symbols}) y el viejo (array plano).
+const universeFile = readUniverse(
+  JSON.parse(readFileSync(new URL('./sweep-universe.json', import.meta.url), 'utf-8')),
+);
+const universe = universeFile?.symbols ?? [];
+const universeCapturedAt = universeFile?.capturedAt ?? null;
+
+/**
+ * A partir de acá el universo se considera podrido y hay que regenerarlo
+ * (`npm run db:refresh-universe`). El S&P rota ~20-25 componentes al año: a los 180 días
+ * ya hay ~10 símbolos que no pertenecen y otros tantos faltando. No aborta el barrido —
+ * un universo viejo sigue sirviendo— pero deja de pudrirse en silencio, que era el problema.
+ */
+const UNIVERSE_STALE_DAYS = 180;
 
 /** Selección pura: bases rankeadas por strength, cap de candidatos. */
 export function selectSweepCandidates(
@@ -37,6 +49,16 @@ export async function runBaseSweep(): Promise<{
   // el cap ataba. Con la nominación por prensa apagada quedan slots libres en el cap global
   // de descubiertos (estaba en 133 activos sobre 120), así que el sweep puede aportar más.
   const cap = envNumber('SWEEP_MAX_CANDIDATES', 30);
+
+  // Antigüedad del universo a la vista en cada corrida (ver UNIVERSE_STALE_DAYS).
+  const edad = universeAgeDays(universeCapturedAt, new Date());
+  if (edad == null) {
+    console.warn('[BaseSweep] ⚠️ el universo no declara fecha de captura — correr: npm run db:refresh-universe');
+  } else if (edad > UNIVERSE_STALE_DAYS) {
+    console.warn(`[BaseSweep] ⚠️ universo capturado hace ${edad} días (>${UNIVERSE_STALE_DAYS}) — regenerar: npm run db:refresh-universe`);
+  } else {
+    console.log(`[BaseSweep] universo: ${universe.length} símbolos, capturado hace ${edad} días`);
+  }
 
   // Excluir lo que el sistema ya mira: portfolio, descubiertos activos, watchlist viva,
   // y la tabla symbols completa (mismo getter que registerNovelTickers usa para su

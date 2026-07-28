@@ -162,6 +162,10 @@ Hecho y verificado: resolución direccional path-aware de señales + R-multiples
 7. Race en eviction (123 > cap 120); GC de 7 días del bloque anticipatory no gatea por kind (benigno documentado).
 8. Relevance de filas ACTIVAS no escala por re-mención (estructural: `registerNovelTickers` filtra activas como known — el UPDATE solo corre al reactivar). Si algún día se quiere escalar relevance en vivo, es feature deliberada, no patch.
 
+**D. Sesgo conocido y NO resuelto:**
+- **El universo del barrido arrastra sesgo de supervivencia.** `sweep-universe.json` es la foto del S&P 500 al día de captura: contiene solo empresas que YA habían sobrevivido hasta entrar al índice. Todo backtest sobre ese universo da mejor que la realidad. **Regenerable** (`npm run db:refresh-universe`, fail-closed, con diff auditable y `capturedAt`; el barrido avisa a los 180 días), lo que elimina la DERIVA — pero no el sesgo. Resolverlo requeriría la composición histórica del índice, que no tenemos. **Citar este caveat en cualquier medición que use `source='base_sweep'`.**
+- **El screener diario nomina por ATENCIÓN, igual que la prensa que se apagó.** Su lista cruda sale de `most_actives`/`day_gainers`/`day_losers` de Yahoo (`yahoo-screener.ts:14`) y después ordena por volumen. El filtro posterior SÍ es estructural y duro (precio > SMA200 fail-closed, setup válido, RR≥2 — descarta ~99%), pero un filtro duro sobre una lista sesgada deja un subconjunto de la lista sesgada. **Hipótesis con mecanismo plausible y SIN datos** (8 símbolos registrados en total). Medible ahora que `source='screener'` es confiable. Alternativa si resulta dañino: barrer el S&P completo como hace el sweep, en vez de partir de movers.
+
 **C. Cosmético/menor**: citas de línea "scoring.ts:696" en comentarios/tests (se pudren); copy "hoy" en RearmWatchlist con alertas de hasta 7 días (falta mostrar `lastSeenDate`); umbral display 0.1 vs toFixed(1) en OpportunityCard; webSearch (EXA/Tavily) caído en 104/121 runs — skip honesto ya implementado, decidir si se arregla o se elimina.
 
 ## 7. Preguntas abiertas (responder con datos, no con opinión)

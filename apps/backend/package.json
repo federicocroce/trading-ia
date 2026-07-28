@@ -24,6 +24,7 @@
     "db:backfill-benchmark": "tsx src/scripts/backfill-benchmark-alpha.ts",
     "analyze:attribution": "tsx src/scripts/attribution-test.ts",
     "analyze:discovery": "tsx src/scripts/discovery-test.ts",
+    "db:refresh-universe": "tsx src/scripts/refresh-sweep-universe.ts",
     "db:repair-journal": "tsx src/scripts/repair-migration-timestamps.ts"
   },
   "dependencies": {
