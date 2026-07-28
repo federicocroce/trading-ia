@@ -82,12 +82,16 @@ describe('parseScreenerRows', () => {
 
 describe('readUniverse', () => {
   it('lee el formato nuevo {capturedAt, symbols}', () => {
-    const r = readUniverse({ capturedAt: '2026-07-28', source: 'x', caveat: 'y', symbols: ['AAPL'] });
-    expect(r).toEqual({ symbols: ['AAPL'], capturedAt: '2026-07-28' });
+    const r = readUniverse({ capturedAt: '2026-07-28', source: 'x', caveat: 'y', symbols: ['AAPL'], marketCaps: { AAPL: 3e12 } });
+    expect(r).toEqual({ symbols: ['AAPL'], capturedAt: '2026-07-28', marketCaps: { AAPL: 3e12 } });
   });
 
   it('sigue aceptando el array plano viejo (un archivo sin regenerar no rompe nada)', () => {
-    expect(readUniverse(['AAPL', 'MSFT'])).toEqual({ symbols: ['AAPL', 'MSFT'], capturedAt: null });
+    expect(readUniverse(['AAPL', 'MSFT'])).toEqual({ symbols: ['AAPL', 'MSFT'], capturedAt: null, marketCaps: {} });
+  });
+
+  it('archivo nuevo sin marketCaps: devuelve mapa vacío, no rompe', () => {
+    expect(readUniverse({ capturedAt: '2026-07-28', symbols: ['AAPL'] })?.marketCaps).toEqual({});
   });
 
   it('devuelve null ante contenido inservible', () => {

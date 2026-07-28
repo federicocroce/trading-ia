@@ -77,7 +77,18 @@ function money(raw: string | null | undefined): number {
  * se convierte en un fetch fallido por semana, para siempre.
  */
 export function parseScreenerRows(rows: ScreenerRow[]): string[] {
-  const out = new Set<string>();
+  return Object.keys(parseScreenerRowsWithCaps(rows)).sort();
+}
+
+/**
+ * Igual que `parseScreenerRows` pero devuelve el market cap de captura por símbolo.
+ * El screener diario lo necesita: trabaja con quotes en lote (v7), que NO traen marketCap,
+ * y `meetsQualityBar` es fail-closed ante un cap nulo — pasarle null filtraría todo. Guardar
+ * el cap medido al generar el universo permite que el chequeo siga corriendo de verdad en
+ * vez de saltearlo en silencio, que es justo lo que las reglas duras prohíben.
+ */
+export function parseScreenerRowsWithCaps(rows: ScreenerRow[]): Record<string, number> {
+  const out: Record<string, number> = {};
   for (const r of rows) {
     if (NO_ES_ACCION_COMUN.test(r?.name ?? '')) continue;
 
@@ -88,9 +99,9 @@ export function parseScreenerRows(rows: ScreenerRow[]): string[] {
 
     const symbol = String(r?.symbol ?? '').trim().toUpperCase().replace(SEPARADOR_DE_CLASE, '-');
     if (!TICKER_RE.test(symbol)) continue;
-    out.add(symbol);
+    out[symbol] = cap;
   }
-  return [...out].sort();
+  return out;
 }
 
 /** Forma persistida del universo. El array plano viejo se sigue aceptando al leer. */
@@ -100,21 +111,27 @@ export interface SweepUniverseFile {
   /** Nota honesta sobre lo que este universo NO resuelve. */
   caveat: string;
   symbols: string[];
+  /** Market cap al momento de la captura, por símbolo. Ver parseScreenerRowsWithCaps. */
+  marketCaps?: Record<string, number>;
 }
 
 /**
  * Acepta la forma nueva `{capturedAt, symbols}` y la vieja (array plano), para que un
  * archivo sin regenerar siga funcionando. Devuelve null si el contenido no es usable.
  */
-export function readUniverse(parsed: unknown): { symbols: string[]; capturedAt: string | null } | null {
+export function readUniverse(
+  parsed: unknown,
+): { symbols: string[]; capturedAt: string | null; marketCaps: Record<string, number> } | null {
   if (Array.isArray(parsed)) {
     const symbols = parsed.filter((s): s is string => typeof s === 'string');
-    return symbols.length > 0 ? { symbols, capturedAt: null } : null;
+    return symbols.length > 0 ? { symbols, capturedAt: null, marketCaps: {} } : null;
   }
   if (parsed && typeof parsed === 'object' && Array.isArray((parsed as SweepUniverseFile).symbols)) {
     const f = parsed as SweepUniverseFile;
     const symbols = f.symbols.filter((s) => typeof s === 'string');
-    return symbols.length > 0 ? { symbols, capturedAt: f.capturedAt ?? null } : null;
+    return symbols.length > 0
+      ? { symbols, capturedAt: f.capturedAt ?? null, marketCaps: f.marketCaps ?? {} }
+      : null;
   }
   return null;
 }

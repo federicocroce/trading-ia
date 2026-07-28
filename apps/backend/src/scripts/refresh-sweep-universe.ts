@@ -18,6 +18,7 @@
 import { writeFileSync, readFileSync } from 'node:fs';
 import {
   parseScreenerRows,
+  parseScreenerRowsWithCaps,
   readUniverse,
   MIN_PLAUSIBLE_UNIVERSE,
   MAX_PLAUSIBLE_UNIVERSE,
@@ -48,7 +49,8 @@ async function main() {
   }
 
   console.log(`[Universo] ${rows.length} listados crudos`);
-  const symbols = parseScreenerRows(rows);
+  const marketCaps = parseScreenerRowsWithCaps(rows);
+  const symbols = Object.keys(marketCaps).sort();
 
   if (symbols.length < MIN_PLAUSIBLE_UNIVERSE || symbols.length > MAX_PLAUSIBLE_UNIVERSE) {
     console.error(
@@ -78,6 +80,7 @@ async function main() {
       'Universo por LIQUIDEZ, no por índice — sin sesgo de pertenencia. Queda el sesgo de ' +
       '"listado hoy": las empresas deslistadas no aparecen. Regenerar con db:refresh-universe.',
     symbols,
+    marketCaps,
   };
   writeFileSync(TARGET, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
 
