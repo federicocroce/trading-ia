@@ -1168,8 +1168,13 @@ function persistScanResult(result: OpportunityScanResult): void {
     // === REGISTRO DE PROPUESTAS DE HOY: exactamente lo que la vista va a mostrar de este scan,
     // con enésima aparición y verbo post-degradación crónica. Nunca rompe el scan.
     // Fija las posiciones AL MOMENTO DEL SCAN: si se compra un símbolo propuesto intradía, la
-    // vista lo excluye (heldNow) y muestra al 7º candidato sin registrar — aceptado, se
-    // auto-corrige en el próximo scan. ===
+    // vista lo excluye (heldNow) mientras el registro lo conserva — aceptado, se auto-corrige
+    // en el próximo scan.
+    // ⚠️ Desde el 2026-07-27 (apagado del ranking) esto registra TODO lo elegible, ~104 filas
+    // por scan en vez de las ~7.5 del top-6. Es deliberado: sin corte no hay nada que elegir,
+    // y guardar el universo entero es lo que permite medir a futuro. Quien consuma esta tabla
+    // DEBE filtrar por `engine_action` para tener una población estable entre regímenes —
+    // ver getTodayProposalAppearances y getTodayProposalAccuracy. ===
     try {
       const heldNow = new Set(getPortfolioPositions().map((p) => p.symbol.toUpperCase()));
       const proposed = selectTodayProposals(result.opportunities, heldNow);

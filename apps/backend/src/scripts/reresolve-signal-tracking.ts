@@ -110,6 +110,14 @@ async function main() {
           resolvedAt: outcome === 'pending'
             ? null
             : (changed ? new Date().toISOString() : (signal.resolvedAt ?? new Date().toISOString())),
+          // Al re-resolver cambia la FECHA de resolución, y con ella la ventana contra la que
+          // se midió el benchmark. Un alpha calculado sobre la ventana vieja quedaría mintiendo
+          // en silencio, así que se limpia: `db:backfill-benchmark` (idempotente) lo recalcula.
+          // Fail-closed: preferimos el hueco visible al número plausible y equivocado.
+          resolutionDate: null,
+          benchmarkSymbol: null,
+          benchmarkReturn: null,
+          alphaVsBenchmark: null,
         };
       }
 
@@ -131,6 +139,11 @@ async function main() {
   }
 
   console.log('[Backfill] Resultado:', counts);
+  console.log(
+    '[Backfill] ⚠️ Las columnas de benchmark (resolution_date / benchmark_* / alpha_vs_benchmark)\n' +
+    '           quedaron en NULL para las filas tocadas: la ventana de medición cambió.\n' +
+    '           Corré ahora: npm run db:backfill-benchmark --workspace=apps/backend',
+  );
 
   // Las propuestas de pesos pendientes se calcularon con outcomes corruptos: descartarlas.
   const stale = db.delete(schema.scoringWeightProposals)

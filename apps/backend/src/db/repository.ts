@@ -957,6 +957,10 @@ export function resolveSignal(id: number, data: {
   hitStop?: boolean | null;
   outcome: string;
   rMultiple?: number | null;
+  resolutionDate?: string | null;
+  benchmarkSymbol?: string | null;
+  benchmarkReturn?: number | null;
+  alphaVsBenchmark?: number | null;
 }) {
   return db.update(schema.signalTracking)
     .set({ ...data, resolvedAt: new Date().toISOString() })
@@ -2009,7 +2013,7 @@ export interface TodayProposalInsert {
   scanId: number;
   scanDate: string; // YYYY-MM-DD
   symbol: string;
-  verb: string;         // COMPRAR | OBSERVAR (lo mostrado, post-degradación)
+  verb: string;         // OPERABLE | EN ESPERA desde 2026-07-27; COMPRAR | OBSERVAR en filas previas
   engineAction: string; // BUY | WATCH
   score: number;
   entryPrice: number | null;
@@ -2051,6 +2055,25 @@ export function upsertTodayProposals(rows: TodayProposalInsert[]): void {
  * Excluye el día actual a propósito: la enésima aparición de hoy = resultado + 1, y así
  * el número no cambia si el scan se re-corre en el día (idempotente).
  */
+/**
+ * Días previos en que el símbolo apareció CON SETUP DE ENTRADA (engine_action='BUY').
+ *
+ * ⚠️ El filtro por `engine_action` es obligatorio desde el 2026-07-27, cuando se apagó el
+ * ranking: `today_proposals` pasó de registrar el top-6 (~7.5 filas por fecha) a registrar
+ * TODO lo elegible (~104 por fecha, 14×). Sin filtrar, `nth_appearance` contaría "días en
+ * que el papel fue elegible" —trivialmente ≥4 para cualquier símbolo estable— y la regla
+ * del residente crónico marcaría EN ESPERA a casi todo el universo en menos de una semana.
+ * El efecto está enmascarado hoy porque la tabla es mayoría histórico del régimen viejo:
+ * es una bomba de tiempo, no un bug visible.
+ *
+ * Contar solo los días con setup deja la población en ~5 filas por scan — comparable a las
+ * ~7.5 del top-6— y conserva el sentido de la regla ("este papel sigue apareciendo como
+ * accionable y sigue sin funcionar").
+ *
+ * ⚠️ DEUDA: el umbral 4 se calibró sobre apariciones en el TOP-6 (40.4% win, R −0.05,
+ * n=260), población que ya no existe. Ninguna definición la reproduce exactamente. Hay que
+ * re-medir el umbral sobre esta población nueva cuando junte n — ver §7 del prompt maestro.
+ */
 export function getTodayProposalAppearances(symbols: string[], beforeDate: string): Map<string, number> {
   const map = new Map<string, number>();
   if (symbols.length === 0) return map;
@@ -2063,6 +2086,7 @@ export function getTodayProposalAppearances(symbols: string[], beforeDate: strin
     .where(and(
       inArray(schema.todayProposals.symbol, symbols),
       lt(schema.todayProposals.scanDate, beforeDate),
+      eq(schema.todayProposals.engineAction, 'BUY'),
     ))
     .groupBy(schema.todayProposals.symbol)
     .all();
@@ -2113,7 +2137,18 @@ export interface TodayAccuracyBucket {
 export function getTodayProposalAccuracy(): { total: TodayAccuracyBucket | null; byBucket: TodayAccuracyBucket[] } {
   // Guard anti-SELL: si el símbolo flipeó a SELL en un scan posterior del mismo día, el tracking
   // de esa fila mide un short (win = precio cayó) — dirección invertida respecto a la card
-  // COMPRAR/OBSERVAR que efectivamente se mostró. Hoy da 0 filas; guard preventivo.
+  // que efectivamente se mostró. Hoy da 0 filas; guard preventivo.
+  //
+  // ⚠️ Filtro `engine_action='BUY'` obligatorio desde el 2026-07-27: al apagarse el ranking,
+  // `today_proposals` pasó de guardar el top-6 (~7.5 filas/fecha) a guardar TODO lo elegible
+  // (~104/fecha). Sin el filtro este endpoint mezclaría "lo que el sistema destacaba" con
+  // "todo lo que miró", y el número mostrado en la UI cambiaría de significado a mitad de la
+  // serie sin avisar. Restringido a BUY la población es estable en los dos regímenes:
+  // "papeles surfaceados CON setup de entrada válido".
+  // ⚠️ DEUDA: `nth_appearance` está PERSISTIDO y las filas viejas lo calcularon sobre el
+  // top-6 mientras las nuevas lo calculan sobre días-con-setup (ver getTodayProposalAppearances).
+  // El total es sólido; el corte por aparición mezcla dos definiciones hasta que el régimen
+  // nuevo junte n propio.
   const rows = db.all<{ bucket: string; wins: number; losses: number; avg_r: number | null }>(sql`
     SELECT CASE WHEN tp.nth_appearance = 1 THEN '1'
                 WHEN tp.nth_appearance <= 3 THEN '2-3'
@@ -2124,6 +2159,7 @@ export function getTodayProposalAccuracy(): { total: TodayAccuracyBucket | null;
     FROM today_proposals tp
     JOIN signal_tracking st ON st.symbol = tp.symbol AND st.signal_date = tp.scan_date
     WHERE st.outcome IN ('win', 'loss', 'neutral') AND st.action != 'SELL'
+      AND tp.engine_action = 'BUY'
     GROUP BY bucket
   `);
 

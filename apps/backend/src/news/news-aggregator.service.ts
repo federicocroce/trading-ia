@@ -262,8 +262,15 @@ export async function aggregateNews(): Promise<AggregationResult> {
     const novel = [...allMentionedTickers].filter(t => !known.has(t));
 
     if (novel.length > 0) {
-      const source = Object.keys(sourceStats).includes('Finnhub') ? 'finnhub' as const : 'yahoo' as const;
-      const registered = await registerNovelTickers(novel, source);
+      // ⚠️ ARREGLADO 2026-07-27. Antes decía:
+      //   Object.keys(sourceStats).includes('Finnhub') ? 'finnhub' : 'yahoo'
+      // — etiquetaba el LOTE ENTERO según qué feeds habían corrido en esa pasada, no según
+      // quién mencionó cada ticker. Toda comparación 'yahoo' vs 'finnhub' terminaba comparando
+      // configuraciones del pipeline en el tiempo, y se leía como si comparara fuentes.
+      // Ahora la etiqueta es honesta: este caño es "descubrimiento por noticias", punto.
+      // Atribuir por feed exigiría rastrear qué artículo mencionó cada ticker; mientras eso
+      // no exista, una etiqueta única y verdadera vale más que dos falsas.
+      const registered = await registerNovelTickers(novel, 'news');
       console.log(`[aggregator] ${registered}/${novel.length} novel tickers registrados: ${novel.slice(0, 10).join(', ')}${novel.length > 10 ? '...' : ''}`);
     }
   } catch (err) {

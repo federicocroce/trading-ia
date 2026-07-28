@@ -1,8 +1,30 @@
+/**
+ * Calibración de pesos por eje.
+ *
+ * ⚠️ ESTE OUTPUT NO GOBIERNA EL SCORING. Escribe en `calibrated_weights`; el scoring lee de
+ * `scoring_weight_history` vía `getActiveWeights` (intelligence/weight-adjustment.service.ts),
+ * que solo se puebla con propuestas APROBADAS por el dueño. Nada consume
+ * `getLatestCalibratedWeights` — verificado 2026-07-27. Es un artefacto de observación.
+ *
+ * ⚠️ MÉTODO CORREGIDO 2026-07-27. La versión anterior medía "accuracy direccional": qué
+ * fracción de las veces el SIGNO del eje coincidía con el signo de `returnAfter30d`. Dos
+ * fallas graves:
+ *   1. Objetivo equivocado: `returnAfter30d` no es un retorno a 30 días sino el retorno de
+ *      RESOLUCIÓN (corta en stop/target), y se comparaba contra CERO en vez de contra el índice.
+ *   2. La métrica está dominada por la BASE RATE, no por información. Solo el 41.4% de las
+ *      señales le gana al índice, así que un predictor constante que dijera siempre "negativo"
+ *      sacaría 58.6% de accuracy — más que los tres ejes reales (48.8 / 54.0 / 53.3). El
+ *      calibrador estaba repartiendo pesos proporcionales a números sin contenido.
+ * Ahora usa `axisCorrelationsVsBenchmark`: correlación de cada eje contra el alpha sobre el
+ * índice. Es libre de base rate, está testeada, y es la MISMA base que usa el path de
+ * propuestas — un solo método, no dos divergentes.
+ */
 import { db } from '../db/index.js';
 import { signalTracking } from '../db/schema.js';
 import { and, isNotNull, gte, sql } from 'drizzle-orm';
 import type { CalibratedWeights } from '@trading/shared';
 import { SHORT_TERM_WEIGHTS, MEDIUM_TERM_WEIGHTS } from '../opportunities/scoring.js';
+import { axisCorrelationsVsBenchmark } from '../intelligence/weight-adjustment.service.js';
 import { saveLatestCalibratedWeights, getLatestCalibratedWeights } from './backtest.repository.js';
 
 const MIN_RECORDS = 30;
@@ -18,34 +40,25 @@ export function calibrateWeights(): CalibratedWeights | null {
     techScore: signalTracking.techScore,
     fundScore: signalTracking.fundScore,
     sentScore: signalTracking.sentScore,
-    returnAfter30d: signalTracking.returnAfter30d,
+    alphaVsBenchmark: signalTracking.alphaVsBenchmark,
   }).from(signalTracking)
     .where(and(
       sql`${signalTracking.outcome} != 'pending'`,
       isNotNull(signalTracking.outcome),
-      isNotNull(signalTracking.returnAfter30d),
+      isNotNull(signalTracking.alphaVsBenchmark),
       gte(signalTracking.signalDate, cutoffStr),
     ))
     .all();
 
-  if (records.length < MIN_RECORDS) return null;
+  const corr = axisCorrelationsVsBenchmark(records, MIN_RECORDS);
+  if (corr == null) return null;
 
-  let techCorrect = 0, fundCorrect = 0, sentCorrect = 0, total = 0;
-
-  for (const r of records) {
-    if (r.techScore == null || r.fundScore == null || r.sentScore == null || r.returnAfter30d == null) continue;
-    const actualPositive = r.returnAfter30d > 0;
-    if ((r.techScore > 0) === actualPositive) techCorrect++;
-    if ((r.fundScore > 0) === actualPositive) fundCorrect++;
-    if ((r.sentScore > 0) === actualPositive) sentCorrect++;
-    total++;
-  }
-
-  if (total < MIN_RECORDS) return null;
-
-  const techAcc = techCorrect / total;
-  const fundAcc = fundCorrect / total;
-  const sentAcc = sentCorrect / total;
+  // Correlaciones negativas no pueden pesar negativo: se pisan en 0 y el piso de
+  // normalización (abajo) les deja el mínimo. Un eje que anticorrelaciona con el alpha
+  // no merece peso, pero tampoco se lo invierte sin evidencia de que la inversión pague.
+  const techAcc = Math.max(0, corr.technical);
+  const fundAcc = Math.max(0, corr.fundamental);
+  const sentAcc = Math.max(0, corr.sentiment);
   const sum = techAcc + fundAcc + sentAcc || 1;
 
   const blend = (calc: number, base: number) =>

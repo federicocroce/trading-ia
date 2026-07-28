@@ -1,6 +1,6 @@
 /**
  * Vista "Hoy": un solo veredicto por cosa. Arriba tu cartera (MANTENER / VENDER); abajo,
- * oportunidades del mercado (COMPRAR / OBSERVAR). Fuente ÚNICA: lee el scan (acción, stop
+ * oportunidades del mercado (OPERABLE / EN ESPERA). Fuente ÚNICA: lee el scan (acción, stop
  * dinámico, objetivo ya calculados ahí) + el precio en vivo. No recalcula nada por su cuenta,
  * así "Hoy" y "Oportunidades" muestran SIEMPRE los mismos números.
  */
@@ -37,7 +37,7 @@ export interface TodayOpportunity {
   symbol: string;
   verb: MarketVerb;
   reason: string;
-  /** Coherencia: el timing técnico del mismo scan contradice al verbo (ej. COMPRAR + timing SELL). */
+  /** Coherencia: el timing técnico del mismo scan contradice al verbo (ej. OPERABLE + timing SELL). */
   timingCaveat?: string;
   /** Enésima aparición en el top de Hoy (contando hoy). null = sin registro — no se inventa. */
   appearances: number | null;
@@ -47,6 +47,14 @@ export interface TodayOpportunity {
   cooldownCaveat?: string;
   /** Relación con TU cartera (del scan): diversifica / apila / neutral, con la razón. null = scan viejo sin el dato. */
   diversification?: { verdict: 'stacks' | 'diversifies' | 'neutral'; reason: string } | null;
+  /**
+   * El motor le encontró setup de entrada válido HOY (acción cruda = BUY). Es un hecho sobre
+   * el papel, NO una predicción de que rinda mejor: medido contra SPY, tener setup no midió
+   * mejor retorno que no tenerlo (prompt maestro §4). Existe porque `verb` solo no alcanza —
+   * un WATCH crónico y un BUY crónico son ambos EN ESPERA, y la UI necesita separarlos.
+   */
+  hasEntrySetup: boolean;
+  /** Se sigue enviando para no romper consumidores, pero la UI de Hoy ya no lo muestra (§4). */
   score: number;
   currentPrice: number;
   assetClass: 'us' | 'crypto' | 'argentina';
@@ -204,6 +212,7 @@ export async function getTodayDecisions(): Promise<TodayView> {
       diversification: o.portfolioAdjustment
         ? { verdict: o.portfolioAdjustment.verdict, reason: o.portfolioAdjustment.reason }
         : null,
+      hasEntrySetup: o.action === 'BUY',
       score: Math.round(o.opportunityScore),
       currentPrice: round2(o.currentPrice),
       assetClass: assetClassOf(o.symbol),

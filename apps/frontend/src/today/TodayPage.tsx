@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge';
 import { trpc } from '@/shared/trpc';
 import { useNavigation } from '@/shared/navigation';
 import { useMarketRefetchInterval } from '@/shared/useMarketRefetchInterval';
+import { AllocationPlanPanel } from '@/portfolio/AllocationPlanPanel';
 
 const PORTFOLIO_VERB: Record<string, { label: string; cls: string; border: string }> = {
   VENDER: { label: 'VENDER', cls: 'bg-red-500/20 text-red-400', border: 'border-l-red-500' },
@@ -10,9 +11,13 @@ const PORTFOLIO_VERB: Record<string, { label: string; cls: string; border: strin
   MANTENER: { label: 'MANTENER', cls: 'bg-slate-500/20 text-slate-300', border: 'border-l-slate-600' },
 };
 
+// El verbo NO es una escala de fuerza esperada, es el ESTADO del papel hoy. El ranking por
+// score se apagó el 2026-07-27 por no superar al azar (prompt maestro §4): entre dos del
+// mismo estado no hay preferencia y la UI no debe sugerir ninguna.
 const MARKET_VERB: Record<string, { label: string; cls: string; border: string }> = {
-  COMPRAR: { label: 'COMPRAR', cls: 'bg-green-500/20 text-green-400', border: 'border-l-green-500' },
-  OBSERVAR: { label: 'OBSERVAR', cls: 'bg-blue-500/20 text-blue-400', border: 'border-l-blue-500' },
+  OPERABLE: { label: 'OPERABLE', cls: 'bg-slate-500/20 text-slate-100', border: 'border-l-slate-400' },
+  'EN SEGUIMIENTO': { label: 'EN SEGUIMIENTO', cls: 'bg-slate-700/40 text-slate-400', border: 'border-l-slate-700' },
+  'EN ESPERA': { label: 'EN ESPERA', cls: 'bg-amber-500/20 text-amber-400', border: 'border-l-amber-500' },
 };
 
 function gainCls(pct: number): string {
@@ -35,6 +40,12 @@ export function TodayPage() {
   const { data, isLoading } = trpc.opportunities.today.useQuery(undefined, { staleTime: 60_000, refetchInterval });
   const { data: accuracy } = trpc.opportunities.todayAccuracy.useQuery(undefined, { staleTime: 300_000 });
   const { goToSymbol } = useNavigation();
+
+  // Dos bloques distintos, no un ranking: arriba lo que TIENE punto de entrada hoy (pocos,
+  // decidibles); abajo lo que el motor sigue mirando sin setup (típicamente ~99 por scan —
+  // mostrarlos como tarjetas los rotularía de operables sin serlo, objetivo #3: cero humo).
+  const conSetup = (data?.opportunities ?? []).filter((o) => o.hasEntrySetup);
+  const enSeguimiento = (data?.opportunities ?? []).filter((o) => !o.hasEntrySetup);
 
   return (
     <div className="p-4 space-y-6 max-w-3xl mx-auto">
@@ -106,6 +117,17 @@ export function TodayPage() {
         })}
       </section>
 
+      {/* ---- Dónde va el próximo aporte ----
+           Segundo bloque a propósito (objetivo #2 reescrito el 2026-07-27): el retorno lo
+           da el aporte recurrente compuesto sobre el núcleo indexado, no acertar el papel.
+           El panel ya existía enterrado en la tab Portfolio; acá es donde se decide. */}
+      <section className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Dónde va el próximo aporte
+        </h3>
+        <AllocationPlanPanel />
+      </section>
+
       {/* ---- Tesis gatilladas (convergencia: la opinión toca su entrada → aparece ACÁ) ---- */}
       {data && data.triggeredTheses.length > 0 && (
         <section className="space-y-2">
@@ -137,12 +159,22 @@ export function TodayPage() {
 
       {/* ---- Oportunidades ---- */}
       <section className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Oportunidades (no las tenés)</h3>
-        {data && data.opportunities.length === 0 && (
-          <Card size="sm"><CardContent><p className="text-xs text-muted-foreground py-3">Nada accionable hoy. Correr el pipeline para refrescar.</p></CardContent></Card>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Satélite · con setup de entrada hoy{conSetup.length ? ` · ${conSetup.length}` : ''}
+        </h3>
+        {conSetup.length > 0 && (
+          <p className="text-[10px] text-muted-foreground/80">
+            <strong>Esto es el satélite, no el producto.</strong> Existe para que tomes una apuesta acotada
+            con niveles y sizing, y quede medida — no porque el sistema sepa cuál va a subir. Orden alfabético:
+            rankear por score no le gana a sortear del mismo universo (−0.79%, t=−1.50), y las señales no
+            muestran alpha contra SPY. Todos pasan los mismos filtros; elegí por diversificación contra tu cartera.
+          </p>
         )}
-        {data?.opportunities.map((o) => {
-          const v = MARKET_VERB[o.verb] ?? MARKET_VERB.OBSERVAR;
+        {data && conSetup.length === 0 && (
+          <Card size="sm"><CardContent><p className="text-xs text-muted-foreground py-3">Ningún papel con setup de entrada hoy. Correr el pipeline para refrescar.</p></CardContent></Card>
+        )}
+        {conSetup.map((o) => {
+          const v = MARKET_VERB[o.verb] ?? MARKET_VERB.OPERABLE;
           return (
             <Card key={o.symbol} size="sm" className={`border-l-4 ${v.border}`}>
               <CardContent className="py-3 space-y-1.5">
@@ -154,7 +186,9 @@ export function TodayPage() {
                       {o.appearances === 1 ? 'nueva' : `${o.appearances}ª aparición`}
                     </span>
                   )}
-                  <span className="text-[10px] text-muted-foreground ml-auto">score {o.score}</span>
+                  {/* El score se sigue calculando y persistiendo (para poder re-medirlo si
+                      algún día informa), pero NO se muestra: un "78" sugiere una precisión
+                      que la medición contra el índice dice que no existe. */}
                 </div>
                 {o.reason && <p className="text-[11px] text-foreground">{o.reason}</p>}
                 {o.timingCaveat && <p className="text-[10px] text-amber-400">⚠ {o.timingCaveat}</p>}
@@ -203,8 +237,49 @@ export function TodayPage() {
         )}
       </section>
 
+      {/* ---- En seguimiento: sin punto de entrada, por eso NO son tarjetas ---- */}
+      {enSeguimiento.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            En seguimiento · {enSeguimiento.length}
+          </h3>
+          <p className="text-[10px] text-muted-foreground/80">
+            Pasan los filtros de calidad pero <strong>todavía no tienen punto de entrada</strong>. No son
+            recomendaciones: es el universo que el motor está mirando. Si alguno arma setup, sube al bloque de arriba.
+          </p>
+          <Card size="sm">
+            <CardContent className="py-3">
+              <div className="flex flex-wrap gap-1.5">
+                {enSeguimiento.map((o) => (
+                  <button
+                    key={o.symbol}
+                    onClick={() => goToSymbol(o.symbol)}
+                    title={o.persistenceCaveat ?? o.cooldownCaveat ?? o.reason}
+                    className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors hover:border-purple-400 ${
+                      o.verb === 'EN ESPERA'
+                        ? 'border-amber-500/40 text-amber-400/90'
+                        : 'border-border text-muted-foreground'
+                    }`}
+                  >
+                    {o.symbol}
+                  </button>
+                ))}
+              </div>
+              {enSeguimiento.some((o) => o.verb === 'EN ESPERA') && (
+                <p className="text-[10px] text-amber-400/80 mt-2">
+                  En ámbar: marcados por una regla medida (residente crónico o stop perforado).
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
       <p className="text-[10px] text-muted-foreground border-t border-border pt-3">
-        El sistema no garantiza nada. Su valor honesto: protegerte el capital en lo que tenés y darte una watchlist corta. La decisión final es tuya.
+        El sistema no predice, y está medido: sus señales no muestran alpha contra SPY y su ranking no le gana
+        a sortear del mismo universo. Lo que sí hace, y es lo que vale: protegerte el capital en lo que ya tenés
+        (stops, jerarquía de salida), decidir dónde va cada aporte nuevo, y dejar registrada y medible cada
+        apuesta del satélite. La decisión final es tuya.
       </p>
     </div>
   );

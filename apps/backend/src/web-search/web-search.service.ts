@@ -121,7 +121,10 @@ export async function runWebSearch(date: string): Promise<WebSearchStageResult> 
       // Register novel tickers from discovery
       const allTickers = results.flatMap((r) => extractTickers(r.title + ' ' + r.content));
       if (allTickers.length > 0) {
-        registerNovelTickers(allTickers, 'yahoo').catch(() => {});
+        // Fuente propia: este caño es búsqueda web (Tavily/Exa), no el feed de noticias.
+        // Hasta el 2026-07-27 se registraba como 'yahoo' y sus hallazgos quedaban mezclados
+        // con los del agregador de noticias, haciendo imposible medir cada caño por separado.
+        registerNovelTickers(allTickers, 'web_search').catch(() => {});
       }
       return discoveryArticles;
     }),

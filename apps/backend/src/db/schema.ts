@@ -216,6 +216,17 @@ export const signalTracking = sqliteTable('signal_tracking', {
   hitStop: integer('hit_stop', { mode: 'boolean' }),
   outcome: text('outcome'),                            // 'win' | 'loss' | 'neutral' | 'pending'
   resolvedAt: text('resolved_at'),
+  // Fecha REAL de resolución (vela que tocó stop/target o cierre del horizonte).
+  // Distinta de resolvedAt, que es wall-clock del cron y llega días/semanas tarde:
+  // todo backtest de recencia necesita esta, no aquella.
+  resolutionDate: text('resolution_date'),
+  // Benchmark: retorno del índice en la MISMA ventana [signalDate, resolutionDate]
+  // y exceso de la señal sobre él. Sin esto el sistema mide contra cero en vez de
+  // contra la alternativa real (comprar SPY y no hacer nada). Fail-closed: null si
+  // la serie del benchmark no cubre la ventana.
+  benchmarkSymbol: text('benchmark_symbol'),
+  benchmarkReturn: real('benchmark_return'),
+  alphaVsBenchmark: real('alpha_vs_benchmark'),
   // Portfolio context
   isPortfolioHold: integer('is_portfolio_hold', { mode: 'boolean' }).default(false),
   // Setup quality (P1 clamp de riesgo): true si el setup fue invalidado por riesgo del stop
@@ -264,7 +275,12 @@ export const todayProposals = sqliteTable('today_proposals', {
   scanId: integer('scan_id').notNull(),
   scanDate: text('scan_date').notNull(),               // YYYY-MM-DD del scan
   symbol: text('symbol').notNull(),
-  verb: text('verb').notNull(),                        // COMPRAR | OBSERVAR — lo que se mostró (post-degradación crónica)
+  // Lo que se MOSTRÓ, post-degradación. ⚠️ El vocabulario cambió el 2026-07-27 al apagarse
+  // el ranking (prompt maestro §4): filas ANTERIORES usan COMPRAR | OBSERVAR (derivado de
+  // BUY vs WATCH del motor); filas POSTERIORES usan OPERABLE | EN ESPERA (OPERABLE = pasó
+  // los filtros; EN ESPERA = una regla medida —crónico o stop perforado— lo marcó).
+  // Cualquier análisis que agrupe por verb DEBE segmentar por fecha o los mezcla.
+  verb: text('verb').notNull(),
   engineAction: text('engine_action').notNull(),       // BUY | WATCH — acción cruda del motor
   score: integer('score').notNull(),
   entryPrice: real('entry_price'),

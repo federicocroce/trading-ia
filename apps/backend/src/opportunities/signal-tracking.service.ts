@@ -11,9 +11,19 @@ import { getHistoricalQuotes } from '../shared/yahoo.js';
 import {
   resolveTrackedSignal,
   computeRMultiple,
+  benchmarkFields,
   type TrackedSignalInput,
   type PriceCandle,
 } from '../intelligence/outcome-resolver.js';
+import { envString } from '../shared/env-number.js';
+
+/**
+ * Símbolo contra el que se mide el costo de oportunidad de cada señal.
+ * Lazy (ver regla de envNumber): leerlo a nivel módulo lo dejaría inerte.
+ */
+function benchmarkSymbol(): string {
+  return envString('BENCHMARK_SYMBOL', 'SPY');
+}
 
 /** Subconjunto de Opportunity que necesita el criterio de tracking (testeable sin fixture completo). */
 export type TrackableOpportunity = Pick<Opportunity, 'action' | 'timingView' | 'tradeLevels'>;
@@ -99,6 +109,18 @@ export async function resolveExpiredSignals(): Promise<number> {
   const candleCache = new Map<string, PriceCandle[] | null>();
   let resolved = 0;
 
+  // Serie del benchmark, una sola vez por corrida. Si Yahoo la niega, el alpha
+  // queda null en todas las filas de esta corrida (fail-closed) — jamás 0, que
+  // se leería como "el índice no se movió" y regalaría alpha inexistente.
+  const bench = benchmarkSymbol();
+  let benchCandles: PriceCandle[] | null = null;
+  try {
+    const ohlc = await getHistoricalQuotes(bench, '2y', '1d');
+    benchCandles = ohlc.map((c) => ({ date: c.date, high: c.high, low: c.low, close: c.close }));
+  } catch {
+    console.warn(`[signal-tracking] sin serie de ${bench}: alpha queda null en esta corrida`);
+  }
+
   for (const signal of pending) {
     try {
       let candles = candleCache.get(signal.symbol);
@@ -139,6 +161,17 @@ export async function resolveExpiredSignals(): Promise<number> {
         returnAfter7d = candle7 ? ((candle7.close - signal.entryPrice) / signal.entryPrice) * 100 : null;
       }
 
+      // Benchmark en la MISMA ventana [signalDate, resolvedDate]. El alpha usa el
+      // retorno DIRECCIONAL (res.resolutionReturn), no el crudo: el capital estuvo
+      // desplegado en la señal en vez de en el índice.
+      const bm = benchmarkFields(
+        signal.signalDate,
+        res.outcome !== 'invalid' ? res.resolvedDate : null,
+        benchCandles,
+        res.resolutionReturn,
+        bench,
+      );
+
       resolveSignal(signal.id, {
         priceAfter7d,
         priceAfter30d: res.resolutionPrice,
@@ -150,6 +183,7 @@ export async function resolveExpiredSignals(): Promise<number> {
         rMultiple: res.resolutionPrice != null && res.outcome !== 'invalid'
           ? computeRMultiple(signal.action as any, signal.entryPrice, signal.stopLoss, res.resolutionPrice)
           : null,
+        ...bm,
       });
       if (res.outcome !== 'invalid') resolved++;
     } catch {

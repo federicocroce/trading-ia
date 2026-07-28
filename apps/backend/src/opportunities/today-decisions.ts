@@ -17,16 +17,21 @@ export type PortfolioVerb = 'MANTENER' | 'REVISAR' | 'VENDER';
 export type ScanAction = 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
 
 /**
- * Coherencia entre secciones (objetivo #4 del prompt maestro): si la tarjeta de Hoy dice
- * COMPRAR pero la vista de timing del mismo scan dice SELL, esa contradicción tiene que
- * viajar CON la tarjeta — no quedar escondida en el detalle (caso DAL 2026-07-06).
+ * Coherencia entre secciones (objetivo #4 del prompt maestro): si la tarjeta de Hoy marca
+ * el papel como OPERABLE pero la vista de timing del mismo scan dice SELL, esa
+ * contradicción tiene que viajar CON la tarjeta — no quedar escondida en el detalle
+ * (caso DAL 2026-07-06).
  *
  * Es advertencia, no gate: el timing NO degrada el verbo porque no hay evidencia medida
  * de su poder predictivo todavía (sección 4 del prompt maestro — medir antes de dar veto).
  * Fail-closed en el otro sentido: sin timingView no se inventa advertencia.
+ * Solo aplica a OPERABLE: sobre un EN ESPERA la advertencia es redundante (ya está marcado).
  */
-export function timingCaveatFor(verb: 'COMPRAR' | 'OBSERVAR', timing?: TimingView | null): string | undefined {
-  if (verb !== 'COMPRAR' || !timing || timing.action !== 'SELL') return undefined;
+export function timingCaveatFor(
+  verb: 'OPERABLE' | 'EN SEGUIMIENTO' | 'EN ESPERA',
+  timing?: TimingView | null,
+): string | undefined {
+  if (verb !== 'OPERABLE' || !timing || timing.action !== 'SELL') return undefined;
 
   const bearish = (timing.triggers ?? []).filter((t) => t.direction === 'bearish');
   // El trigger de mayor impacto le pone nombre concreto a la advertencia.
