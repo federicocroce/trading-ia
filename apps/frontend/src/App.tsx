@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
@@ -6,25 +6,45 @@ import { Header } from '@/layout/Header';
 import { Sidebar } from '@/layout/Sidebar';
 import { PriceTicker } from '@/prices/PriceTicker';
 import { InfraBar } from '@/layout/InfraBar';
-import { PortfolioPage } from '@/portfolio/PortfolioPage';
-import { CarteraPage } from '@/portfolio/CarteraPage';
-import { ChatPanel } from '@/chat/ChatPanel';
+
 import { ChatToggle } from '@/layout/ChatToggle';
-import { SymbolDetailPage } from '@/symbol/SymbolDetailPage';
-import { OpportunityDashboard } from '@/opportunities/OpportunityDashboard';
 import { TodayPage } from '@/today/TodayPage';
-import { DailySummary } from '@/daily/DailySummary';
-import { HistoricoPage } from '@/historico/HistoricoPage';
-import { CycleRadarPage } from '@/radar/CycleRadarPage';
-import { ThesesPage } from '@/theses/ThesesPage';
+
+// Code splitting (2026-07-28): el bundle era un único archivo de 875 KB — todas las tabs,
+// gráficos y tablas cargaban aunque el 90% de las visitas se quede en "Hoy". Hoy va estático
+// (es la pantalla de entrada); el resto se baja recién cuando se abre la tab.
+const CarteraPage = lazy(() => import('@/portfolio/CarteraPage').then(m => ({ default: m.CarteraPage })));
+const MercadoPage = lazy(() => import('@/mercado/MercadoPage').then(m => ({ default: m.MercadoPage })));
+const HistoricoPage = lazy(() => import('@/historico/HistoricoPage').then(m => ({ default: m.HistoricoPage })));
+// Renders condicionales: el detalle de símbolo solo aparece al clickear un ticker y el chat
+// solo si se abre el panel. Cargarlos de entrada era peso muerto para la mayoría de visitas.
+const SymbolDetailPage = lazy(() => import('@/symbol/SymbolDetailPage').then(m => ({ default: m.SymbolDetailPage })));
+const ChatPanel = lazy(() => import('@/chat/ChatPanel').then(m => ({ default: m.ChatPanel })));
 import { NavigationContext } from '@/shared/navigation';
 import { trpc } from '@/shared/trpc';
 import { usePipeline } from '@/pipeline/usePipeline';
 import { WebSearchBlockedModal } from '@/pipeline/WebSearchBlockedModal';
 
-const VALID_TABS = ['hoy', 'daily', 'opportunities', 'portfolio', 'cartera', 'historico', 'radar', 'tesis'] as const;
+/**
+ * Cuatro tabs, una por PREGUNTA (2026-07-28). Antes eran ocho, y varias eran wrappers de
+ * 33-48 líneas que partían el mismo tema en dos: "Portfolio" vs "Cartera" respondían ambas
+ * "qué tengo"; "Oportunidades", "Radar", "Tesis" y "Resumen" eran todas contexto sin acción,
+ * compitiendo en la barra con lo que sí exige decidir.
+ *
+ *   hoy       → ¿qué hago hoy?
+ *   cartera   → ¿qué tengo y dónde va el próximo aporte?
+ *   mercado   → ¿por qué el motor dice lo que dice?  (contexto, nada accionable)
+ *   medicion  → ¿esto funciona?  (track record y backtests)
+ */
+const VALID_TABS = ['hoy', 'cartera', 'mercado', 'medicion'] as const;
 type TabValue = typeof VALID_TABS[number];
 const DEFAULT_TAB: TabValue = 'hoy';
+
+/** URLs viejas → tab nueva. Un bookmark de hace una semana tiene que seguir funcionando. */
+const TABS_LEGACY: Record<string, TabValue> = {
+  daily: 'mercado', opportunities: 'mercado', radar: 'mercado', tesis: 'mercado',
+  portfolio: 'cartera', historico: 'medicion',
+};
 
 function getSymbolFromURL(): string | null {
   const params = new URLSearchParams(window.location.search);
@@ -35,6 +55,7 @@ function getTabFromURL(): TabValue {
   const params = new URLSearchParams(window.location.search);
   const tab = params.get('tab');
   if (tab && VALID_TABS.includes(tab as TabValue)) return tab as TabValue;
+  if (tab && TABS_LEGACY[tab]) return TABS_LEGACY[tab];
   return DEFAULT_TAB;
 }
 
@@ -124,54 +145,38 @@ export function App() {
             <Tabs value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col overflow-hidden gap-0">
               <TabsList variant="line" className="w-full justify-start rounded-none border-b border-border bg-card px-2">
                 <TabsTrigger value="hoy">Hoy</TabsTrigger>
-                <TabsTrigger value="daily">Resumen</TabsTrigger>
-                <TabsTrigger value="opportunities" className="relative">
-                  Oportunidades
+                <TabsTrigger value="cartera">Cartera</TabsTrigger>
+                <TabsTrigger value="mercado" className="relative">
+                  Mercado
                   <BuyBadge />
                 </TabsTrigger>
-                <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
-                <TabsTrigger value="cartera">Cartera</TabsTrigger>
-                <TabsTrigger value="historico">Histórico</TabsTrigger>
-                <TabsTrigger value="radar">Radar</TabsTrigger>
-                <TabsTrigger value="tesis">Tesis</TabsTrigger>
+                <TabsTrigger value="medicion">Medición</TabsTrigger>
               </TabsList>
 
               {selectedSymbol ? (
                 <div id="main-content" className="flex-1 overflow-y-auto">
-                  <SymbolDetailPage symbol={selectedSymbol} onBack={goHome} />
+                  <Suspense fallback={<TabCargando />}><SymbolDetailPage symbol={selectedSymbol} onBack={goHome} /></Suspense>
                 </div>
               ) : (
                 <>
                   <TabsContent value="hoy" className="flex-1 overflow-y-auto">
                     <TodayPage />
                   </TabsContent>
-                  <TabsContent value="daily" className="flex-1 overflow-y-auto">
-                    <DailySummary />
-                  </TabsContent>
-                  <TabsContent value="opportunities" className="flex-1 overflow-y-auto">
-                    <OpportunityDashboard />
-                  </TabsContent>
-                  <TabsContent value="portfolio" className="flex-1 overflow-y-auto">
-                    <PortfolioPage />
-                  </TabsContent>
                   <TabsContent value="cartera" className="flex-1 overflow-y-auto">
-                    <CarteraPage />
+                    <Suspense fallback={<TabCargando />}><CarteraPage /></Suspense>
                   </TabsContent>
-                  <TabsContent value="historico" className="flex-1 overflow-y-auto">
-                    <HistoricoPage />
+                  <TabsContent value="mercado" className="flex-1 overflow-y-auto">
+                    <Suspense fallback={<TabCargando />}><MercadoPage /></Suspense>
                   </TabsContent>
-                  <TabsContent value="radar" className="flex-1 overflow-y-auto">
-                    <CycleRadarPage />
-                  </TabsContent>
-                  <TabsContent value="tesis" className="flex-1 overflow-y-auto">
-                    <ThesesPage />
+                  <TabsContent value="medicion" className="flex-1 overflow-y-auto">
+                    <Suspense fallback={<TabCargando />}><HistoricoPage /></Suspense>
                   </TabsContent>
                 </>
               )}
             </Tabs>
 
             <ChatToggle>
-              <ChatPanel />
+              <Suspense fallback={<TabCargando />}><ChatPanel /></Suspense>
             </ChatToggle>
           </div>
         </div>
@@ -184,4 +189,9 @@ export function App() {
       />
     </TooltipProvider>
   );
+}
+
+/** Fallback mientras baja el chunk de una tab (ver code splitting arriba). */
+function TabCargando() {
+  return <div className="p-6 text-xs text-muted-foreground">Cargando…</div>;
 }

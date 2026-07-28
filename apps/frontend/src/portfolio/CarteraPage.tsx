@@ -1,33 +1,50 @@
-import { TabInfo, InfoSection } from '@/shared/TabInfo';
+import { useState } from 'react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AllocationPlanPanel } from './AllocationPlanPanel';
 import { PortfolioDiagnosticPanel } from './PortfolioDiagnosticPanel';
+import { ConcentrationPanel } from './ConcentrationPanel';
+import { PortfolioTable } from './PortfolioTable';
+import { TransactionHistory } from './TransactionHistory';
 
 /**
- * Tab "Cartera": estructura por capas y plan de aportes, separada a propósito del
- * Portfolio (posiciones/operaciones). Portfolio = qué tenés hoy; Cartera = cómo
- * debería estar armado el conjunto y a dónde va cada dólar nuevo.
+ * Cartera: TODO lo que es tuyo, en un solo lugar.
+ *
+ * Fusionado el 2026-07-28. Antes eran dos tabs de primer nivel —"Portfolio" (posiciones y
+ * operaciones) y "Cartera" (capas y aportes)— que respondían la misma pregunta desde dos
+ * lados: qué tengo y cómo debería estar armado. Tenerlas separadas obligaba a saltar entre
+ * tabs para contestar algo tan simple como "¿cuánto tengo y dónde va el próximo aporte?".
+ *
+ * Orden por urgencia de decisión: riesgo del conjunto → dónde va el aporte → qué tengo →
+ * qué operé. Lo primero es lo que más plata mueve (la cartera real son 1.8 apuestas, no 8).
  */
 export function CarteraPage() {
+  const [sub, setSub] = useState('riesgo');
+
   return (
-    <>
-      <TabInfo>
-        <InfoSection title="Qué muestra">
-          La estructura de tu cartera como conjunto: el diagnóstico de correlación de riesgo (concentración por
-          factor, cobertura faltante, qué candidatos apilan vs diversifican) y la estructura por capas (núcleo
-          indexado / cobertura / riesgo) contra bandas objetivo, con el plan de asignación de aportes nuevos:
-          a qué capa va cada dólar fresco para acercarte a los targets sin vender nada.
-        </InfoSection>
-        <InfoSection title="Cómo usarlo">
-          Ingresá los USD que pensás aportar y calculá: el sistema reparte entre las capas subponderadas
-          (instrumentos amplios: SPY/GLD — jamás picks individuales; el riesgo se llena con setups del scan).
-          Es advisory puro: el sistema nunca ejecuta órdenes. Si falta el precio vivo de una posición, el plan
-          no se genera (fail-closed).
-        </InfoSection>
-      </TabInfo>
-      <div className="p-4 space-y-4">
-        <PortfolioDiagnosticPanel />
-        <AllocationPlanPanel />
+    <div className="p-4 space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-foreground">💼 Cartera</h2>
+        <p className="text-[11px] text-muted-foreground mt-1">
+          Todo lo que es tuyo: cuánto riesgo tenés de verdad, dónde va el próximo aporte, qué posiciones y qué operaste.
+        </p>
       </div>
-    </>
+
+      <Tabs value={sub} onValueChange={setSub}>
+        <TabsList variant="line" className="w-full justify-start">
+          <TabsTrigger value="riesgo">Riesgo del conjunto</TabsTrigger>
+          <TabsTrigger value="aportes">Dónde va el aporte</TabsTrigger>
+          <TabsTrigger value="posiciones">Posiciones</TabsTrigger>
+          <TabsTrigger value="operaciones">Operaciones</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="riesgo" className="space-y-4">
+          <ConcentrationPanel />
+          <PortfolioDiagnosticPanel />
+        </TabsContent>
+        <TabsContent value="aportes"><AllocationPlanPanel /></TabsContent>
+        <TabsContent value="posiciones"><PortfolioTable /></TabsContent>
+        <TabsContent value="operaciones"><TransactionHistory /></TabsContent>
+      </Tabs>
+    </div>
   );
 }

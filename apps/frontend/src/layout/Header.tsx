@@ -149,7 +149,7 @@ export function Header() {
         {summary && (
           <div className="flex items-center gap-3 border-l border-border pl-3 shrink-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Portfolio</span>
+              <span className="text-xs text-muted-foreground">Cartera</span>
               <span className="text-sm font-semibold">
                 ${summary.totalValue.toLocaleString('en-US', { minimumFractionDigits: 0 })}
               </span>
