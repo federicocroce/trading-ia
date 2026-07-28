@@ -350,9 +350,7 @@ function PortfolioAlerts({ symbolFilter, typeFilter }: { symbolFilter: string; t
                     <SymbolLink symbol={p.symbol} className="text-sm font-mono font-semibold" />
                     <InstrumentBadge kind={p.kind} />
                     <Badge className={`text-[9px] h-4 ${act.bg} ${act.text}`}>{act.label}</Badge>
-                    {opp?.opportunityScore != null && (
-                      <span className="text-[10px] font-mono text-muted-foreground">{opp.opportunityScore}</span>
-                    )}
+                    {/* Sin score compuesto: medido contra el índice no separa ganadores (r=0.064, ns). Coherencia con Hoy. */}
                   </div>
                   <div className="flex items-center gap-2 text-[10px]">
                     <span className="text-muted-foreground">${p.currentPrice?.toFixed(2) ?? opp?.currentPrice?.toFixed(2) ?? '—'}</span>
@@ -612,7 +610,7 @@ function RearmWatchlist() {
                 >
                   SETUP OPERABLE
                 </Badge>
-                <span className="text-[10px] font-mono text-muted-foreground shrink-0">{a.score}</span>
+                {/* Sin score: misma razón que en Hoy/Oportunidades/Portfolio (prompt maestro §4). */}
               </div>
               {a.entryPrice != null && a.stopLoss != null && (
                 <p className="text-[9px] text-green-300/80 font-mono shrink-0">

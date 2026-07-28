@@ -395,7 +395,10 @@ export function OpportunityCard({ opportunity, forceExpanded = false }: { opport
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex flex-col gap-1 cursor-help shrink-0">
-                <OpportunityScoreBar label="Señal" value={opportunity.opportunityScore} />
+                {/* El score compuesto queda DENTRO del drilldown expandido, junto a la cadena de
+                    decisión que explica cómo el motor llegó a la acción. Ahí audita, no rankea:
+                    ninguna superficie lo usa para ordenar ni lo muestra como titular (§4). */}
+                <OpportunityScoreBar label="Señal (no ordena — ver cadena de decisión)" value={opportunity.opportunityScore} />
                 {opportunity.entryScore != null && (
                   <OpportunityScoreBar label="Entrada" value={opportunity.entryScore} />
                 )}

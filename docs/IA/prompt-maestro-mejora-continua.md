@@ -108,6 +108,26 @@ Federico es un swing trader argentino individual. La app existe para **que compo
   **Instrumentación arreglada** (mismo commit): el agregador registra con fuente `'news'` y la búsqueda web con `'web_search'`, que son etiquetas verdaderas. `'yahoo'`/`'finnhub'` quedan como LEGACY y **están documentadas como no interpretables** en `discovery-registry.ts` — todo análisis histórico debe agruparlas. Recién desde acá la pregunta "¿qué caño paga?" es medible.
   **⚠️ Los caños sistemáticos NO están probados**: screener + radar + base_sweep suman **6 señales con alpha medido**. No hay evidencia de que sean mejores — están sin muestra. Invertir la mezcla a favor de ellos es una apuesta razonable por mecanismo (seleccionan por criterio, no por atención), no una conclusión medida.
   **DECISIÓN DEL DUEÑO, no se tomó** (regla §9): cortar o restringir la nominación por prensa es un cambio de producto — el stage de noticias también alimenta `macro_events`, contexto causal y digest, que no están en cuestión. Lo medido es específicamente **qué símbolos ENTRAN al universo**. Opciones: (a) que la prensa deje de nominar y quede como contexto; (b) subir el piso de relevance para nominar; (c) subir los caps de screener/base_sweep para que aporten volumen y por fin se puedan medir.
+- **⭐⭐ EL GUARDIÁN FUNCIONA — primera evidencia del objetivo #1** (2026-07-28, backtest de reglas de salida, 7 años, **incluye el bear de 2022**, cartera + benchmarks, con comisión y slippage modelados). Head-to-head entre las dos reglas opuestas: "vender cuando el motor avisa" vs "dejar correr con trailing stop" (lo que implementa el guardián de Hoy).
+
+  | | Trailing (guardián) | Vender-en-aviso (motor) |
+  |---|---|---|
+  | Gana en | **9 de 11** símbolos | 2 de 11 |
+  | Retorno medio | **496%** | 364% |
+  | Drawdown medio | **45.6%** | 51.0% |
+  | SPY | **+64%, dd 14%** | −30%, dd 39% |
+  | Operaciones | 55-95 | 142-289 |
+
+  Más retorno, MENOS drawdown, y un tercio de las operaciones (o sea, mucho menos costo). En SPY la diferencia es brutal: el trailing convierte un −30% en +64% y baja el drawdown de 39% a 14%. **Esto valida la jerarquía de decisión** (stop tocado manda; motor SELL es solo advisory): si el motor mandara, el resultado sería el de la columna derecha. Caveat: los símbolos son la cartera del dueño (selección no aleatoria), pero SPY y QQQ son benchmarks neutrales y el trailing gana en ambos.
+- **⚠️ ANTI-HYPE: sirve, pero NO como se creía.** En la MEDIA no separa nada (rechazados −2.02% vs aprobados −1.76% a 30d, diferencia t=−0.39; a 7d el estimador incluso da a favor de los rechazados). Casi se lo declara inútil por ese test. **El test correcto es la COLA** —nació por el caso SDOT (−72%), es un filtro de catástrofe, no de media:
+
+  | a 30 días | Rechazados | Pasaron |
+  |---|---|---|
+  | peor 5% | **−32.1%** | −23.2% |
+  | % con alpha < −30% | **6.3%** | 2.5% |
+  | % con alpha < −50% | **2.1%** | 0.8% |
+
+  n=1.420 rechazados vs 9.811 aprobados. **Lo que anti-hype rechaza tiene 2.5× más probabilidad de perder 30%+ contra el índice y 2.6× más de perder 50%+.** Con sizing por riesgo, evitar esa cola ES el trabajo. **LECCIÓN: elegir el estadístico según lo que el componente promete. Un filtro de cola evaluado por la media parece inútil y no lo es.** ⚠️ Nota de método: la primera medición (5 fechas) comparaba solo los rechazados que ADEMÁS aparecían en `opportunity_snapshots` — un subconjunto raro del 8%, porque los rechazados se excluyen del scan por definición. Hay que calcularles el alpha aparte y recién ahí parear por fecha.
 - **Gate de régimen (bloquear BUY si mercado no-bull): REFUTADO en esta muestra** (2026-07-17, backtest sobre 3.351 señales resueltas abr–jul). Método: reconstrucción del régimen por día con la MISMA definición de `market-regime.service.ts` (SPY vs SMA200 + SMA50>SMA200 + gate VIX, 2y de datos), join por `signal_date`; sanity 428/457 match (93.7%) contra `market_regime_at_signal` capturado. Resultado: BUY sin gate +24.6R total (n=950); con gate −0.3R — las 64 señales bloqueadas (dip 6–9 abr, días bear/neutral) sumaban +25R y fueron el MEJOR cluster de toda la base (+0.5R avg, mediana −0.29: pocos winners grandes). **Dos lecciones**: (a) el "+0.114R en bull" que sugería el gate era artefacto de cobertura — la columna se captura desde el 21-abr, post-dip; toda comparación con esa columna debe ajustar por ventana. (b) La muestra tiene UN régimen (66 días bull / 3 neutral / 2 bear, dip en V): nada dice de un bear sostenido tipo 2022. NO implementar gate de régimen; re-evaluar solo cuando el forward acumule días bear reales (n≥20 días bear con señales).
 
 ## 5. Estado (2026-07-04, post-P0/P1/P2/P3 — todo mergeado y pusheado)

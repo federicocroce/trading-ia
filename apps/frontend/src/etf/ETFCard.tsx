@@ -103,7 +103,7 @@ export function ETFCard({ etf, onRemove }: ETFCardProps) {
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">Score</span>
             <span className="font-mono font-semibold">
-              {etf.opportunityScore != null ? `${etf.opportunityScore}/100` : '—'}
+              {/* Sin score compuesto: medido contra el índice no separa ganadores (r=0.064, ns). Coherencia con Hoy. */}
             </span>
           </div>
           <div className="flex items-center justify-between">

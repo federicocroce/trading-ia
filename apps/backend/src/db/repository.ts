@@ -2258,3 +2258,63 @@ export function getRecentMacroEvents(sinceDate: string) {
     .orderBy(desc(schema.macroEvents.date))
     .all();
 }
+
+// --- Veredictos del guardián (portfolio_verdicts) ---
+
+export interface PortfolioVerdictInsert {
+  verdictDate: string;
+  symbol: string;
+  verb: string;
+  reason: string;
+  currentPrice: number;
+  avgCost: number;
+  gainPct: number;
+  stop: number | null;
+  target: number | null;
+  positionValue: number | null;
+  quantity: number | null;
+  warning: string | null;
+}
+
+/**
+ * Registra el veredicto del guardián del día. Upsert por (fecha, símbolo): la ÚLTIMA vista
+ * del día gana, que es la que el dueño efectivamente vio.
+ *
+ * Es la primera vez (2026-07-28) que el output del guardián queda persistido. Sin esto el
+ * objetivo #1 del proyecto era inmedible por construcción — ver comentario en schema.ts.
+ * Nunca debe tumbar la vista: el caller lo envuelve en try/catch.
+ */
+export function upsertPortfolioVerdicts(rows: PortfolioVerdictInsert[]): number {
+  if (rows.length === 0) return 0;
+  let n = 0;
+  for (const r of rows) {
+    db.insert(schema.portfolioVerdicts)
+      .values(r)
+      .onConflictDoUpdate({
+        target: [schema.portfolioVerdicts.verdictDate, schema.portfolioVerdicts.symbol],
+        set: {
+          verb: r.verb,
+          reason: r.reason,
+          currentPrice: r.currentPrice,
+          gainPct: r.gainPct,
+          stop: r.stop,
+          target: r.target,
+          positionValue: r.positionValue,
+          quantity: r.quantity,
+          warning: r.warning,
+          updatedAt: new Date().toISOString(),
+        },
+      })
+      .run();
+    n++;
+  }
+  return n;
+}
+
+/** Historial de veredictos del guardián, más recientes primero. */
+export function getPortfolioVerdictHistory(limit = 500) {
+  return db.select().from(schema.portfolioVerdicts)
+    .orderBy(desc(schema.portfolioVerdicts.verdictDate))
+    .limit(limit)
+    .all();
+}

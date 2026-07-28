@@ -290,6 +290,47 @@ export const todayProposals = sqliteTable('today_proposals', {
   createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
 }, (t) => [uniqueIndex('today_proposals_date_symbol_uq').on(t.scanDate, t.symbol)]);
 
+/**
+ * Registro diario del veredicto del GUARDIÁN sobre cada posición de la cartera.
+ *
+ * Por qué existe (2026-07-28): el guardián es el objetivo #1 del proyecto —"proteger lo que
+ * ya tenés"— y era **el único componente cuyo output nunca se persistía**. `decidePositionVerb`
+ * se calculaba al vuelo para pintar la pantalla y se tiraba. Consecuencia: era imposible
+ * saber cuántas veces dijo VENDER, ni si esas salidas salvaron plata o cortaron ganadores.
+ * O sea: el componente declarado más valioso estaba exento del objetivo #5 ("todo medido
+ * contra el índice"), que es la regla declarada más importante.
+ *
+ * Una fila por día y símbolo (upsert): la última vista del día gana, que es lo que el dueño
+ * efectivamente vio. Con esto, dentro de unos meses se puede medir por fin si el guardián
+ * paga — comparando el precio al VENDER contra lo que el papel hizo después.
+ */
+export const portfolioVerdicts = sqliteTable('portfolio_verdicts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  verdictDate: text('verdict_date').notNull(),         // YYYY-MM-DD
+  symbol: text('symbol').notNull(),
+  verb: text('verb').notNull(),                        // VENDER | REVISAR | MANTENER
+  reason: text('reason').notNull(),
+  /** Precio con el que se decidió (cierre confirmado si EXIT_ON_CLOSE, spot si no). */
+  currentPrice: real('current_price').notNull(),
+  avgCost: real('avg_cost').notNull(),
+  gainPct: real('gain_pct').notNull(),
+  stop: real('stop'),
+  target: real('target'),
+  /** Valor de la posición ese día: permite ponderar el impacto real de cada veredicto. */
+  positionValue: real('position_value'),
+  /**
+   * Cantidad tenida ese día. Con esto el registro diario del guardián funciona además como
+   * BITÁCORA IMPLÍCITA DE OPERACIONES: si la cantidad cambia entre dos días, hubo una compra
+   * o una venta. `transactions` depende de que el dueño cargue a mano y se cortó el
+   * 2026-05-04; esto se llena solo cada vez que abre Hoy. Sin saber qué hizo, medir si la app
+   * sirvió es imposible.
+   */
+  quantity: real('quantity'),
+  warning: text('warning'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (t) => [uniqueIndex('portfolio_verdicts_date_symbol_uq').on(t.verdictDate, t.symbol)]);
+
 // --- Historical price cache (1 day TTL daily, 1 week TTL weekly) ---
 export const historicalCache = sqliteTable('historical_cache', {
   id: text('id').primaryKey(),              // "VIST:daily" or "VIST:weekly"

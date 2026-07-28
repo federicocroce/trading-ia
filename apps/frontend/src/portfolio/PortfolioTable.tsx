@@ -55,7 +55,9 @@ function RecommendationCell({
       <TooltipTrigger asChild>
         <div className="flex items-center gap-1.5 justify-end cursor-help">
           <Badge className={`text-[9px] h-4 font-bold ${act.bg} ${act.text}`}>{act.label}</Badge>
-          <span className="text-[9px] font-mono text-muted-foreground">{score}</span>
+          {/* El score compuesto NO se muestra (coherencia con Hoy y Oportunidades, 2026-07-27):
+              medido contra el índice no separa ganadores (r=0.064, ns). Se sigue calculando y
+              persistiendo para poder re-medirlo. */}
           {convictionTier === 'strong' && (
             <Badge variant="outline" className="text-[8px] h-3.5 border-trading-green text-trading-green px-1">STRONG</Badge>
           )}

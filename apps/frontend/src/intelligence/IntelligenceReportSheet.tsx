@@ -159,7 +159,7 @@ function RecommendationRow({ opp, rank }: { opp: TopRecommendation; rank: number
         <span onClick={(e) => e.stopPropagation()}>
           <WatchlistButton symbol={opp.symbol} />
         </span>
-        <span className="text-sm font-mono font-semibold">{opp.opportunityScore}</span>
+        {/* Sin score compuesto: medido contra el índice no separa ganadores (r=0.064, ns). Coherencia con Hoy. */}
       </div>
 
       {expanded && (

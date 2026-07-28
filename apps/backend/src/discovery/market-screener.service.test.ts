@@ -3,14 +3,17 @@ import { runMarketScreener } from './market-screener.service.js';
 
 // Mocks en la frontera de I/O (Yahoo, técnicos, registro en discovered_symbols) — igual
 // patrón que unified-analysis-card.test.ts: solo se controla lo que cruza el borde.
-const mockFetchScreenerQuotes = vi.fn();
+const mockGetQuotes = vi.fn();
 const mockFilterScreenerCandidates = vi.fn();
 const mockGetTechnicalSummary = vi.fn();
 const mockComputeTradeLevels = vi.fn();
 const mockRegisterNovelTickers = vi.fn();
 
-vi.mock('../shared/yahoo-screener.js', () => ({
-  fetchScreenerQuotes: (...args: unknown[]) => mockFetchScreenerQuotes(...args),
+// ⚠️ Desde el 2026-07-28 el screener NO parte de las listas de movers de Yahoo sino de una
+// franja del universo por liquidez + quotes en lote. Sin mockear `getQuotes` el test sale a
+// la red de verdad: pasaba o fallaba según la latencia del momento, que es peor que fallar.
+vi.mock('../shared/yahoo.js', () => ({
+  getQuotes: (...args: unknown[]) => mockGetQuotes(...args),
 }));
 vi.mock('./market-screener.js', () => ({
   filterScreenerCandidates: (...args: unknown[]) => mockFilterScreenerCandidates(...args),
@@ -37,12 +40,13 @@ function tech(symbol: string, over: { sma200?: number | null; currentPrice?: num
 
 describe('runMarketScreener — embudo alineado con anti-hype (precio > SMA200, scoring.ts:696)', () => {
   beforeEach(() => {
-    mockFetchScreenerQuotes.mockReset();
+    mockGetQuotes.mockReset();
     mockFilterScreenerCandidates.mockReset();
     mockGetTechnicalSummary.mockReset();
     mockComputeTradeLevels.mockReset();
     mockRegisterNovelTickers.mockReset();
-    mockFetchScreenerQuotes.mockResolvedValue([]);
+    // Una quote por símbolo de la franja; el embudo puro está mockeado aparte.
+    mockGetQuotes.mockResolvedValue([{ symbol: 'CMCSA', current: 90, changePercent: 0.5 }]);
     mockRegisterNovelTickers.mockResolvedValue(0);
   });
 

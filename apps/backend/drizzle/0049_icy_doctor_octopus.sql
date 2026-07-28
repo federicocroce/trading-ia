@@ -1,0 +1,1 @@
+ALTER TABLE `portfolio_verdicts` ADD `quantity` real;

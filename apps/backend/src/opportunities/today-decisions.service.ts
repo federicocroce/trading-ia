@@ -5,7 +5,7 @@
  * así "Hoy" y "Oportunidades" muestran SIEMPRE los mismos números.
  */
 import type { Opportunity, Price } from '@trading/shared';
-import { getPortfolioPositions, getLatestOpportunityScan, getTodayProposalAppearances, getRecentStopLevels } from '../db/repository.js';
+import { getPortfolioPositions, getLatestOpportunityScan, getTodayProposalAppearances, getRecentStopLevels, upsertPortfolioVerdicts } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
 import { decidePositionVerb, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
 import { getRegimes, assetClassOf, type Regimes } from '../quant/risk.service.js';
@@ -175,6 +175,38 @@ export async function getTodayDecisions(): Promise<TodayView> {
     });
   }
   portfolio.sort((a, b) => URGENCY[a.verb] - URGENCY[b.verb] || b.value - a.value);
+
+  // Registro del guardián (2026-07-28). Hasta hoy este veredicto se calculaba, se pintaba y
+  // se tiraba: el objetivo #1 del proyecto era inmedible por construcción. Se persiste lo
+  // que el dueño efectivamente VE (upsert por día+símbolo, última vista gana).
+  // Fail-soft a propósito: un fallo de escritura JAMÁS puede tumbar la vista de decisión —
+  // preferimos perder un registro antes que dejar al dueño sin ver su stop.
+  // Cantidad tenida: convierte el registro diario en bitácora implícita de operaciones —
+  // si cambia entre dos días, hubo compra o venta. `transactions` depende de carga manual y
+  // se cortó el 2026-05-04; esto se llena solo cada vez que el dueño abre Hoy.
+  const cantidadPorSimbolo = new Map(positions.map((p) => [p.symbol.toUpperCase(), p.quantity]));
+
+  try {
+    const escritos = upsertPortfolioVerdicts(
+      portfolio.map((p) => ({
+        verdictDate: generatedAt.slice(0, 10),
+        symbol: p.symbol,
+        verb: p.verb,
+        reason: p.reason,
+        currentPrice: p.currentPrice,
+        avgCost: p.avgCost,
+        gainPct: p.gainPct,
+        stop: p.stop,
+        target: p.target,
+        positionValue: p.value,
+        quantity: cantidadPorSimbolo.get(p.symbol.toUpperCase()) ?? null,
+        warning: p.warning ?? null,
+      })),
+    );
+    if (escritos > 0) console.log(`[Hoy] ${escritos} veredictos del guardián registrados`);
+  } catch (err) {
+    console.warn('[Hoy] No se pudo registrar el veredicto del guardián:', (err as Error).message);
+  }
 
   // Columna de riesgo: régimen por clase de activo + valor de cartera para el sizing.
   const regimes = await getRegimes();
