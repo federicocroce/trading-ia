@@ -39,6 +39,9 @@ export function TodayPage() {
   const refetchInterval = useMarketRefetchInterval();
   const { data, isLoading } = trpc.opportunities.today.useQuery(undefined, { staleTime: 60_000, refetchInterval });
   const { data: accuracy } = trpc.opportunities.todayAccuracy.useQuery(undefined, { staleTime: 300_000 });
+  // Riesgo de lo que YA tenés (objetivo #1). Va arriba de las posiciones a propósito: un stop
+  // protege de que UNA se dé vuelta; esto avisa cuando el problema es que se den vuelta todas.
+  const { data: conc } = trpc.portfolio.concentration.useQuery(undefined, { staleTime: 600_000 });
   const { goToSymbol } = useNavigation();
 
   // Dos bloques distintos, no un ranking: arriba lo que TIENE punto de entrada hoy (pocos,
@@ -84,6 +87,36 @@ export function TodayPage() {
       )}
 
       {isLoading && <p className="text-xs text-muted-foreground">Calculando…</p>}
+
+      {/* ---- Riesgo de concentración de la cartera ---- */}
+      {conc && (
+        <Card size="sm" className={`border-l-4 ${
+          conc.veredicto === 'concentrada' ? 'border-l-red-500'
+          : conc.veredicto === 'moderada' ? 'border-l-amber-500' : 'border-l-trading-green'}`}>
+          <CardContent className="py-3 space-y-1.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge className={`text-[10px] font-bold ${
+                conc.veredicto === 'concentrada' ? 'bg-red-500/20 text-red-400'
+                : conc.veredicto === 'moderada' ? 'bg-amber-500/20 text-amber-400'
+                : 'bg-trading-green/20 text-trading-green'}`}>
+                CARTERA {conc.veredicto.toUpperCase()}
+              </Badge>
+              <span className="text-sm font-bold">
+                {conc.positions} posiciones ≈ {conc.effectiveBets.toFixed(1)} apuestas
+              </span>
+              <span className="text-[10px] text-muted-foreground ml-auto">
+                volatilidad anual {(conc.portfolioVol * 100).toFixed(0)}%
+              </span>
+            </div>
+            <p className="text-[11px] text-foreground">{conc.mensaje}</p>
+            {conc.coverage < 0.99 && (
+              <p className="text-[10px] text-amber-400">
+                ⚠ Medido sobre el {(conc.coverage * 100).toFixed(0)}% del capital — el resto no tenía serie de precios.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ---- Tu cartera ---- */}
       <section className="space-y-2">

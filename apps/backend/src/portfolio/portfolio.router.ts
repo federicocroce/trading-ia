@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server';
 import { router, publicProcedure } from '../trpc.js';
 import { getPortfolio } from './portfolio.service.js';
 import { buildAllocationPlan } from './allocation-plan.js';
+import { getPortfolioConcentration } from './concentration.service.js';
 import * as repo from '../db/repository.js';
 import { searchSymbols } from '../shared/yahoo.js';
 import { resetPriceCache } from '../prices/prices.service.js';
@@ -24,6 +25,12 @@ export const portfolioRouter = router({
       positionCount: portfolio.positions.length,
     };
   }),
+
+  /**
+   * Diagnóstico de concentración de la cartera REAL: cuántas apuestas independientes hay
+   * detrás de las N posiciones. Aditivo (regla #4). Advisory — no toca ningún veredicto.
+   */
+  concentration: publicProcedure.query(() => getPortfolioConcentration()),
 
   // Plan de asignación por capas (modo aportes): advisory, jamás ejecuta.
   allocationPlan: publicProcedure
