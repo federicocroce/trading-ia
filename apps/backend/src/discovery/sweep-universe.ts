@@ -1,41 +1,92 @@
 /**
- * Universo del barrido de bases: parseo y validación del listado de constituyentes.
+ * Universo del barrido de bases: parseo y validación.
  *
- * Por qué existe: hasta el 2026-07-28 `sweep-universe.json` era una lista de 503 símbolos
- * escrita a mano en un solo commit, sin script que la generara ni fecha de captura. Tres
- * problemas: (a) sesgo de supervivencia —es la foto de un índice en un día, o sea empresas
- * que YA habían sobrevivido—, (b) se pudre en silencio (el S&P rota ~20-25 componentes al
- * año y nada avisaba), (c) cualquier backtest futuro sobre ese universo daría mejor que la
- * realidad, que es justo el error de método que este proyecto viene cazando.
+ * ⚠️ CAMBIO DE FUENTE 2026-07-28 — de índice a LIQUIDEZ.
  *
- * Esto NO elimina el sesgo de supervivencia —para eso haría falta la composición histórica
- * del índice, que no tenemos— pero elimina la deriva y deja la antigüedad a la vista.
+ * Antes el universo era el S&P 500 (503 símbolos, lista escrita a mano). Dos problemas, y
+ * el segundo era grave:
+ *   1. Sesgo de supervivencia: pertenecer al índice ya es haber sobrevivido.
+ *   2. **Era el universo equivocado.** El detector busca "acción castigada que empieza a
+ *      repararse" — un patrón de mid/small cap— y se lo apuntaba a las large caps más
+ *      establecidas del mercado. Verificado: IREN, el caso que MOTIVÓ construir el barrido,
+ *      no estaba en el universo del barrido. Tampoco WULF, HUT, MARA, RIOT, CLSK, VIST ni
+ *      SOFI. **7 de las 8 posiciones de la cartera del dueño quedaban afuera.**
+ *
+ * Ahora el universo se define por LIQUIDEZ Y TAMAÑO, no por pertenecer a un club: todo lo
+ * listado en US que pase la misma quality bar que el resto del sistema exige
+ * (marketCap ≥ $500M y precio ≥ $5, ver `meetsQualityBar`). Incluir menos que eso sería
+ * gastar fetches en símbolos que el embudo rechaza igual aguas abajo.
+ *
+ * Esto SÍ elimina el sesgo de supervivencia por pertenencia al índice. Lo que queda es el
+ * sesgo de "listado hoy" (las deslistadas no aparecen), inevitable sin datos históricos.
  *
  * Funciones puras: sin red ni FS. El I/O vive en scripts/refresh-sweep-universe.ts.
  */
 
-/** Bandas de plausibilidad: el S&P 500 tiene ~503 tickers (algunas empresas con 2 clases). */
-export const MIN_PLAUSIBLE_CONSTITUENTS = 480;
-export const MAX_PLAUSIBLE_CONSTITUENTS = 520;
+/**
+ * Bandas de plausibilidad del universo resultante. Con los umbrales actuales da ~2.900;
+ * si una corrida cae fuera de esta banda, la fuente cambió de formato y NO se escribe nada.
+ */
+export const MIN_PLAUSIBLE_UNIVERSE = 1_500;
+export const MAX_PLAUSIBLE_UNIVERSE = 5_000;
+
+/** Mismos umbrales que `meetsQualityBar` para acciones — coherencia con el resto del embudo. */
+const MIN_MARKET_CAP = 500_000_000;
+const MIN_PRICE = 5;
 
 /** Formato aceptable de ticker US: 1-5 alfanuméricos, con guion opcional para clase. */
 const TICKER_RE = /^[A-Z]{1,5}(-[A-Z])?$/;
 
 /**
- * Extrae los símbolos de la primera columna de un CSV de constituyentes.
- *
- * Normaliza `.` a `-` (el CSV publica `BRK.B`, Yahoo exige `BRK-B`): sin esto el barrido
- * falla justo en los símbolos con clase de acción. Ordena, dedupea y **descarta lo que no
- * tenga formato de ticker** en vez de propagarlo — fail-closed: un símbolo basura acá se
- * convierte en un fetch fallido por semana, para siempre.
+ * Separadores de clase de acción según la fuente: el screener de Nasdaq publica `BRK/B`,
+ * otras listas publican `BRK.B`, y Yahoo solo entiende `BRK-B`. Cubrir uno solo hace que
+ * las duales se caigan del universo sin ruido — pasó en la primera corrida real.
  */
-export function parseConstituentsCsv(csv: string): string[] {
-  const lines = csv.split('\n').slice(1); // el header no aporta símbolos
+const SEPARADOR_DE_CLASE = /[./]/g;
+
+/**
+ * Instrumentos que NO son la acción común y solo gastan fetches.
+ * ⚠️ Ojo con tocar esta regex: los ADR (`American Depositary Shares`) SÍ se conservan — son
+ * la puerta a los CEDEARs que el dueño opera (GGAL, YPF, PAM, VIST). Un filtro que se los
+ * coma reintroduce el bug que este archivo existe para arreglar. La alternancia de
+ * "preferred" pide un % adelante justamente para no atrapar "Depositary Shares" comunes.
+ */
+const NO_ES_ACCION_COMUN = /\b(warrant|unit|right)s?\b|\d+(\.\d+)?%\s*(preferred|notes|debenture)|\bpreferred\s+(stock|series)\b/i;
+
+/** Fila cruda del screener: solo los campos que este módulo mira. */
+export interface ScreenerRow {
+  symbol: string;
+  name: string;
+  lastsale: string;   // "$141.34"
+  marketCap: string;  // "39920314881.00"
+}
+
+/** "$1,234.50" → 1234.5. Devuelve NaN si no hay número (fail-closed en el caller). */
+function money(raw: string | null | undefined): number {
+  const cleaned = String(raw ?? '').replace(/[$,\s]/g, '');
+  if (cleaned === '' || cleaned.toUpperCase() === 'N/A') return Number.NaN;
+  return Number(cleaned);
+}
+
+/**
+ * Filtra el listado crudo al universo operable y devuelve los símbolos ordenados.
+ *
+ * Fail-closed en cada campo: market cap o precio ausentes/ilegibles descartan la fila —
+ * un dato faltante nunca pasa como si estuviera bien. Normaliza `.` a `-` (Yahoo exige
+ * `BRK-B`, no `BRK.B`) y descarta lo que no tenga forma de ticker: un símbolo basura acá
+ * se convierte en un fetch fallido por semana, para siempre.
+ */
+export function parseScreenerRows(rows: ScreenerRow[]): string[] {
   const out = new Set<string>();
-  for (const line of lines) {
-    const raw = line.split(',')[0]?.trim().replace(/^"|"$/g, '');
-    if (!raw) continue;
-    const symbol = raw.toUpperCase().replace(/\./g, '-');
+  for (const r of rows) {
+    if (NO_ES_ACCION_COMUN.test(r?.name ?? '')) continue;
+
+    const cap = money(r?.marketCap);
+    const price = money(r?.lastsale);
+    if (!Number.isFinite(cap) || cap < MIN_MARKET_CAP) continue;
+    if (!Number.isFinite(price) || price < MIN_PRICE) continue;
+
+    const symbol = String(r?.symbol ?? '').trim().toUpperCase().replace(SEPARADOR_DE_CLASE, '-');
     if (!TICKER_RE.test(symbol)) continue;
     out.add(symbol);
   }

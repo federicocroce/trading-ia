@@ -1,8 +1,13 @@
 /**
- * Barrido semanal de bases: recorre el S&P500 estático buscando acciones
- * haciendo piso silencioso (detectBase) que noticias y screener de movers no
- * ven. Los hallazgos entran como source='base_sweep' — caño medible en
- * signal_tracking. Corre sábados (mercado cerrado, cola Yahoo libre).
+ * Barrido semanal de bases: recorre el universo por LIQUIDEZ (~3.000 acciones US que pasan
+ * la quality bar) buscando acciones haciendo piso silencioso (detectBase) que ni las
+ * noticias ni el screener de movers ven. Los hallazgos entran como source='base_sweep' —
+ * caño medible en signal_tracking. Corre sábados (mercado cerrado, cola Yahoo libre).
+ *
+ * ⚠️ Hasta el 2026-07-28 el universo era el S&P 500 y el barrido NO PODÍA encontrar lo que
+ * fue construido para encontrar: IREN —el caso que lo motivó— no estaba en la lista, ni
+ * WULF/HUT/MARA/RIOT/CLSK/VIST/SOFI, y 7 de las 8 posiciones de la cartera quedaban afuera.
+ * Ver `sweep-universe.ts`.
  */
 import { readFileSync } from 'node:fs';
 import { getHistoricalQuotes } from '../shared/yahoo.js';
@@ -82,7 +87,9 @@ export async function runBaseSweep(): Promise<{
 
   const results: Array<{ symbol: string; detection: BaseDetection }> = [];
   let failures = 0;
-  // Secuencial a propósito: ~500 fetches respetando la cola global de Yahoo.
+  // Secuencial a propósito: respeta la cola global de Yahoo. Con el universo por liquidez
+  // son ~2.700 fetches (≈70-80 min) contra los ~500 (≈10-15 min) del S&P500 viejo. Corre
+  // sábados con el mercado cerrado, así que la ventana sobra.
   for (const symbol of targets) {
     try {
       const bars = await getHistoricalQuotes(symbol, '1y', '1d');

@@ -1,42 +1,109 @@
 import { describe, it, expect } from 'vitest';
-import { parseConstituentsCsv, MIN_PLAUSIBLE_CONSTITUENTS, MAX_PLAUSIBLE_CONSTITUENTS } from './sweep-universe.js';
+import {
+  parseScreenerRows,
+  readUniverse,
+  universeAgeDays,
+  MIN_PLAUSIBLE_UNIVERSE,
+  MAX_PLAUSIBLE_UNIVERSE,
+  type ScreenerRow,
+} from './sweep-universe.js';
 
-const HEADER = 'Symbol,Security,GICS Sector,GICS Sub-Industry,Headquarters Location,Date added,CIK,Founded';
+function row(symbol: string, over: Partial<ScreenerRow> = {}): ScreenerRow {
+  return { symbol, name: `${symbol} Common Stock`, lastsale: '$50.00', marketCap: '900000000.00', ...over };
+}
 
-describe('parseConstituentsCsv', () => {
-  it('extrae los símbolos de la primera columna, salteando el header', () => {
-    const csv = [HEADER, 'MMM,3M,Industrials,X,"Saint Paul, Minnesota",1957-03-04,66740,1902', 'AAPL,Apple,Tech,Y,"Cupertino, CA",1982-11-30,320193,1977'].join('\n');
-    expect(parseConstituentsCsv(csv)).toEqual(['AAPL', 'MMM']);
+describe('parseScreenerRows', () => {
+  it('acepta acciones que pasan la quality bar del proyecto ($500M y precio >= $5)', () => {
+    expect(parseScreenerRows([row('AAPL'), row('MSFT')])).toEqual(['AAPL', 'MSFT']);
   });
 
-  it('normaliza el punto a guion — Yahoo usa BRK-B, no BRK.B', () => {
-    // Sin esto el barrido falla justo en los símbolos con clase de acción.
-    const csv = [HEADER, 'BRK.B,Berkshire,Financials,X,"Omaha, NE",2010-02-16,1067983,1839', 'BF.B,Brown-Forman,Staples,Y,"Louisville, KY",1982-10-31,14693,1870'].join('\n');
-    expect(parseConstituentsCsv(csv)).toEqual(['BF-B', 'BRK-B']);
+  it('descarta por market cap bajo el piso', () => {
+    expect(parseScreenerRows([row('CHICA', { marketCap: '100000000.00' })])).toEqual([]);
   });
 
-  it('devuelve orden alfabético estable y sin duplicados', () => {
-    const csv = [HEADER, 'ZTS,Z,S,I,"L",d,1,2', 'AAPL,A,S,I,"L",d,1,2', 'AAPL,A,S,I,"L",d,1,2', 'MMM,M,S,I,"L",d,1,2'].join('\n');
-    expect(parseConstituentsCsv(csv)).toEqual(['AAPL', 'MMM', 'ZTS']);
+  it('descarta por precio bajo $5 (mismo criterio que meetsQualityBar)', () => {
+    expect(parseScreenerRows([row('PENNY', { lastsale: '$1.20' })])).toEqual([]);
   });
 
-  it('ignora líneas vacías y con símbolo en blanco', () => {
-    const csv = [HEADER, 'AAPL,A,S,I,"L",d,1,2', '', '   ', ',Sin simbolo,S,I,"L",d,1,2'].join('\n');
-    expect(parseConstituentsCsv(csv)).toEqual(['AAPL']);
+  it('fail-closed: marketCap o precio ausentes o ilegibles descartan la fila', () => {
+    expect(parseScreenerRows([
+      row('A1', { marketCap: '' }),
+      row('A2', { marketCap: 'N/A' }),
+      row('A3', { lastsale: '' }),
+      row('A4', { lastsale: 'N/A' }),
+    ])).toEqual([]);
   });
 
-  it('descarta símbolos con formato imposible en vez de propagarlos', () => {
-    const csv = [HEADER, 'AAPL,A,S,I,"L",d,1,2', 'no es un ticker,X,S,I,"L",d,1,2', 'TOOLONGSYM,X,S,I,"L",d,1,2'].join('\n');
-    expect(parseConstituentsCsv(csv)).toEqual(['AAPL']);
+  it('excluye instrumentos que no son la acción común: warrants, units, rights, preferidas', () => {
+    const raros = [
+      row('W1', { name: 'Acme Corp Warrant' }),
+      row('U1', { name: 'Acme Corp Unit' }),
+      row('R1', { name: 'Acme Corp Rights' }),
+      row('P1', { name: 'Acme Corp 7.50% Preferred Series A' }),
+    ];
+    expect(parseScreenerRows(raros)).toEqual([]);
   });
 
-  it('CSV vacío o solo header devuelve lista vacía (el caller decide, fail-closed)', () => {
-    expect(parseConstituentsCsv('')).toEqual([]);
-    expect(parseConstituentsCsv(HEADER)).toEqual([]);
+  it('CONSERVA los ADRs — GGAL/YPF/PAM son la puerta a los CEDEARs que el dueño opera', () => {
+    // Regresión del hallazgo 2026-07-28: el universo viejo (S&P500) dejaba afuera 7 de las
+    // 8 posiciones de la cartera. Un filtro de "instrumentos raros" que se coma los ADR
+    // reintroduce exactamente ese bug.
+    const adrs = [
+      row('GGAL', { name: 'Grupo Financiero Galicia S.A. American Depositary Shares' }),
+      row('YPF', { name: 'YPF Sociedad Anonima American Depositary Shares' }),
+    ];
+    expect(parseScreenerRows(adrs)).toEqual(['GGAL', 'YPF']);
   });
 
-  it('las bandas de plausibilidad encierran el tamaño real del S&P 500', () => {
-    expect(MIN_PLAUSIBLE_CONSTITUENTS).toBeLessThan(503);
-    expect(MAX_PLAUSIBLE_CONSTITUENTS).toBeGreaterThan(503);
+  it('normaliza separadores de clase a guion — Yahoo exige BRK-B', () => {
+    // La fuente publica la clase con BARRA (BRK/B); otras listas usan PUNTO (BRK.B).
+    // Yahoo solo entiende el guion. Sin cubrir las dos, Berkshire y compañía se caen del
+    // universo en silencio — pasó en la primera corrida real (2026-07-28).
+    expect(parseScreenerRows([row('BRK/B'), row('BRK.B')])).toEqual(['BRK-B']);
+  });
+
+  it('descarta formatos imposibles', () => {
+    expect(parseScreenerRows([row('no es ticker'), row('TOOLONGSYM'), row('')])).toEqual([]);
+  });
+
+  it('ordena alfabéticamente y dedupea', () => {
+    expect(parseScreenerRows([row('ZTS'), row('AAPL'), row('AAPL')])).toEqual(['AAPL', 'ZTS']);
+  });
+
+  it('lista vacía devuelve vacío (el caller decide, fail-closed)', () => {
+    expect(parseScreenerRows([])).toEqual([]);
+  });
+
+  it('las bandas de plausibilidad encierran el tamaño esperado del universo', () => {
+    expect(MIN_PLAUSIBLE_UNIVERSE).toBeLessThan(2912);
+    expect(MAX_PLAUSIBLE_UNIVERSE).toBeGreaterThan(2912);
+  });
+});
+
+describe('readUniverse', () => {
+  it('lee el formato nuevo {capturedAt, symbols}', () => {
+    const r = readUniverse({ capturedAt: '2026-07-28', source: 'x', caveat: 'y', symbols: ['AAPL'] });
+    expect(r).toEqual({ symbols: ['AAPL'], capturedAt: '2026-07-28' });
+  });
+
+  it('sigue aceptando el array plano viejo (un archivo sin regenerar no rompe nada)', () => {
+    expect(readUniverse(['AAPL', 'MSFT'])).toEqual({ symbols: ['AAPL', 'MSFT'], capturedAt: null });
+  });
+
+  it('devuelve null ante contenido inservible', () => {
+    expect(readUniverse(null)).toBeNull();
+    expect(readUniverse([])).toBeNull();
+    expect(readUniverse({ symbols: [] })).toBeNull();
+    expect(readUniverse('no soy un universo')).toBeNull();
+  });
+});
+
+describe('universeAgeDays', () => {
+  it('cuenta los días desde la captura', () => {
+    expect(universeAgeDays('2026-07-01', new Date('2026-07-28T12:00:00Z'))).toBe(27);
+  });
+  it('sin fecha o fecha ilegible devuelve null (no se inventa antigüedad)', () => {
+    expect(universeAgeDays(null, new Date())).toBeNull();
+    expect(universeAgeDays('no-es-fecha', new Date())).toBeNull();
   });
 });

@@ -1,65 +1,70 @@
 /**
- * Regenera `sweep-universe.json` (el universo del barrido de bases) desde una fuente pública.
+ * Regenera `sweep-universe.json`: el universo que recorre el barrido semanal de bases.
  *
- * Antes era una lista escrita a mano en un commit del 2026-07-20, sin fecha ni forma de
- * saber cuánto se había podrido. El S&P rota ~20-25 componentes al año: en 12 meses el
- * barrido habría estado corriendo sobre ~20 símbolos que ya no pertenecen, sin avisar.
+ * ⚠️ Este universo se define por LIQUIDEZ Y TAMAÑO, no por pertenecer a un índice.
+ * El motivo está en `sweep-universe.ts`, y vale repetirlo porque fue un error caro: el
+ * universo anterior era el S&P 500, y **IREN —el caso que motivó construir el barrido— no
+ * estaba en él**. Tampoco WULF, HUT, MARA, RIOT, CLSK, VIST ni SOFI; 7 de las 8 posiciones
+ * de la cartera quedaban afuera. Se había construido un detector de mid/small caps
+ * castigadas y se lo apuntaba a las large caps más establecidas del mercado.
  *
- * FAIL-CLOSED en cada punta: si la descarga falla, si el CSV no parsea, o si el conteo cae
- * fuera de las bandas de plausibilidad, **NO se escribe nada** y sale con código 1. Un
- * universo viejo pero válido siempre es mejor que uno nuevo y roto — y quedarse con el
- * viejo es visible (la antigüedad se loguea en cada barrido), romperlo no.
- *
- * ⚠️ Lo que esto NO arregla: el sesgo de supervivencia. Sigue siendo la foto del índice HOY,
- * o sea empresas que ya sobrevivieron hasta entrar. Todo backtest sobre este universo lo
- * arrastra. Resolverlo requeriría la composición histórica del índice, que no tenemos.
+ * FAIL-CLOSED en cada punta: descarga fallida, JSON inesperado, o conteo fuera de las
+ * bandas de plausibilidad ⇒ **no se escribe nada** y sale con 1. Un universo viejo pero
+ * válido siempre es mejor que uno nuevo y roto: quedarse con el viejo es visible (el
+ * barrido loguea su antigüedad en cada corrida), romperlo no.
  *
  * Uso: npm run db:refresh-universe --workspace=apps/backend
  */
 import { writeFileSync, readFileSync } from 'node:fs';
 import {
-  parseConstituentsCsv,
+  parseScreenerRows,
   readUniverse,
-  MIN_PLAUSIBLE_CONSTITUENTS,
-  MAX_PLAUSIBLE_CONSTITUENTS,
+  MIN_PLAUSIBLE_UNIVERSE,
+  MAX_PLAUSIBLE_UNIVERSE,
+  type ScreenerRow,
   type SweepUniverseFile,
 } from '../discovery/sweep-universe.js';
 
-const SOURCE = 'https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv';
+const SOURCE = 'https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=10000&download=true';
 const TARGET = new URL('../discovery/sweep-universe.json', import.meta.url);
 
 async function main() {
-  console.log(`[Universo] Descargando constituyentes desde ${SOURCE}`);
+  console.log('[Universo] Descargando listado completo de acciones US...');
 
-  let csv: string;
+  let rows: ScreenerRow[];
   try {
-    const res = await fetch(SOURCE, { signal: AbortSignal.timeout(30_000) });
+    const res = await fetch(SOURCE, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(60_000),
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    csv = await res.text();
+    const json = await res.json() as { data?: { rows?: ScreenerRow[] } };
+    rows = json?.data?.rows ?? [];
+    if (!Array.isArray(rows) || rows.length === 0) throw new Error('respuesta sin filas');
   } catch (err) {
     console.error(`[Universo] ABORTADO — descarga falló: ${(err as Error).message}`);
     console.error('[Universo] El archivo actual NO se tocó.');
     process.exit(1);
   }
 
-  const symbols = parseConstituentsCsv(csv);
+  console.log(`[Universo] ${rows.length} listados crudos`);
+  const symbols = parseScreenerRows(rows);
 
-  if (symbols.length < MIN_PLAUSIBLE_CONSTITUENTS || symbols.length > MAX_PLAUSIBLE_CONSTITUENTS) {
+  if (symbols.length < MIN_PLAUSIBLE_UNIVERSE || symbols.length > MAX_PLAUSIBLE_UNIVERSE) {
     console.error(
       `[Universo] ABORTADO — ${symbols.length} símbolos está fuera de la banda plausible ` +
-      `[${MIN_PLAUSIBLE_CONSTITUENTS}, ${MAX_PLAUSIBLE_CONSTITUENTS}]. ` +
-      'Probablemente la fuente cambió de formato.',
+      `[${MIN_PLAUSIBLE_UNIVERSE}, ${MAX_PLAUSIBLE_UNIVERSE}]. Probablemente la fuente ` +
+      'cambió de formato o de campos.',
     );
     console.error('[Universo] El archivo actual NO se tocó.');
     process.exit(1);
   }
 
-  // Diff contra lo que había, para que el cambio sea auditable y no un reemplazo a ciegas.
+  // Diff contra lo que había: el cambio queda auditable, no es un reemplazo a ciegas.
   let previos: string[] = [];
   try {
-    const actual = readUniverse(JSON.parse(readFileSync(TARGET, 'utf-8')));
-    previos = actual?.symbols ?? [];
-  } catch { /* primera corrida o archivo ilegible: el diff sale vacío, no es error */ }
+    previos = readUniverse(JSON.parse(readFileSync(TARGET, 'utf-8')))?.symbols ?? [];
+  } catch { /* primera corrida o archivo ilegible: diff vacío, no es error */ }
 
   const antes = new Set(previos);
   const ahora = new Set(symbols);
@@ -68,17 +73,17 @@ async function main() {
 
   const payload: SweepUniverseFile = {
     capturedAt: new Date().toISOString().slice(0, 10),
-    source: SOURCE,
+    source: 'nasdaq screener (todo lo listado en US) filtrado por quality bar: marketCap >= $500M y precio >= $5',
     caveat:
-      'Foto del índice al momento de la captura: arrastra sesgo de supervivencia (solo ' +
-      'empresas que ya habían entrado). No usar para backtests sin descontarlo.',
+      'Universo por LIQUIDEZ, no por índice — sin sesgo de pertenencia. Queda el sesgo de ' +
+      '"listado hoy": las empresas deslistadas no aparecen. Regenerar con db:refresh-universe.',
     symbols,
   };
   writeFileSync(TARGET, JSON.stringify(payload, null, 2) + '\n', 'utf-8');
 
   console.log(`[Universo] ✓ ${symbols.length} símbolos escritos (antes: ${previos.length})`);
-  console.log(`[Universo]   salieron (${salieron.length}): ${salieron.join(' ') || '—'}`);
-  console.log(`[Universo]   entraron (${entraron.length}): ${entraron.join(' ') || '—'}`);
+  console.log(`[Universo]   entraron: ${entraron.length}`);
+  console.log(`[Universo]   salieron: ${salieron.length}${salieron.length ? ' — ' + salieron.slice(0, 20).join(' ') : ''}`);
   process.exit(0);
 }
 
