@@ -1,7 +1,7 @@
 import type { NewsItem, RawNewsArticle } from '@trading/shared';
 import { getAvailableAdapters } from './sources/index.js';
 import { getAllSymbols, getWebSearchArticlesForDate, getPortfolioPositions } from '../db/repository.js';
-import { registerNovelTickers, getDiscoveredTickers } from '../discovery/discovery-registry.js';
+import { registerNovelTickers, getDiscoveredTickers, attentionNominationEnabled } from '../discovery/discovery-registry.js';
 import { isValidTickerFormat } from '../discovery/ticker-validator.js';
 import { extractTickersFromText } from './ticker-extraction.js';
 
@@ -270,6 +270,10 @@ export async function aggregateNews(): Promise<AggregationResult> {
       // Ahora la etiqueta es honesta: este caño es "descubrimiento por noticias", punto.
       // Atribuir por feed exigiría rastrear qué artículo mencionó cada ticker; mientras eso
       // no exista, una etiqueta única y verdadera vale más que dos falsas.
+      if (!attentionNominationEnabled()) {
+        console.log(`[aggregator] nominación por prensa APAGADA — ${novel.length} tickers no entran al universo`);
+        return { news, sourceStats, totalRaw, duplicatesRemoved };
+      }
       const registered = await registerNovelTickers(novel, 'news');
       console.log(`[aggregator] ${registered}/${novel.length} novel tickers registrados: ${novel.slice(0, 10).join(', ')}${novel.length > 10 ? '...' : ''}`);
     }

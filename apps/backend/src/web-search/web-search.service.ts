@@ -1,7 +1,7 @@
 import { searchTavily, type WebSearchResult } from './tavily.js';
 import { searchExa } from './exa.js';
 import { getPortfolioPositions } from '../db/repository.js';
-import { registerNovelTickers } from '../discovery/discovery-registry.js';
+import { registerNovelTickers, attentionNominationEnabled } from '../discovery/discovery-registry.js';
 import { isValidTickerFormat } from '../discovery/ticker-validator.js';
 import { getActiveDiscoveryQueries } from '../intelligence/config.repository.js';
 import { extractTickersFromText } from '../news/ticker-extraction.js';
@@ -124,7 +124,7 @@ export async function runWebSearch(date: string): Promise<WebSearchStageResult> 
         // Fuente propia: este caño es búsqueda web (Tavily/Exa), no el feed de noticias.
         // Hasta el 2026-07-27 se registraba como 'yahoo' y sus hallazgos quedaban mezclados
         // con los del agregador de noticias, haciendo imposible medir cada caño por separado.
-        registerNovelTickers(allTickers, 'web_search').catch(() => {});
+        if (attentionNominationEnabled()) registerNovelTickers(allTickers, 'web_search').catch(() => {});
       }
       return discoveryArticles;
     }),

@@ -38,6 +38,26 @@ type DiscoverySource =
   | 'news' | 'web_search'        // reemplazos honestos
   | 'llm' | 'screener' | 'radar' | 'base_sweep';
 
+/**
+ * ¿Los caños de ATENCIÓN (prensa, búsqueda web, LLM) pueden meter tickers al universo?
+ *
+ * **Default APAGADO desde el 2026-07-27.** Medido contra el índice, el bloque prensa/web
+ * rinde **mediana −6.20%** (media −2.69%, t=−3.05 contra el universo base, n=1.928) y
+ * empeora mes a mes. No es que "no predice dirección" —eso ya estaba medido dos veces—:
+ * es que **nomina peor que no nominar**. Mecanismo plausible: la prensa surfacea lo que YA
+ * tiene atención, que es donde el precio ya se movió.
+ *
+ * Va detrás de una flag y no borrado, a propósito: apagar es reversible y deja medir si
+ * algún día se re-enciende; borrar la capacidad de medir, no. Lectura LAZY (regla dura 4).
+ *
+ * Lo que NO toca: las noticias siguen alimentando `macro_events`, el contexto causal y el
+ * digest. Eso es narrativa y no está en cuestión. Lo único que se apaga es su poder de
+ * decidir QUÉ MIRA el scan.
+ */
+export function attentionNominationEnabled(): boolean {
+  return process.env.DISCOVERY_ATTENTION_NOMINATION?.trim() === '1';
+}
+
 // Pura: relevance inicial según la fuente del descubrimiento.
 export function initialRelevanceForSource(source: DiscoverySource): number {
   switch (source) {

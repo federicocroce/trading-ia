@@ -35,7 +35,7 @@ vi.mock('./ticker-validator.js', () => ({
   validateTickers: (...args: unknown[]) => mockValidateTickers(...args),
 }));
 
-import { initialRelevanceForSource, selectEvictionCandidates, registerNovelTickers } from './discovery-registry.js';
+import { initialRelevanceForSource, selectEvictionCandidates, registerNovelTickers, attentionNominationEnabled } from './discovery-registry.js';
 
 describe('initialRelevanceForSource', () => {
   it('screener entra con 30: ya pasó el embudo operable completo (quality bar, SMA200, setup+RR)', () => {
@@ -152,5 +152,41 @@ describe('registerNovelTickers — orden filtro-antes-de-evictar', () => {
 
     expect(mockUpdate).toHaveBeenCalledTimes(1);
     expect(registered).toBe(0);
+  });
+});
+
+describe('attentionNominationEnabled (apagado por defecto desde 2026-07-27)', () => {
+  // Los caños de ATENCIÓN (prensa, búsqueda web, LLM) nominaban tickers al universo de scan.
+  // Medido contra el índice, ese bloque rinde mediana −6.20% (t=−3.05) — peor que no nominar.
+  // Queda apagado por defecto y detrás de una flag para poder re-encenderlo y medirlo, no
+  // borrado: apagar es reversible, borrar la capacidad de medir no.
+  const KEY = 'DISCOVERY_ATTENTION_NOMINATION';
+  beforeEach(() => { delete process.env[KEY]; });
+
+  it('sin la env var: APAGADO (el default es no nominar)', () => {
+    expect(attentionNominationEnabled()).toBe(false);
+  });
+
+  it('solo "1" lo prende — cualquier otro valor deja apagado (fail-closed)', () => {
+    try {
+      process.env[KEY] = '1';
+      expect(attentionNominationEnabled()).toBe(true);
+      for (const v of ['0', 'true', 'yes', '', ' ']) {
+        process.env[KEY] = v;
+        expect(attentionNominationEnabled()).toBe(false);
+      }
+    } finally {
+      delete process.env[KEY];
+    }
+  });
+
+  it('se lee LAZY: cambiar la env var después de importar el módulo se refleja', () => {
+    try {
+      expect(attentionNominationEnabled()).toBe(false);
+      process.env[KEY] = '1';
+      expect(attentionNominationEnabled()).toBe(true); // inerte si se hubiera leído a nivel módulo
+    } finally {
+      delete process.env[KEY];
+    }
   });
 });

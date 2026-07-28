@@ -11,7 +11,7 @@ import {
 } from '../db/repository.js';
 import { getPortfolioPositions, getActiveSymbolList } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
-import { registerNovelTickers } from '../discovery/discovery-registry.js';
+import { registerNovelTickers, attentionNominationEnabled } from '../discovery/discovery-registry.js';
 import { validateTickers } from '../discovery/ticker-validator.js';
 import {
   getTodayMarketReport,
@@ -664,7 +664,11 @@ export async function generateMarketReport(
   try {
     const reportSymbols = [...new Set(allRecs.map(r => r.symbol).filter(Boolean))];
     const novelSymbols = reportSymbols.filter(s => !symbols.includes(s));
-    if (novelSymbols.length > 0) {
+    // El LLM es un caño de ATENCIÓN: nomina lo que le pareció relevante del reporte, que
+    // viene de las mismas noticias. Apagado por default con los otros dos (ver
+    // attentionNominationEnabled). El reporte se sigue generando igual — solo deja de
+    // definir qué mira el scan.
+    if (novelSymbols.length > 0 && attentionNominationEnabled()) {
       const registered = await registerNovelTickers(novelSymbols, 'llm');
       console.log(`[MarketReport] ${registered} tickers registrados`);
     }

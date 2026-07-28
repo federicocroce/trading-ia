@@ -33,7 +33,10 @@ export function selectSweepCandidates(
 export async function runBaseSweep(): Promise<{
   scanned: number; failures: number; candidates: string[]; registered: number; aborted: boolean;
 }> {
-  const cap = envNumber('SWEEP_MAX_CANDIDATES', 15);
+  // 15 → 30 el 2026-07-27: en la única corrida real del barrido registró 11 de 15, o sea
+  // el cap ataba. Con la nominación por prensa apagada quedan slots libres en el cap global
+  // de descubiertos (estaba en 133 activos sobre 120), así que el sweep puede aportar más.
+  const cap = envNumber('SWEEP_MAX_CANDIDATES', 30);
 
   // Excluir lo que el sistema ya mira: portfolio, descubiertos activos, watchlist viva,
   // y la tabla symbols completa (mismo getter que registerNovelTickers usa para su
