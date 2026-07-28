@@ -97,6 +97,38 @@ async function tryProvider(
 }
 
 /**
+ * Acumulador de tokens de la etapa en curso.
+ *
+ * ⚠️ AGREGADO 2026-07-28. La columna `pipeline_stage_artifacts.tokens_used` existía desde
+ * siempre y estaba en NULL en las 5 etapas: el consumo se reportaba por proveedor pero nunca
+ * llegaba a la tabla. Con 14 claves de LLM configuradas, era imposible saber cuánto cuesta
+ * correr el pipeline — o sea, imposible decidir racionalmente qué modelo vale la pena.
+ *
+ * Los proveedores que no reportan uso (LM Studio local, algunos de OpenRouter) suman 0: el
+ * total es un PISO del consumo real, nunca una sobreestimación. Se lee y resetea por etapa.
+ */
+let _stageTokensIn = 0;
+let _stageTokensOut = 0;
+
+function accumulateStageTokens(input?: number, output?: number): void {
+  if (Number.isFinite(input)) _stageTokensIn += input!;
+  if (Number.isFinite(output)) _stageTokensOut += output!;
+}
+
+/** Arranca el conteo de una etapa. */
+export function resetStageTokens(): void {
+  _stageTokensIn = 0;
+  _stageTokensOut = 0;
+}
+
+/** Devuelve lo acumulado y resetea — pensado para llamarse al cerrar cada etapa. */
+export function takeStageTokens(): { input: number; output: number; total: number } {
+  const r = { input: _stageTokensIn, output: _stageTokensOut, total: _stageTokensIn + _stageTokensOut };
+  resetStageTokens();
+  return r;
+}
+
+/**
  * Call AI with the appropriate model chain based on task type.
  * Always validates JSON output.
  */
@@ -133,6 +165,7 @@ export async function callAIWithModel(
   for (const { name, fn } of providers) {
     const result = await tryProvider(name, fn, true);
     if (result) {
+      accumulateStageTokens(result.tokensInput, result.tokensOutput);
       return {
         content: result.content,
         model: name,

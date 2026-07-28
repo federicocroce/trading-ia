@@ -188,9 +188,14 @@ export function resolveFinalVerdict(opts: {
   }
 
   if (smartAction !== finalAction) {
-    trace.push(`smart:${smartAction}${smartReason ? ` (${smartReason.slice(0, 60)})` : ''}`);
-    finalAction = smartAction;
-    source = 'smart';
+    const gatedSmart = applySmartAction(finalAction, smartAction) as SignalAction;
+    if (gatedSmart !== finalAction) {
+      trace.push(`smart:${smartAction}${smartReason ? ` (${smartReason.slice(0, 60)})` : ''}`);
+      finalAction = gatedSmart;
+      source = 'smart';
+    } else {
+      trace.push(`smart:sugirió ${smartAction} — bloqueado (solo degrada)`);
+    }
   }
 
   if (llmAction && llmAction !== finalAction) {
@@ -275,4 +280,31 @@ export function applyLlmAction(algoAction: string, llmAction: string): string {
   const llmRank = ACTION_BULLISH_RANK[llmAction];
   if (algoRank === undefined || llmRank === undefined) return algoAction;
   return llmRank < algoRank ? llmAction : algoAction;
+}
+
+/** ¿La capa `smart` puede SUBIR la acción? Apagado por default — ver applySmartAction. */
+export function smartUpgradeEnabled(): boolean {
+  return process.env.SMART_CAN_UPGRADE?.trim() === '1';
+}
+
+/**
+ * Gate de la capa `smart` (divergencias técnicas), simétrico al del LLM.
+ *
+ * ⚠️ AGREGADO 2026-07-28 tras el review adversarial. La regla dura #2 gatea al LLM y ese
+ * gate funciona bien — pero `smart` reemplazaba el veredicto SIN restricción:
+ *   `if (smartAction !== finalAction) finalAction = smartAction`
+ * En los datos había **9 subidas WATCH→BUY**, la más reciente 5 días antes del hallazgo.
+ * Es el patrón del caso SDOT entrando por otra puerta: una capa entusiasmada convirtiendo
+ * "mirar" en "comprar". Y está prácticamente sin medir — solo 10 de 37 veredictos `smart`
+ * tienen alpha calculado, así que no hay evidencia de que la subida pague.
+ *
+ * Degradar sigue libre (dirección segura). Subir queda bloqueado por default y detrás de
+ * `SMART_CAN_UPGRADE=1`, para poder re-habilitarlo y medirlo en vez de perder la capacidad.
+ */
+export function applySmartAction(algoAction: string, smartAction: string): string {
+  const algoRank = ACTION_BULLISH_RANK[algoAction];
+  const smartRank = ACTION_BULLISH_RANK[smartAction];
+  if (algoRank === undefined || smartRank === undefined) return algoAction;
+  if (smartRank < algoRank) return smartAction;           // degrada: siempre
+  return smartUpgradeEnabled() ? smartAction : algoAction; // sube: solo con la flag
 }

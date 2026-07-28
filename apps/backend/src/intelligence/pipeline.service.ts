@@ -26,6 +26,8 @@ import { getLastAggregationStats } from '../news/news.service.js';
 import { getLastTriangulationStats } from '../news/triangulation.service.js';
 import { getIntelligenceFromDB, prepareDeepAnalysisNews } from '../news/news-intelligence.service.js';
 import { generateNewsRadar } from '../news/news-radar.service.js';
+import { envNumber } from '../shared/env-number.js';
+import { takeStageTokens } from '../shared/ai-router.js';
 import { runWebSearch } from '../web-search/web-search.service.js';
 import { generateWeightProposal, shouldGenerateProposal } from './weight-adjustment.service.js';
 import type { PipelineRun, StageResult, QuantContext, OpportunitySector } from '@trading/shared';
@@ -95,13 +97,19 @@ function recordStageArtifact(runId: number, stage: 'webSearch' | 'news' | 'funda
     const durationMs = (sr.startedAt && sr.finishedAt)
       ? new Date(sr.finishedAt).getTime() - new Date(sr.startedAt).getTime()
       : undefined;
+    // Consumo de LLM de esta etapa (piso: los proveedores que no reportan uso suman 0).
+    const tokens = takeStageTokens();
     saveStageArtifact({
       pipelineRunId: runId,
       stage,
       output: { status: sr.status, detail: sr.detail, errors: sr.errors, criticalError: sr.criticalError },
       durationMs,
       errorCount: sr.errors.length,
+      tokensUsed: tokens.total > 0 ? tokens.total : undefined,
     });
+    if (tokens.total > 0) {
+      console.log(`[pipeline] ${stage}: ${tokens.total} tokens (in ${tokens.input} / out ${tokens.output})`);
+    }
   } catch (err) {
     console.warn('[pipeline] Failed to save stage artifact:', (err as Error).message);
   }
@@ -511,20 +519,62 @@ async function runReportStage(runId: number): Promise<StageResult> {
   }
 }
 
+/**
+ * Corre una etapa con techo de tiempo. Si vence, devuelve un StageResult 'failed' en vez de
+ * colgar la corrida para siempre — el trabajo interno puede seguir en background y terminar
+ * solo; lo que se acota es cuánto espera el pipeline.
+ */
+async function withStageTimeout(
+  promesa: Promise<StageResult>,
+  ms: number,
+  stage: string,
+): Promise<StageResult> {
+  let timer: NodeJS.Timeout | undefined;
+  const vencimiento = new Promise<StageResult>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[pipeline] ${stage}: timeout a los ${Math.round(ms / 1000)}s — se sigue sin esperarlo`);
+      resolve({
+        status: 'failed',
+        startedAt: null,
+        finishedAt: new Date().toISOString(),
+        detail: `Timeout: la etapa superó ${Math.round(ms / 1000)}s.`,
+        errors: [],
+        criticalError: `stage-timeout:${stage}`,
+      });
+    }, ms);
+  });
+  try {
+    return await Promise.race([promesa, vencimiento]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function runRemainingStages(runId: number): Promise<void> {
   const today = getToday();
 
   if (!isNewsStageValid()) {
-    const newsResult = await runNewsStage(runId);
+    // ⚠️ CAMBIO 2026-07-28 — el stage de noticias deja de poder tumbar el pipeline.
+    //
+    // Medido sobre 123 corridas: el pipeline fallaba el 35.8% de las veces, y **21 de los 44
+    // fallos se colgaban acá**. Además el stage consume 17.8 de los 22.7 min de una corrida
+    // exitosa (78%). Y el scan —que produce las decisiones— NO depende de noticias: su
+    // universo sale de `discovered_symbols` + `symbols`. O sea: la etapa más lenta y más
+    // frágil cancelaba la etapa que realmente importa, sin necesitarla.
+    //
+    // Dos arreglos, ninguno destructivo (no se apaga nada: macro_events, cadenas causales,
+    // radar de noticias y digest siguen produciéndose cuando el stage anda):
+    //   1. TIMEOUT DURO: colgarse deja de ser infinito.
+    //   2. NO-BLOQUEANTE: su fallo degrada la corrida a 'partial', no la mata.
+    const newsResult = await withStageTimeout(
+      runNewsStage(runId),
+      envNumber('NEWS_STAGE_TIMEOUT_MS', 300_000),
+      'news',
+    );
     recordStageArtifact(runId, 'news', newsResult);
     if (newsResult.status === 'failed') {
-      for (const s of ['fundamentals', 'analysis', 'report'] as const) {
-        updatePipelineStage(runId, s, { status: 'skipped', detail: 'Saltado: noticias fallaron.', errors: [], startedAt: null, finishedAt: null });
-      }
-      finishPipelineRun(runId, 'failed');
-      return;
-    }
-    if (newsResult.status === 'partial') {
+      console.warn('[pipeline] News falló o venció su timeout — el scan sigue igual (no depende de noticias)');
+    } else if (newsResult.status === 'partial') {
       console.warn('[pipeline] News parcial — continuando con datos degradados');
     }
     // Fire-and-forget: news radar v2 (cause+impacts) runs after news succeeds.
@@ -623,9 +673,16 @@ async function runRemainingStages(runId: number): Promise<void> {
 
   const finalRun = getPipelineRunByDate(today)!;
   const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.macroIntelligence, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
+
+  // ⚠️ Solo `analysis` puede marcar la corrida como FALLIDA: es la etapa que produce las
+  // decisiones (el scan con niveles y veredictos). Que fallen noticias, web search, macro o
+  // el reporte degrada a 'partial' — hay menos contexto narrativo, pero las decisiones del
+  // día existen igual. Antes CUALQUIER etapa fallida marcaba 'failed', y por eso el 35.8% de
+  // las corridas figuraba como fallida cuando en la mayoría el scan había salido bien.
+  const critico = finalRun.stages.analysis.status === 'failed';
   const anyFailed = stageList.some((s) => s.status === 'failed');
   const allOk = stageList.every((s) => s.status === 'ok' || s.status === 'skipped');
-  finishPipelineRun(runId, anyFailed ? 'failed' : allOk ? 'ok' : 'partial');
+  finishPipelineRun(runId, critico ? 'failed' : (allOk && !anyFailed) ? 'ok' : 'partial');
 
   // Auto-generate weight proposal if enough resolved signals available
   if (shouldGenerateProposal()) {
@@ -786,9 +843,16 @@ export async function rerunPipelineStage(
 
   const finalRun = getPipelineRunByDate(today)!;
   const stageList = [finalRun.stages.webSearch, finalRun.stages.news, finalRun.stages.macroIntelligence, finalRun.stages.fundamentals, finalRun.stages.analysis, finalRun.stages.report];
+
+  // ⚠️ Solo `analysis` puede marcar la corrida como FALLIDA: es la etapa que produce las
+  // decisiones (el scan con niveles y veredictos). Que fallen noticias, web search, macro o
+  // el reporte degrada a 'partial' — hay menos contexto narrativo, pero las decisiones del
+  // día existen igual. Antes CUALQUIER etapa fallida marcaba 'failed', y por eso el 35.8% de
+  // las corridas figuraba como fallida cuando en la mayoría el scan había salido bien.
+  const critico = finalRun.stages.analysis.status === 'failed';
   const anyFailed = stageList.some((s) => s.status === 'failed');
   const allOk = stageList.every((s) => s.status === 'ok' || s.status === 'skipped');
-  finishPipelineRun(runId, anyFailed ? 'failed' : allOk ? 'ok' : 'partial');
+  finishPipelineRun(runId, critico ? 'failed' : (allOk && !anyFailed) ? 'ok' : 'partial');
 
   if (shouldGenerateProposal()) {
     const proposal = generateWeightProposal();
