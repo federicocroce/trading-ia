@@ -4,7 +4,7 @@
  * discovered_symbols con source='screener'.
  *
  * Objetivo: el universo de scan no depende solo de watchlist + lo que menciona la prensa
- * (`discovery-registry.ts` con sources 'finnhub'/'yahoo'/'llm') — también entra lo que el
+ * (`discovery-registry.ts` con sources 'news'/'web_search'/'llm'; 'finnhub'/'yahoo' son legacy) — también entra lo que el
  * mercado entero está moviendo AHORA (most_actives/day_gainers/day_losers de Yahoo), filtrado
  * a candidatos con un setup técnico operable de verdad.
  *
