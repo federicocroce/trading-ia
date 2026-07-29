@@ -524,6 +524,18 @@ async function runReportStage(runId: number): Promise<StageResult> {
  * colgar la corrida para siempre — el trabajo interno puede seguir en background y terminar
  * solo; lo que se acota es cuánto espera el pipeline.
  */
+/** Marca del StageResult fabricado por el vencimiento — la etapa real nunca escribió su estado. */
+export const TIMEOUT_PREFIX = 'stage-timeout:';
+
+/**
+ * AD-020: distingue "la etapa falló y ya grabó su estado" de "la etapa se colgó y NADIE grabó
+ * nada". Solo en el segundo caso el orquestador tiene que cerrar la fila, o queda en 'running'
+ * sobre un run terminado — el mismo síntoma que el timeout vino a eliminar.
+ */
+export function esResultadoDeTimeout(r: { criticalError?: string | null }): boolean {
+  return typeof r.criticalError === 'string' && r.criticalError.startsWith(TIMEOUT_PREFIX);
+}
+
 async function withStageTimeout(
   promesa: Promise<StageResult>,
   ms: number,
@@ -539,7 +551,7 @@ async function withStageTimeout(
         finishedAt: new Date().toISOString(),
         detail: `Timeout: la etapa superó ${Math.round(ms / 1000)}s.`,
         errors: [],
-        criticalError: `stage-timeout:${stage}`,
+        criticalError: `${TIMEOUT_PREFIX}${stage}`,
       });
     }, ms);
   });
@@ -572,6 +584,17 @@ async function runRemainingStages(runId: number): Promise<void> {
       'news',
     );
     recordStageArtifact(runId, 'news', newsResult);
+    // AD-020: si venció el timeout, `runNewsStage` sigue colgado y jamás va a escribir su estado
+    // terminal — la fila quedaría en 'running' sobre un run ya cerrado. Lo cierra el orquestador.
+    if (esResultadoDeTimeout(newsResult)) {
+      updatePipelineStage(runId, 'news', {
+        status: 'failed',
+        startedAt: null,
+        finishedAt: new Date().toISOString(),
+        detail: newsResult.detail,
+        errors: ['La etapa se colgó y se abandonó por timeout; el resto del pipeline siguió.'],
+      });
+    }
     if (newsResult.status === 'failed') {
       console.warn('[pipeline] News falló o venció su timeout — el scan sigue igual (no depende de noticias)');
     } else if (newsResult.status === 'partial') {

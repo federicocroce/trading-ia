@@ -11,7 +11,7 @@ Un sector queda `AUDITADO` cuando una corrida completa no produce hallazgos P0�
 
 | sector | último pase | estado | abiertos |
 |---|---|---|---|
-| `pipeline` | 2026-07-29 | pase completo — 10 hallazgos | AD-004 … AD-013 |
+| `pipeline` | 2026-07-29 | 11 hallazgos — AD-020 resuelto | AD-004 … AD-013 |
 | `descubrimiento` | — | nunca auditado | — |
 | `motor` | — | nunca auditado | — |
 | `guardian` | 2026-07-29 | 6 hallazgos · 5 resueltos, 1 acotado | ninguno — decisión de producto en AD-014 |
@@ -20,7 +20,7 @@ Un sector queda `AUDITADO` cuando una corrida completa no produce hallazgos P0�
 | `llm` | — | nunca auditado | — |
 | `backend` | — | nunca auditado | — |
 | `frontend` | — | nunca auditado | — |
-| `operacion` | 2026-07-29 | pre-flight solamente | AD-001, AD-002, AD-003 |
+| `operacion` | 2026-07-29 | pre-flight | AD-001, AD-003 (AD-002 resuelto) |
 | `negocio` | — | nunca auditado | — |
 | `coherencia` | 2026-07-29 | parcial — 1 hallazgo de paso | — |
 
@@ -76,7 +76,7 @@ $ lsof -ti:3001
 
 ---
 
-### AD-002 · P3 · operacion · 2026-07-29 · ABIERTO
+### AD-002 · P3 · operacion · 2026-07-29 · RESUELTO — corrida real 124 el 2026-07-29
 
 **Claim atacado**: §4 del prompt maestro, *"el pipeline fallaba el 35.8% de las corridas… **Fix**: timeout duro (`NEWS_STAGE_TIMEOUT_MS`, 300s) + solo `analysis` puede marcar la corrida como FALLIDA"*, presentado como saldado.
 
@@ -682,3 +682,29 @@ Lo que sí queda sin cubrir es aguas arriba: un split no ajustado desplazaría `
 **Daño**: bajo hoy. Sube si entra al portfolio un símbolo con split anunciado.
 
 **Estado**: **ACOTADO 2026-07-29** con 3 tests que fijan el radio de daño: un `avgCost` pre-split (10×) NO convierte un MANTENER en VENDER ni evita un VENDER legítimo —la protección se decide precio-contra-stop, ambos post-split— pero `gainPct` sale disparatado (−88%) y nadie lo detecta. Si alguien hace depender el verbo de `avgCost`, los tests avisan. Queda ABIERTO el ajuste del resultado mostrado.
+
+---
+
+### AD-020 · P3 · pipeline · 2026-07-29 · RESUELTO
+
+**Cómo apareció**: corriendo el pipeline de verdad por primera vez desde el commit del fix (48e0bd5). Es la confirmación del método de AD-002: *auditar el código no alcanza, hay que probar que corrió.* El fix hacía lo importante y tenía roto lo que se veía.
+
+**Hallazgo**: cuando vence `NEWS_STAGE_TIMEOUT_MS`, `withStageTimeout` resuelve con un `StageResult` de status `'failed'`, pero el llamador solo grababa el artifact y logueaba — **nunca escribía el estado terminal en `pipeline_runs`**. La etapa quedaba en `'running'` con `news_finished_at` en NULL sobre una corrida ya cerrada: indistinguible de "está corriendo ahora", que es exactamente el síntoma que el fix vino a eliminar.
+
+**Evidencia** — corrida 124, disparada a mano el 2026-07-29:
+```
+$ sqlite3 data/trading.db "SELECT id, status, news_status, news_finished_at,
+    ROUND((julianday(finished_at)-julianday(started_at))*24*60,1) min FROM pipeline_runs WHERE id=124;"
+124|partial|running||19.2      <- run terminado, etapa en 'running'
+```
+Código: `pipeline.service.ts` resolvía el vencimiento con `criticalError: 'stage-timeout:news'` y el call site hacía `recordStageArtifact(...)` + `console.warn(...)`, sin ningún `updatePipelineStage`.
+
+**Lo que SÍ funcionó en la misma corrida** (y hay que decirlo con la misma evidencia):
+- El objetivo del fix se cumplió: la corrida terminó **`partial`, no `failed`**, con `analysis/quant/report/fundamentals/macro` todos en `ok`. **El scan del día se produjo igual** — datos frescos por primera vez desde el 24 (`opportunity_scans` 2026-07-29T16:51, `today_proposals`/`market_digests`/`signal_tracking` del 29).
+- El fix de tokens también funciona: **3 de 5 artifacts con `tokens_used` poblado**, contra **0 de 5** en la corrida 123. Primera evidencia real de ese arreglo.
+
+**Estado**: **RESUELTO.** `esResultadoDeTimeout` + `TIMEOUT_PREFIX` exportados y testeados (2 tests, primeros tests que existen sobre `pipeline.service.ts`); el orquestador ahora cierra la fila cuando venció, distinguiendo "falló y ya grabó su estado" de "se colgó y nadie grabó nada". La fila de la corrida 124 se reparó a mano dejando constancia en `news_errors`.
+
+**Deuda que queda ABIERTA**: la promesa de `runNewsStage` abandonada **sigue viva**. Si termina más tarde, va a llamar `updatePipelineStage` y **pisar retroactivamente el estado de una corrida ya cerrada**. Cancelarla de verdad requiere un `AbortSignal` que atraviese el stage entero; no se hizo acá para no mezclar un refactor con un fix de una línea.
+
+**Actualiza AD-002**: el fix de noticias deja de estar "escrito, sin correr" — corrió, cumplió su objetivo y tenía este defecto. AD-002 pasa a RESUELTO por ejecución verificada.
