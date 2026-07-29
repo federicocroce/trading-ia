@@ -129,6 +129,46 @@ export function resolvePositionPrice(
   return null;
 }
 
+/**
+ * El sizing de toda posición nueva sale de `portfolioValue`, que suma SOLO las posiciones que se
+ * pudieron evaluar. Con una descartada, la base es más chica que la cartera real y el tamaño
+ * sugerido sale sistemáticamente menor — en silencio. Un tamaño que sabés que está mal es peor
+ * que no dar tamaño: fail-closed (regla dura #1).
+ */
+export function sizingCaveatFor(droppedSymbols: string[]): string | null {
+  if (droppedSymbols.length === 0) return null;
+  return `Sin tamaño sugerido: ${droppedSymbols.join(', ')} no se ${droppedSymbols.length === 1 ? 'pudo' : 'pudieron'} valuar, ` +
+    `así que el valor de cartera está incompleto y cualquier sizing calculado sobre él saldría chico.`;
+}
+
+/**
+ * AD-016. La concentración se medía y no cambiaba ninguna decisión: era una tarjeta. Acá se
+ * convierte en freno. **Solo degrada** —puede impedir que sumes, jamás sugerir que sumes—, igual
+ * que el gate del LLM, el residente crónico y el stop perforado.
+ *
+ * Un stop protege de que UNA posición se dé vuelta; nada protegía de que se den vuelta todas
+ * juntas. Esto es un límite de riesgo, no una predicción: a diferencia de un cambio de scoring,
+ * no necesita evidencia de expectancy para justificarse (regla de evidencia del §4 aplica a
+ * "esto va a rendir mejor", no a "no apiles más riesgo del que querés").
+ *
+ * Fail-closed: sin reporte no se afirma nada. Con cobertura parcial se dice, en vez de sentenciar
+ * sobre media cartera.
+ */
+export function concentrationCaveatFor(
+  report: { effectiveBets: number; positions: number; coverage: number } | null,
+  minApuestas: number,
+): string | null {
+  if (report == null) return null;
+  if (!Number.isFinite(report.effectiveBets) || report.effectiveBets >= minApuestas) return null;
+
+  const apuestas = Math.round(report.effectiveBets * 10) / 10;
+  const parcial = report.coverage < 0.99
+    ? ` (medido sobre el ${Math.round(report.coverage * 100)}% del capital — cobertura parcial)`
+    : '';
+  return `Tu cartera tiene ${report.positions} posiciones pero se comporta como ${apuestas} apuesta${apuestas === 1 ? '' : 's'} independiente${apuestas === 1 ? '' : 's'}${parcial}. ` +
+    `Sumar acá apila riesgo que ningún stop individual cubre: el stop te protege de que UNA se dé vuelta, no de que se den vuelta todas juntas.`;
+}
+
 export interface PositionVerdict {
   verb: PortfolioVerb;
   reason: string;

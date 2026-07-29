@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeTrailingStop, decidePositionVerb, resolvePositionPrice, timingCaveatFor, type Candle } from './today-decisions.js';
+import { computeTrailingStop, concentrationCaveatFor, decidePositionVerb, resolvePositionPrice, sizingCaveatFor, timingCaveatFor, type Candle } from './today-decisions.js';
 import type { TimingView } from '@trading/shared';
 
 function c(date: string, high: number, low: number, close: number): Candle {
@@ -266,5 +266,57 @@ describe('split no ajustado: el verbo aguanta, el resultado miente', () => {
 
   it('el daño conocido es el resultado: gainPct sale disparatado y nadie lo detecta', () => {
     expect(decidePositionVerb({ ...postSplit, avgCost: 100 }).gainPct).toBe(-88);
+  });
+});
+
+// Hallazgo del review del propio branch (2026-07-29): AD-015 hizo VISIBLE la posición
+// descartada, pero `portfolioValue` sigue sumando solo las evaluadas y de ahí sale el sizing
+// de TODA posición nueva. Con una posición sin precio, el sizing se calcula sobre una cartera
+// más chica que la real y sale sistemáticamente menor, en silencio. Un tamaño que sabés que
+// está mal es peor que no dar tamaño (regla dura #1).
+describe('sizingCaveatFor (no dar un tamaño calculado sobre una cartera incompleta)', () => {
+  it('cartera completa: sin caveat, el sizing es confiable', () => {
+    expect(sizingCaveatFor([])).toBeNull();
+  });
+
+  it('con posiciones descartadas: nombra cuáles y por qué el tamaño no se puede dar', () => {
+    const c = sizingCaveatFor(['GGAL', 'NEM']);
+    expect(c).not.toBeNull();
+    expect(c).toContain('GGAL');
+    expect(c).toContain('NEM');
+  });
+
+  it('una sola descartada ya invalida la base', () => {
+    expect(sizingCaveatFor(['TSM'])).toContain('TSM');
+  });
+});
+
+// AD-016 (auditoría 2026-07-29): la concentración se medía, se pintaba y no cambiaba NADA.
+// El §4 la llama "riesgo del objetivo #1 y más grande que cualquier stop individual" — pero
+// ningún camino de decisión la miraba. Se cablea como DEGRADACIÓN: puede frenar que sumes,
+// jamás sugerir que sumes. Un límite de riesgo es una restricción, no una predicción: no
+// necesita evidencia de expectancy, a diferencia de un cambio de scoring.
+describe('concentrationCaveatFor (la cartera concentrada frena aportes, no los sugiere)', () => {
+  it('cartera repartida: sin caveat', () => {
+    expect(concentrationCaveatFor({ effectiveBets: 6.2, positions: 8, coverage: 1 }, 2.5)).toBeNull();
+  });
+
+  it('cartera concentrada: nombra las apuestas reales contra las posiciones', () => {
+    const c = concentrationCaveatFor({ effectiveBets: 1.8, positions: 8, coverage: 1 }, 2.5);
+    expect(c).toContain('1.8');
+    expect(c).toContain('8');
+  });
+
+  it('FAIL-CLOSED: sin reporte no se afirma nada (null, no "está bien")', () => {
+    expect(concentrationCaveatFor(null, 2.5)).toBeNull();
+  });
+
+  it('FAIL-CLOSED: con cobertura parcial lo dice en vez de sentenciar sobre media cartera', () => {
+    const c = concentrationCaveatFor({ effectiveBets: 1.8, positions: 8, coverage: 0.6 }, 2.5);
+    expect(c).toMatch(/60%|cobertura|parcial/i);
+  });
+
+  it('justo en el umbral no dispara (solo por debajo)', () => {
+    expect(concentrationCaveatFor({ effectiveBets: 2.5, positions: 8, coverage: 1 }, 2.5)).toBeNull();
   });
 });

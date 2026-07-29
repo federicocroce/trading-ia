@@ -6,6 +6,7 @@ import { getPortfolioPositions } from '../db/repository.js';
 import { getHistoricalQuotes } from '../shared/yahoo.js';
 import { getQuotes } from '../shared/yahoo.js';
 import { analyzePortfolioConcentration, type HoldingSeries, type ConcentrationReport } from './concentration.js';
+import { createTtlCache } from '../shared/ttl-cache.js';
 
 export interface ConcentrationView extends ConcentrationReport {
   /** Lectura en castellano para la UI: qué significa el número de apuestas efectivas. */
@@ -14,10 +15,27 @@ export interface ConcentrationView extends ConcentrationReport {
 }
 
 /** A partir de acá la cartera se comporta como una sola apuesta, sin importar cuántas filas tenga. */
-const APUESTAS_CONCENTRADA = 2.5;
+export const APUESTAS_CONCENTRADA = 2.5;
 const APUESTAS_MODERADA = 4;
 
+/**
+ * AD-016: desde que la concentración FRENA aportes (ver `concentrationCaveatFor`), "Hoy" la
+ * necesita en cada carga. Pero cuesta una serie de 1 año por posición y `getHistoricalQuotes`
+ * NO cachea: sin esto, abrir Hoy dispararía 8 fetches secuenciales a Yahoo y volvería a saturar
+ * la cola global que ya causó etapas colgadas (§4). El TTL es fail-closed: vencido devuelve
+ * undefined y se recalcula, nunca sirve un valor viejo.
+ */
+const cacheConcentracion = createTtlCache<ConcentrationView | null>(10 * 60_000);
+
 export async function getPortfolioConcentration(): Promise<ConcentrationView | null> {
+  const cacheado = cacheConcentracion.get('cartera');
+  if (cacheado !== undefined) return cacheado;
+  const fresco = await computePortfolioConcentration();
+  cacheConcentracion.set('cartera', fresco);
+  return fresco;
+}
+
+async function computePortfolioConcentration(): Promise<ConcentrationView | null> {
   const positions = getPortfolioPositions().filter((p) => p.quantity > 0);
   if (positions.length === 0) return null;
 

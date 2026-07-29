@@ -16,7 +16,7 @@ Si el usuario pasó argumentos (`$ARGUMENTS`), inferí de ahí qué modo aplica.
 
 ### Modo 1 — "Backlog técnico" (ítems B/C del prompt maestro)
 Deuda técnica bien definida, sin decisiones de trading involucradas.
-**Playbook**: elegí el ítem de mayor prioridad no completado (o el que el usuario nombre) → branch `fix/...` desde `feat/outcome-resolver` → plan corto en `docs/superpowers/plans/` con fecha actual → ejecutar con superpowers:subagent-driven-development → review → presentar opciones de merge. Si el usuario dice que lo quiere correr a la noche sin supervisión, dale el comando `/ralph-loop` de la sección 9 del prompt maestro en vez de ejecutar vos.
+**Playbook**: elegí el ítem de mayor prioridad no completado (o el que el usuario nombre) → branch `fix/...` desde `main` → plan corto en `docs/superpowers/plans/` con fecha actual → ejecutar con superpowers:subagent-driven-development → review → presentar opciones de merge. Si el usuario dice que lo quiere correr a la noche sin supervisión, dale el comando `/ralph-loop` de la sección 9 del prompt maestro en vez de ejecutar vos.
 
 ### Modo 2 — "Mejora del motor" (ítems A, o cambios a filtros/scoring/pipeline)
 Cambios que afectan qué se recomienda. Requieren supervisión.
@@ -38,6 +38,6 @@ La sesión mensual que decide ajustes con números.
 - Scripts one-shot: cargar el `.env` de la RAÍZ del repo; borrar el script al terminar.
 - Toda feature nueva debe ser VISIBLE (verificar DB → tRPC → componente montado).
 - Registrá todo en el ledger; al terminar cada trabajo, actualizá el backlog del prompt maestro si cambió (`docs/IA/prompt-maestro-mejora-continua.md`, secciones 5 y 6, y la fecha de "Última actualización").
-- Merge a `feat/outcome-resolver` + push solo con review aprobado y eligiendo el usuario la opción.
+- Merge a `main` + push solo con review aprobado y eligiendo el usuario la opción.
 
 Argumentos del usuario: $ARGUMENTS

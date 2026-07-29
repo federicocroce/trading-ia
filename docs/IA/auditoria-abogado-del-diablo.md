@@ -14,7 +14,7 @@ Un sector queda `AUDITADO` cuando una corrida completa no produce hallazgos P0�
 | `pipeline` | 2026-07-29 | pase completo — 10 hallazgos | AD-004 … AD-013 |
 | `descubrimiento` | — | nunca auditado | — |
 | `motor` | — | nunca auditado | — |
-| `guardian` | 2026-07-29 | 4 hallazgos · 2 resueltos, 1 acotado | AD-016; decisión de producto en AD-014 |
+| `guardian` | 2026-07-29 | 6 hallazgos · 5 resueltos, 1 acotado | ninguno — decisión de producto en AD-014 |
 | `cartera` | — | nunca auditado | — |
 | `medicion` | — | nunca auditado | — |
 | `llm` | — | nunca auditado | — |
@@ -22,7 +22,7 @@ Un sector queda `AUDITADO` cuando una corrida completa no produce hallazgos P0�
 | `frontend` | — | nunca auditado | — |
 | `operacion` | 2026-07-29 | pre-flight solamente | AD-001, AD-002, AD-003 |
 | `negocio` | — | nunca auditado | — |
-| `coherencia` | — | nunca auditado | — |
+| `coherencia` | 2026-07-29 | parcial — 1 hallazgo de paso | — |
 
 **Prioridad sugerida para la primera vuelta**: `guardian` y `medicion` primero. Son los dos sectores que sostienen todo lo que el §4 da por bueno y, justamente por eso, los menos atacados. Después `pipeline` y `descubrimiento` (donde el usuario ya sospecha que hay mejora), y `negocio` al final, cuando haya evidencia acumulada para contestarlo en serio.
 
@@ -612,7 +612,7 @@ El camino 1 —decidir con precio viejo sin avisar— **no tiene mitigante y est
 
 ---
 
-### AD-016 · P1 · guardian · 2026-07-29 · ABIERTO
+### AD-016 · P1 · guardian · 2026-07-29 · RESUELTO
 
 **Claim atacado**: §4, *"LA CARTERA REAL SON 1.8 APUESTAS, NO 8 POSICIONES… Es riesgo del objetivo #1 y más grande que cualquier stop individual: un stop protege de que UNA posición se dé vuelta, nada protegía de que se den vuelta las ocho juntas."*
 
@@ -631,7 +631,35 @@ Ningún camino de decisión la importa. `decidePositionVerb` (`today-decisions.t
 
 **Daño**: objetivo #3. El §4 anota como implementada una protección que es un cartel, y eso desplaza del backlog el trabajo de convertirla en regla — por ejemplo, gatear `canAdd` cuando el aporte apila el clúster que ya es el 76.4% de la cartera.
 
-**Estado**: ABIERTO
+**Estado**: **RESUELTO 2026-07-29.** `concentrationCaveatFor` (pura, 5 tests) convierte la medición en freno. **Solo degrada**, igual que el gate del LLM, el residente crónico y el stop perforado: `canAdd` pasa a false cuando la cartera está concentrada, y el caveat viaja únicamente donde efectivamente frenó algo (si el motor no daba BUY no hay nada que frenar, y un caveat en las 8 tarjetas sería ruido). Umbral reusado de `APUESTAS_CONCENTRADA` — el MISMO que ya clasifica la tarjeta, para que el cartel y el freno no puedan divergir. Fail-closed: sin reporte no se afirma nada, y con cobertura parcial el texto lo dice en vez de sentenciar sobre media cartera.
+
+**Justificación de haberlo tocado sin evidencia de expectancy**: la regla #7 del proyecto ("evidencia antes que intuición") gobierna los cambios que afirman *"esto va a rendir mejor"*. Un límite de riesgo no afirma eso: dice *"no apiles más riesgo del que querés"*. Es una restricción, no una predicción, y solo puede reducir exposición.
+
+**Costo controlado**: la concentración cuesta una serie de 1 año por posición y `getHistoricalQuotes` NO cachea, así que meterla en el hot path de Hoy habría disparado 8 fetches secuenciales a Yahoo por carga — la misma saturación de la cola global que el §4 documenta como causa sistémica de etapas colgadas. Se envolvió `getPortfolioConcentration` en el `createTtlCache` que ya existía (10 min, fail-closed: vencido recalcula, nunca sirve un valor viejo).
+
+---
+
+### AD-018 · P0 · guardian · 2026-07-29 · RESUELTO
+
+**Encontrado en el review del propio branch**, no en el pase original. Es la clase de bug que AD-015 vino a matar y que sobrevivió a su primer arreglo.
+
+**Hallazgo**: `portfolioValue` suma **solo las posiciones evaluadas** (`today-decisions.service.ts`: `portfolio.reduce((s, p) => s + p.value, 0)`), y de ahí sale `suggestPositionSize` para TODA posición nueva. Con una posición descartada, la base es más chica que la cartera real y **el tamaño sugerido sale sistemáticamente menor, en silencio**. AD-015 hizo VISIBLE el descarte pero no cortó su consecuencia río abajo.
+
+**Evidencia**: `const portfolioValue = round2(portfolio.reduce((s, p) => s + p.value, 0));` alimentando `suggestPositionSize({ portfolioValue, entry, stop })`, con `portfolio` ya filtrado por los dos `continue`.
+
+**Qué habría que creer para que esto esté bien**: que un tamaño calculado sobre una cartera incompleta es mejor que ninguno. Es al revés: un número que sabés que está mal y no lleva marca es peor que un hueco visible.
+
+**Estado**: **RESUELTO.** `sizingCaveatFor` (pura, 3 tests): con posiciones descartadas no se emite tamaño y se explica por qué, nombrando los símbolos. `portfolioCoverage.valueIsPartial` marca la base incompleta en el payload y la UI muestra el caveat.
+
+---
+
+### AD-019 · P2 · coherencia · 2026-07-29 · RESUELTO
+
+**Hallazgo**: el prompt maestro (§2 y §8 punto 6) y `/mejorar` instruían mergear a **`feat/outcome-resolver`**, rama detenida en el 2026-07-05, mientras el trabajo real seguía en `main`. Cualquier sesión que hubiera obedecido habría ramificado de una base de tres semanas atrás y mergeado a una rama muerta.
+
+**Evidencia**: `git branch -vv` → `feat/outcome-resolver d4e9757 docs: check anti-hype cuántica (2026-07-05)`, contra `main` con los commits del 2026-07-28/29.
+
+**Estado**: **RESUELTO.** Corregido en las 4 referencias accionables (§2, §8 punto 6, el comando de `/ralph-loop` del §9, y las dos de `/mejorar`). Queda una mención histórica deliberada en §2 explicando el error, para que no se re-introduzca.
 
 ---
 

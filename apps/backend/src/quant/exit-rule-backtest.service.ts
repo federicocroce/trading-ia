@@ -35,7 +35,7 @@ function precomputeSignals(candles: OHLC[], warmup: number): BarSignal[] {
   return out;
 }
 
-function simulate(signals: BarSignal[], rule: ExitRule, commissionPct: number, slippagePct: number): { equity: number[]; trades: number[] } {
+function simulate(signals: BarSignal[], rule: ExitRule, commissionPct: number, slippagePct: number): { equity: number[]; trades: number[]; firstEntry: number | null } {
   const slip = slippagePct / 100;
   const comm = commissionPct / 100;
   let equity = 100;
@@ -44,12 +44,15 @@ function simulate(signals: BarSignal[], rule: ExitRule, commissionPct: number, s
   let posEntryEquity = 0;
   const eqCurve: number[] = [];
   const trades: number[] = [];
+  let firstEntry: number | null = null;
 
-  for (const s of signals) {
+  for (let i = 0; i < signals.length; i++) {
+    const s = signals[i];
     if (inPos) equity = posEntryEquity * (s.close / entryFill); // mark-to-market
 
     if (!inPos) {
       if (s.sma50 != null && s.close > s.sma50) { // entrada (igual para ambas)
+        if (firstEntry == null) firstEntry = i;
         entryFill = s.close * (1 + slip);
         equity *= 1 - comm;
         posEntryEquity = equity;
@@ -63,7 +66,7 @@ function simulate(signals: BarSignal[], rule: ExitRule, commissionPct: number, s
     }
     eqCurve.push(Math.round(equity * 100) / 100);
   }
-  return { equity: eqCurve, trades };
+  return { equity: eqCurve, trades, firstEntry };
 }
 
 export interface ExitRuleSymbolResult {
@@ -124,9 +127,12 @@ export async function runExitRuleBacktest(
     const signals = precomputeSignals(candles, warmup);
     const a = simulate(signals, 'sell_on_warning', commissionPct, slippagePct);
     const b = simulate(signals, 'let_it_run', commissionPct, slippagePct);
-    // Buy&hold sobre la MISMA ventana operable: las velas de warmup no se pueden operar, así que
-    // incluirlas le regalaría (o le sacaría) retorno al benchmark y la comparación no sería pareja.
-    const buyHold = buyHoldMetrics(signals.slice(warmup).map((s) => s.close));
+    // Buy&hold desde la MISMA vela en que la estrategia entra por primera vez. Arrancarlo en el
+    // fin del warmup le daría (o le sacaría) el tramo previo a la entrada, que la estrategia no
+    // capturó: la comparación tiene que ser mismo dinero, mismo día de compra, y la única
+    // diferencia el trailing. La entrada es idéntica en las dos reglas, así que una sola sirve.
+    // Fail-closed: si nunca entró, no hay comparación posible → null.
+    const buyHold = b.firstEntry != null ? buyHoldMetrics(signals.slice(b.firstEntry).map((s) => s.close)) : null;
     const letItRun = strategyMetrics(b.equity, b.trades);
     const sellOnWarning = strategyMetrics(a.equity, a.trades);
     perSymbol.push({

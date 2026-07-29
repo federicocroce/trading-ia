@@ -122,6 +122,16 @@ export function TodayPage() {
         </Card>
       )}
 
+      {/* AD-016: la concentración dejó de ser solo un cartel — frena aportes. Va UNA vez:
+          es un hecho de la cartera, no de cada símbolo. */}
+      {data?.concentrationCaveat && (
+        <Card size="sm" className="border-l-4 border-l-red-500">
+          <CardContent className="py-3">
+            <p className="text-[11px] text-red-400">⛔ <span className="font-semibold">Aportes frenados por concentración.</span> {data.concentrationCaveat}</p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ---- Tu cartera ---- */}
       <section className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tu cartera</h3>
@@ -155,6 +165,10 @@ export function TodayPage() {
                   <button className="text-sm font-bold hover:text-purple-400" onClick={() => goToSymbol(p.symbol)}>{p.symbol}</button>
                   <span className={`text-[11px] font-semibold ${gainCls(p.gainPct)}`}>{p.gainPct >= 0 ? '+' : ''}{p.gainPct}%</span>
                   {p.canAdd && <Badge className="text-[9px] bg-green-500/20 text-green-400">podés sumar</Badge>}
+                  {/* AD-016: el motor dice BUY pero la cartera ya es pocas apuestas — se frena. */}
+                  {!p.canAdd && p.concentrationCaveat && (
+                    <Badge className="text-[9px] bg-red-500/20 text-red-400" title={p.concentrationCaveat}>no sumes acá</Badge>
+                  )}
                   <span className="text-[10px] text-muted-foreground ml-auto">{money(p.value)} · P&L {p.pnl >= 0 ? '+' : ''}{money(p.pnl)}</span>
                 </div>
                 <p className="text-[11px] text-foreground">{p.reason}</p>
@@ -248,6 +262,8 @@ export function TodayPage() {
                 {o.timingCaveat && <p className="text-[10px] text-amber-400">⚠ {o.timingCaveat}</p>}
                 {o.persistenceCaveat && <p className="text-[10px] text-amber-400">⚠ {o.persistenceCaveat}</p>}
                 {o.cooldownCaveat && <p className="text-[10px] text-red-400">⛔ {o.cooldownCaveat}</p>}
+                {/* Fail-closed del sizing: sin cartera completa no se inventa un tamaño. */}
+                {o.sizingCaveat && <p className="text-[10px] text-amber-400">⚠ {o.sizingCaveat}</p>}
                 {/* Relación con TU cartera: el dato ya lo calcula el scan — acá se decide con él a la vista */}
                 {o.diversification?.verdict === 'diversifies' && (
                   <p className="text-[10px] text-trading-green">🧩 {o.diversification.reason}</p>
