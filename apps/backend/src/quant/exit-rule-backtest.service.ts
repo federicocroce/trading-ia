@@ -13,7 +13,7 @@ import { computeTrailingStop } from '../opportunities/today-decisions.js';
 import { resolveBacktestUniverse } from './ma-trend.service.js';
 import { shouldExit, strategyMetrics, buyHoldMetrics, type ExitRule, type StrategyMetrics, type BuyHoldMetrics } from './exit-rule-backtest.js';
 
-const DEFAULTS = { years: 7, warmup: 220, commissionPct: 0.1, slippagePct: 0.05 };
+const DEFAULTS = { years: 7, warmup: 220, commissionPct: 0.1, slippagePct: 0.05, reentry: true };
 
 interface BarSignal { close: number; date: string; sma50: number | null; trailingStop: number | null; hasBearishDiv: boolean }
 
@@ -35,7 +35,15 @@ function precomputeSignals(candles: OHLC[], warmup: number): BarSignal[] {
   return out;
 }
 
-function simulate(signals: BarSignal[], rule: ExitRule, commissionPct: number, slippagePct: number): { equity: number[]; trades: number[]; firstEntry: number | null } {
+/**
+ * `reentry=false` entra UNA sola vez y, al salir por el stop, se queda en efectivo.
+ *
+ * Existe para separar dos cosas que el estudio original mezclaba: cuánto del resultado lo hace el
+ * STOP y cuánto lo hace VOLVER A ENTRAR tarde. Con reentrada, lo que se mide es un sistema de
+ * tendencia completo; sin ella, se mide exactamente lo que hace el guardián de "Hoy" sobre una
+ * posición: protegerla. La comparación honesta contra comprar-y-no-tocar es esta segunda.
+ */
+function simulate(signals: BarSignal[], rule: ExitRule, commissionPct: number, slippagePct: number, reentry = true): { equity: number[]; trades: number[]; firstEntry: number | null } {
   const slip = slippagePct / 100;
   const comm = commissionPct / 100;
   let equity = 100;
@@ -51,6 +59,8 @@ function simulate(signals: BarSignal[], rule: ExitRule, commissionPct: number, s
     if (inPos) equity = posEntryEquity * (s.close / entryFill); // mark-to-market
 
     if (!inPos) {
+      const yaOperó = firstEntry != null;
+      if (!reentry && yaOperó && trades.length > 0) { eqCurve.push(Math.round(equity * 100) / 100); continue; }
       if (s.sma50 != null && s.close > s.sma50) { // entrada (igual para ambas)
         if (firstEntry == null) firstEntry = i;
         entryFill = s.close * (1 + slip);
@@ -110,7 +120,7 @@ const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((a, b) => a + b
 export async function runExitRuleBacktest(
   opts: Partial<typeof DEFAULTS> & { symbols?: string[]; scope?: 'portfolio' | 'universe' } = {},
 ): Promise<ExitRuleStudy> {
-  const { years, warmup, commissionPct, slippagePct } = { ...DEFAULTS, ...opts };
+  const { years, warmup, commissionPct, slippagePct, reentry } = { ...DEFAULTS, ...opts };
   // Default 'portfolio' (tus posiciones + benchmarks): rápido y es lo que te importa validar.
   const universe = opts.symbols ?? (
     opts.scope === 'universe'
@@ -125,8 +135,8 @@ export async function runExitRuleBacktest(
     if (candles.length < warmup + 60) continue;
 
     const signals = precomputeSignals(candles, warmup);
-    const a = simulate(signals, 'sell_on_warning', commissionPct, slippagePct);
-    const b = simulate(signals, 'let_it_run', commissionPct, slippagePct);
+    const a = simulate(signals, 'sell_on_warning', commissionPct, slippagePct, reentry);
+    const b = simulate(signals, 'let_it_run', commissionPct, slippagePct, reentry);
     // Buy&hold desde la MISMA vela en que la estrategia entra por primera vez. Arrancarlo en el
     // fin del warmup le daría (o le sacaría) el tramo previo a la entrada, que la estrategia no
     // capturó: la comparación tiene que ser mismo dinero, mismo día de compra, y la única

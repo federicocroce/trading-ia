@@ -4,7 +4,7 @@ import {
   getPipelineRunByDate,
   getActivePipelineRun,
   getWaitingUserRun,
-  updatePipelineStage,
+  updatePipelineStage as escribirEtapa,
   finishPipelineRun,
   markRunAsRunning,
   pauseRunWaitingUser,
@@ -528,6 +528,37 @@ async function runReportStage(runId: number): Promise<StageResult> {
 export const TIMEOUT_PREFIX = 'stage-timeout:';
 
 /**
+ * Etapas abandonadas por timeout, como `${runId}:${stage}`.
+ *
+ * AD-020 (deuda cerrada 2026-07-29): vencer el timeout NO cancela la etapa — la promesa sigue
+ * viva. Si `runNewsStage` termina 10 minutos más tarde, escribiría 'ok' sobre una corrida ya
+ * cerrada y dejaría el registro afirmando que sus datos se usaron. No se usaron: el pipeline
+ * siguió sin esperarla. Cancelar de verdad exige un AbortSignal a través de todo el stage;
+ * impedir la escritura tardía es barato, correcto y suficiente para que el registro no mienta.
+ */
+const etapasAbandonadas = new Set<string>();
+
+export function puedeEscribirEtapa(abandonadas: Set<string>, runId: number, stage: string): boolean {
+  return !abandonadas.has(`${runId}:${stage}`);
+}
+
+/**
+ * Todas las escrituras de estado del orquestador pasan por acá (sombrea al import a propósito:
+ * así los ~40 call sites quedan protegidos sin tocarlos uno por uno).
+ */
+function updatePipelineStage(
+  runId: number,
+  stage: 'webSearch' | 'news' | 'macroIntelligence' | 'sectorIntelligence' | 'fundamentals' | 'analysis' | 'quant' | 'report',
+  result: Parameters<typeof escribirEtapa>[2],
+): void {
+  if (!puedeEscribirEtapa(etapasAbandonadas, runId, stage)) {
+    console.warn(`[pipeline] ${stage} de la corrida ${runId} fue abandonada por timeout — se descarta su escritura tardía.`);
+    return;
+  }
+  escribirEtapa(runId, stage, result);
+}
+
+/**
  * AD-020: distingue "la etapa falló y ya grabó su estado" de "la etapa se colgó y NADIE grabó
  * nada". Solo en el segundo caso el orquestador tiene que cerrar la fila, o queda en 'running'
  * sobre un run terminado — el mismo síntoma que el timeout vino a eliminar.
@@ -587,13 +618,15 @@ async function runRemainingStages(runId: number): Promise<void> {
     // AD-020: si venció el timeout, `runNewsStage` sigue colgado y jamás va a escribir su estado
     // terminal — la fila quedaría en 'running' sobre un run ya cerrado. Lo cierra el orquestador.
     if (esResultadoDeTimeout(newsResult)) {
-      updatePipelineStage(runId, 'news', {
+      escribirEtapa(runId, 'news', {
         status: 'failed',
         startedAt: null,
         finishedAt: new Date().toISOString(),
         detail: newsResult.detail,
         errors: ['La etapa se colgó y se abandonó por timeout; el resto del pipeline siguió.'],
       });
+      // A partir de acá, cualquier escritura tardía de la promesa huérfana se descarta.
+      etapasAbandonadas.add(`${runId}:news`);
     }
     if (newsResult.status === 'failed') {
       console.warn('[pipeline] News falló o venció su timeout — el scan sigue igual (no depende de noticias)');
