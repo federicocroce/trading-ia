@@ -152,7 +152,7 @@ Total ≈ **1.424 s (23,7 min)**. La etapa que produce las decisiones son 218 s 
 
 ---
 
-### AD-004 · P0 · pipeline · 2026-07-29 · ABIERTO
+### AD-004 · P0 · pipeline · 2026-07-29 · RESUELTO
 
 **Claim atacado**: *"Solo `analysis` puede marcar la corrida como FALLIDA; el resto degrada a 'partial'"* (§4, y comentario verbatim en `pipeline.service.ts:677-681`).
 
@@ -203,7 +203,7 @@ Tres corridas muertas en `webSearch` entre las 11:55 y las 12:04 ART del 2026-05
 
 ---
 
-### AD-005 · P3 · pipeline · 2026-07-29 · ABIERTO
+### AD-005 · P3 · pipeline · 2026-07-29 · RESUELTO
 
 **Claim atacado**: *"Fix: timeout duro (`NEWS_STAGE_TIMEOUT_MS`, 300s)… No se apagó nada — macro_events, cadenas causales, radar y digest siguen produciéndose"* (§4 y mensaje del commit `48e0bd5`).
 
@@ -566,7 +566,7 @@ Hoy le gana al motor en 9/11 · Hoy le gana a NO TOCAR en 2/11 · motor a NO TOC
 
 ---
 
-### AD-015 · P0 · guardian · 2026-07-29 · ABIERTO
+### AD-015 · P0 · guardian · 2026-07-29 · RESUELTO
 
 **Claim atacado**: regla dura #1 de `CLAUDE.md`, *"Fail-closed: dato faltante = rechazo/null honesto, nunca neutral ni pass silencioso"*, aplicada al guardián.
 
@@ -663,7 +663,7 @@ Ningún camino de decisión la importa. `decidePositionVerb` (`today-decisions.t
 
 ---
 
-### AD-017 · P5 · guardian · 2026-07-29 · ABIERTO
+### AD-017 · P5 · guardian · 2026-07-29 · ACOTADO
 
 **Hallazgo**: cero cobertura de escenarios de mercado adversos en los tests del guardián.
 
@@ -783,3 +783,23 @@ Tras AD-014 y AD-021 el dueño eligió acotar el alcance del guardián en vez de
 **Nada se oculta**: en núcleo con el stop perforado el verbo pasa a MANTENER pero el warning nombra el stop, la perforación y el número que sostiene la regla. Cambia el verbo, nunca la información.
 
 **Efecto hoy: NINGUNO.** La cartera real es 100% capa riesgo (§4), así que ninguna posición cambia de veredicto. Verificado en vivo: las 8 posiciones son `riesgo`; TSM y MARA siguen dando VENDER con el stop perforado. La regla empieza a operar recién cuando el plan de aportes se ejecute y aparezca núcleo. Por eso el camino de núcleo se cubrió con un test de servicio (SPY con stop perforado → MANTENER; MARA idéntico → VENDER), no con una observación contra la DB viva: no se puede observar lo que todavía no existe en la cartera.
+
+---
+
+## Cierre de AD-004 y AD-005 — 2026-07-29
+
+**AD-004 (P0) RESUELTO.** `webSearchDebeBloquear` (pura, 3 tests): el fallo de la búsqueda web deja de pausar la corrida en `waiting_user`. El día sigue, el scan corre y las decisiones existen. El gate humano no se borró — vuelve con `WEBSEARCH_BLOQUEA_PIPELINE=1`, y el flujo `resolveWebSearch` (retry/skip/cancel) queda intacto. Justificación: con `DISCOVERY_ATTENTION_NOMINATION=0` la salida de webSearch es puramente narrativa, así que bloquear las decisiones del día por ella contradice el objetivo #1.
+
+**AD-005 (P3) RESUELTO — re-medido antes de tocar el número.** Confirmado con datos propios, y peor de lo estimado:
+
+```
+$ sqlite3 data/trading.db "... duración del stage news en corridas con news_status='ok' ..."
+n=84  p50=1079s (18min)  p75=1636s  p90=2255s  p95=2849s (47min)  max=4296s (72min)
+superan 300s: 75/84  (89%)
+```
+
+El default de 300s **apagaba noticias en 9 de cada 10 corridas**, y con ella `macro_events`, cadenas causales y el digest — que el §4 daba explícitamente por intactos (*"No se apagó nada"*). **Esa afirmación era falsa en la práctica** y se verificó en vivo: la corrida 124 la vio vencer.
+
+Nuevo default **5_400_000 (90 min)**: por encima de la máxima sana observada (72 min), así que deja pasar todo lo que históricamente terminó bien, y sigue cortando un cuelgue real —que por definición no termina—. Documentado en `.env.example` y aplicado al `.env` vivo.
+
+**Deuda que NO se toca acá**: noticias sigue corriendo ANTES del scan y en serie, así que puede demorar las decisiones del día hasta 72 minutos aunque el scan no la necesite. Que no las cancele ya está arreglado; que no las demore es un cambio de orden del pipeline y es otro trabajo.
