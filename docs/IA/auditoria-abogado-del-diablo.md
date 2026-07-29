@@ -11,7 +11,7 @@ Un sector queda `AUDITADO` cuando una corrida completa no produce hallazgos P0�
 
 | sector | último pase | estado | abiertos |
 |---|---|---|---|
-| `pipeline` | 2026-07-29 | pase completo — 9 hallazgos | AD-004 … AD-012 |
+| `pipeline` | 2026-07-29 | pase completo — 10 hallazgos | AD-004 … AD-013 |
 | `descubrimiento` | — | nunca auditado | — |
 | `motor` | — | nunca auditado | — |
 | `guardian` | — | nunca auditado | — |
@@ -450,5 +450,41 @@ $ sqlite3 data/trading.db "SELECT MAX(created_at) FROM theses;"
 **Test que lo falsifica**: `TZ=UTC npm run dev` y ver si los horarios de los jobs se mueven 3 horas. Deberían moverse.
 
 **Daño**: cosmético hoy. El news radar gasta llamadas después del cierre US pese a que el comentario dice que las evita, y el resolver de outcomes corre a las 02:00 UTC en vez de las 23:00 — igual después del cierre, así que no rompe nada. Se registra para que nadie lea esos comentarios como especificación.
+
+**Estado**: ABIERTO
+
+---
+
+### AD-013 · P1 · pipeline · 2026-07-29 · ABIERTO
+
+**Claim atacado**: el tooltip del único botón que dispara el pipeline: *"Pipeline completo (~3-5 min) · Noticias → Fundamentales → Análisis → Reporte"*.
+
+**Hallazgo**: las dos líneas son falsas. Tarda **23 minutos de media**, no 3-5 — y solo 12 de 76 corridas entraron en esa ventana. Y describe 4 etapas cuando el pipeline tiene 11.
+
+**Evidencia** — el copy:
+```tsx
+// apps/frontend/src/layout/Header.tsx:112-114
+<TooltipContent className="max-w-xs">
+  <p className="font-medium">Pipeline completo (~3-5 min)</p>
+  <p className="text-xs">Noticias → Fundamentales → Análisis → Reporte</p>
+```
+El dato:
+```
+$ sqlite3 data/trading.db "SELECT COUNT(*) n,
+    ROUND(AVG((julianday(finished_at)-julianday(started_at))*86400/60.0),1) media_min,
+    ROUND(MIN(...),1) min_min, ROUND(MAX(...),1) max_min,
+    SUM((julianday(finished_at)-julianday(started_at))*86400 <= 300) dentro_de_5min
+  FROM pipeline_runs WHERE status IN ('ok','partial') AND finished_at IS NOT NULL;"
+n=76 | media=23.0 min | min=1.0 | max=69.4 | dentro_de_5min=12
+```
+Subestima entre 5× y 8×. Y la etapa que el tooltip pone primera —noticias— sola promedia **17,6 min**, o sea más de 3× el techo que anuncia el tooltip entero.
+
+Las etapas que el tooltip no menciona: `webSearch` (la que puede cancelar el día, AD-004), `macroIntelligence`, `sectorIntelligence`, `quant`, el screener y el radar de ciclos. Seis de once. Justamente `webSearch` es la que el usuario necesita saber que existe, porque es la que le va a abrir un modal bloqueante.
+
+**Qué habría que creer para que esto esté bien**: que los 3-5 min describen un caso típico que existió alguna vez. La corrida más rápida de la historia son 1,0 min (una que salteó casi todo por los guards de skip) y la mediana está en 23.
+
+**Test que lo falsifica**: cronometrar la próxima corrida real contra el reloj. Si termina en 5 minutos, el tooltip tiene razón y el histórico de 76 corridas no aplica.
+
+**Daño**: objetivo #3 (cero humo). El dueño aprieta el botón a las 7:45 esperando tener el día resuelto antes de las 7:50 y en realidad no lo tiene hasta las 8:10. Con la apertura 9:30 ET el margen alcanza, pero la decisión de "¿lo corro ahora o después?" se toma con un número que está mal por un factor de 5. Y como el tooltip no nombra `webSearch`, el modal bloqueante aparece sin contexto.
 
 **Estado**: ABIERTO
