@@ -7,7 +7,8 @@
 import type { Opportunity, Price } from '@trading/shared';
 import { getPortfolioPositions, getLatestOpportunityScan, getTodayProposalAppearances, getRecentStopLevels, upsertPortfolioVerdicts } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
-import { concentrationCaveatFor, decidePositionVerb, resolvePositionPrice, sizingCaveatFor, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
+import { capasConStopDuro, concentrationCaveatFor, decidePositionVerb, resolvePositionPrice, sizingCaveatFor, stopAplicaEnCapa, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
+import { layerForSymbol } from '../portfolio/allocation-plan.js';
 import { getPortfolioConcentration, APUESTAS_CONCENTRADA } from '../portfolio/concentration.service.js';
 import { getRegimes, assetClassOf, type Regimes } from '../quant/risk.service.js';
 import { suggestPositionSize } from '../quant/risk.js';
@@ -171,9 +172,13 @@ export async function getTodayDecisions(): Promise<TodayView> {
   const descartadas: Array<{ symbol: string; reason: string }> = [];
   let conPrecioViejo = 0;
 
+  // Opción B: el stop duro solo manda en la capa `riesgo`. Se lee una vez por corrida.
+  const capasStop = capasConStopDuro();
+
   const portfolio: TodayPosition[] = [];
   for (const p of positions) {
     const sym = p.symbol.toUpperCase();
+    const capa = layerForSymbol(sym);
     if (p.avgCost <= 0) {
       descartadas.push({ symbol: p.symbol, reason: 'Costo promedio inválido (≤0) — no se puede calcular resultado ni juzgar el stop.' });
       continue;
@@ -210,6 +215,7 @@ export async function getTodayDecisions(): Promise<TodayView> {
       intraday,
       priceIsStale: precio.isStale,
       priceAsOf: precio.asOf,
+      hardStopApplies: stopAplicaEnCapa(capa, capasStop),
     });
 
     portfolio.push({
@@ -219,10 +225,13 @@ export async function getTodayDecisions(): Promise<TodayView> {
       warning: v.warning,
       // AD-016: con la cartera concentrada, sumar a lo que ya tenés es exactamente el riesgo
       // que ningún stop cubre. Solo degrada: nunca habilita un canAdd que el motor no dio.
-      canAdd: v.verb === 'MANTENER' && engineAction === 'BUY' && concentracionCaveat == null,
+      // El freno por concentración aplica SOLO a la capa riesgo. Bloquear un aporte a SPY o a
+      // GLD sería exactamente al revés: el núcleo y la cobertura son el antídoto de una cartera
+      // concentrada, no lo que la empeora. (Defecto introducido con AD-016 y corregido acá.)
+      canAdd: v.verb === 'MANTENER' && engineAction === 'BUY' && (capa !== 'riesgo' || concentracionCaveat == null),
       // Solo viaja donde efectivamente FRENÓ algo: si el motor no daba BUY, no hay nada que
       // frenar y un caveat acá sería ruido en las 8 tarjetas.
-      concentrationCaveat: (v.verb === 'MANTENER' && engineAction === 'BUY' && concentracionCaveat != null)
+      concentrationCaveat: (capa === 'riesgo' && v.verb === 'MANTENER' && engineAction === 'BUY' && concentracionCaveat != null)
         ? concentracionCaveat : undefined,
       avgCost: round2(p.avgCost),
       currentPrice: round2(currentPrice),

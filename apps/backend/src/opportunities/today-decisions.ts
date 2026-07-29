@@ -12,6 +12,7 @@
  */
 
 import type { TimingView } from '@trading/shared';
+import type { CarteraLayer } from '../portfolio/allocation-plan.js';
 
 export type PortfolioVerb = 'MANTENER' | 'REVISAR' | 'VENDER';
 export type ScanAction = 'BUY' | 'SELL' | 'HOLD' | 'WATCH';
@@ -104,6 +105,11 @@ export interface PositionInput {
   priceIsStale?: boolean;
   /** Fecha del precio usado cuando es viejo (YYYY-MM-DD). null si ni eso se sabe. */
   priceAsOf?: string | null;
+  /**
+   * ¿El stop perforado manda VENDER para esta posición? (opción B, ver `stopAplicaEnCapa`).
+   * Default `true`: omitirlo conserva el comportamiento histórico.
+   */
+  hardStopApplies?: boolean;
 }
 
 /**
@@ -166,7 +172,42 @@ export function concentrationCaveatFor(
     ? ` (medido sobre el ${Math.round(report.coverage * 100)}% del capital — cobertura parcial)`
     : '';
   return `Tu cartera tiene ${report.positions} posiciones pero se comporta como ${apuestas} apuesta${apuestas === 1 ? '' : 's'} independiente${apuestas === 1 ? '' : 's'}${parcial}. ` +
-    `Sumar acá apila riesgo que ningún stop individual cubre: el stop te protege de que UNA se dé vuelta, no de que se den vuelta todas juntas.`;
+    `Sumar a la capa RIESGO apila lo que ningún stop individual cubre: el stop te protege de que UNA se dé vuelta, no de que se den vuelta todas juntas. ` +
+    `Aportar al núcleo (SPY/QQQ) o a la cobertura (GLD/TLT) NO está frenado — es justamente lo que baja este número.`;
+}
+
+/**
+ * OPCIÓN B (2026-07-29) — ¿el stop duro aplica a esta capa de la cartera?
+ *
+ * Evidencia (§4, AD-014 y AD-021, 7 años con el bear de 2022): el trailing le ganó a comprar y
+ * no tocar en **2 de 11** símbolos, BTC-USD y MARA — los dos que pueden irse a cero. Perdió feo
+ * en SPY (+62.6% contra +166.0%) y QQQ. Aislado de la reentrada, el stop solo convierte +797%
+ * en +7.7% y no gana en NINGUNO.
+ *
+ * La lectura no es "el stop no sirve" sino **para qué sirve**: protege de la pérdida permanente
+ * —una empresa que no vuelve— y estorba donde el precio se recupera por construcción, que es lo
+ * que hace un índice diversificado. Por eso el stop duro queda en la capa `riesgo` y sale del
+ * núcleo y la cobertura.
+ *
+ * Configurable para poder volver atrás: `GUARDIAN_STOP_CAPAS` (ver `capasConStopDuro`).
+ */
+export function stopAplicaEnCapa(layer: CarteraLayer, capasConStop: CarteraLayer[]): boolean {
+  return capasConStop.includes(layer);
+}
+
+/**
+ * Capas donde el stop duro manda VENDER. Default: solo `riesgo` (opción B).
+ * Lazy a propósito (regla dura #3): se lee DENTRO de la función, nunca a nivel módulo.
+ * `GUARDIAN_STOP_CAPAS=nucleo,cobertura,riesgo` restaura el comportamiento previo al 2026-07-29.
+ */
+export function capasConStopDuro(): CarteraLayer[] {
+  const crudo = process.env.GUARDIAN_STOP_CAPAS?.trim();
+  if (!crudo) return ['riesgo'];
+  const validas: CarteraLayer[] = ['nucleo', 'cobertura', 'riesgo'];
+  const pedidas = crudo.split(',').map((c) => c.trim().toLowerCase()).filter((c): c is CarteraLayer => (validas as string[]).includes(c));
+  // Fail-closed: una config ilegible NO se interpreta como "ninguna capa protegida" — eso
+  // apagaría el guardián entero en silencio. Ante la duda, el default.
+  return pedidas.length > 0 ? pedidas : ['riesgo'];
 }
 
 export interface PositionVerdict {
@@ -182,6 +223,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export function decidePositionVerb(input: PositionInput): PositionVerdict {
   const { avgCost, currentPrice, trailingStop, target, engineWarnsSell, engineSellReason, closePrice, intraday, priceIsStale, priceAsOf } = input;
+  const hardStopApplies = input.hardStopApplies ?? true;
   const gainPct = round2(((currentPrice - avgCost) / avgCost) * 100);
   const tgt = target ?? null;
   // Se DECIDE por el cierre confirmado; el spot vivo solo informa gain%/aviso intradiario.
@@ -203,6 +245,19 @@ export function decidePositionVerb(input: PositionInput): PositionVerdict {
       target: tgt,
       gainPct,
       warning: `Precio ${cuando}, no de hoy — no pude confirmar contra el stop.${dondeQuedo} La app NO está vigilando esta posición hasta que vuelva a cotizar.`,
+    };
+  }
+
+  // OPCIÓN B: en núcleo/cobertura el stop perforado NO vende. Se informa igual —el nivel y la
+  // perforación se siguen viendo—: lo que cambia es el verbo, jamás la información disponible.
+  if (!hardStopApplies && trailingStop != null && decisionPrice <= trailingStop) {
+    return {
+      verb: 'MANTENER',
+      reason: `Capa núcleo/cobertura: no se vende por stop. Un índice diversificado se recupera; vender acá cristaliza la caída y te deja afuera de la vuelta.`,
+      stop: trailingStop,
+      target: tgt,
+      gainPct,
+      warning: `El precio perforó tu stop $${trailingStop}, pero esta posición es núcleo/cobertura y el stop duro no aplica: medido a 7 años (con el bear de 2022), vender el índice por stop rindió +62.6% contra +166.0% de no tocarlo. Si querés el stop acá igual: GUARDIAN_STOP_CAPAS.`,
     };
   }
 

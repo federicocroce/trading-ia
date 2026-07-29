@@ -14,7 +14,7 @@ Un sector queda `AUDITADO` cuando una corrida completa no produce hallazgos P0�
 | `pipeline` | 2026-07-29 | 12 hallazgos — AD-020 resuelto | AD-004 … AD-013, AD-022 |
 | `descubrimiento` | — | nunca auditado | — |
 | `motor` | — | nunca auditado | — |
-| `guardian` | 2026-07-29 | 7 hallazgos · 5 resueltos, 1 acotado, 1 confirmado | decisión de producto en AD-014/021 |
+| `guardian` | 2026-07-29 | 8 hallazgos · 6 resueltos, 1 acotado, 1 confirmado | ninguno — opción B decidida y aplicada |
 | `cartera` | — | nunca auditado | — |
 | `medicion` | — | nunca auditado | — |
 | `llm` | — | nunca auditado | — |
@@ -751,3 +751,35 @@ failed|failed|running
 **Daño**: bajo y acotado a la medición — infla el conteo de "etapas colgadas" con caídas de proceso. No afecta decisiones de trading.
 
 **Estado**: ABIERTO. El arreglo natural es que `markOrphanedRunsFailed` cierre también las etapas no terminales, con un motivo distinto ("proceso caído") para no mezclarlas con timeouts.
+
+---
+
+### AD-023 · P0 · guardian · 2026-07-29 · RESUELTO
+
+**Encontrado implementando la opción B**, revisando lo que yo mismo había construido para AD-016.
+
+**Hallazgo**: el freno por concentración bloqueaba `canAdd` en **todas** las capas — incluido el núcleo. O sea que con la cartera concentrada, la app **impedía aportar a SPY o a GLD**, que es exactamente lo que baja el número de concentración. El freno operaba al revés de su propio objetivo.
+
+**Evidencia**: `canAdd: v.verb === 'MANTENER' && engineAction === 'BUY' && concentracionCaveat == null`, sin ninguna distinción de capa, con `concentracionCaveat` calculado a nivel cartera.
+
+**Qué habría que creer para que esto esté bien**: que sumar a un índice diversificado apila riesgo igual que sumar a la cuarta minera de crypto. Es falso por definición — el núcleo es el antídoto de la concentración, no su causa.
+
+**Daño**: bloqueaba la única acción que corrige el problema que el propio freno denuncia. Y choca de frente con el objetivo #2 y con el plan de aportes, que recomienda llevar el núcleo de 0% a 55%.
+
+**Estado**: **RESUELTO.** El freno aplica solo a `riesgo`; el caveat viaja solo en esa capa y el texto nombra la excepción explícitamente ("aportar al núcleo o a la cobertura NO está frenado — es justamente lo que baja este número").
+
+**Lección**: el mismo pase que convirtió una medición en regla introdujo la regla al revés. Toda degradación nueva necesita la pregunta "¿a qué NO debe aplicarse?", y ninguna de las tres reglas medidas anteriores (crónico, stop perforado, LLM) la había necesitado porque operaban sobre candidatos, no sobre capas.
+
+---
+
+## Opción B — decisión del dueño, 2026-07-29
+
+Tras AD-014 y AD-021 el dueño eligió acotar el alcance del guardián en vez de apagarlo o dejarlo igual.
+
+**Regla**: el stop duro manda VENDER solo en la capa `riesgo`. Núcleo (SPY/QQQ/VOO/VTI/VT/IVV/ACWI) y cobertura (GLD/IAU/TLT/IEF/…) quedan exentos. Reversible con `GUARDIAN_STOP_CAPAS=nucleo,cobertura,riesgo`, documentada en `.env.example`.
+
+**Base**: el trailing le ganó a comprar-y-no-tocar en 2 de 11 símbolos, ambos de capa riesgo y ambos capaces de irse a cero (BTC-USD, MARA). En SPY y QQQ perdió por más de 100 puntos. El stop protege de la pérdida permanente y estorba donde el precio se recupera por construcción.
+
+**Nada se oculta**: en núcleo con el stop perforado el verbo pasa a MANTENER pero el warning nombra el stop, la perforación y el número que sostiene la regla. Cambia el verbo, nunca la información.
+
+**Efecto hoy: NINGUNO.** La cartera real es 100% capa riesgo (§4), así que ninguna posición cambia de veredicto. Verificado en vivo: las 8 posiciones son `riesgo`; TSM y MARA siguen dando VENDER con el stop perforado. La regla empieza a operar recién cuando el plan de aportes se ejecute y aparezca núcleo. Por eso el camino de núcleo se cubrió con un test de servicio (SPY con stop perforado → MANTENER; MARA idéntico → VENDER), no con una observación contra la DB viva: no se puede observar lo que todavía no existe en la cartera.
