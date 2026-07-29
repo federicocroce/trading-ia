@@ -7,7 +7,8 @@
 import type { Opportunity, Price } from '@trading/shared';
 import { getPortfolioPositions, getLatestOpportunityScan, getTodayProposalAppearances, getRecentStopLevels, upsertPortfolioVerdicts } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
-import { decidePositionVerb, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
+import { concentrationCaveatFor, decidePositionVerb, resolvePositionPrice, sizingCaveatFor, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
+import { getPortfolioConcentration, APUESTAS_CONCENTRADA } from '../portfolio/concentration.service.js';
 import { getRegimes, assetClassOf, type Regimes } from '../quant/risk.service.js';
 import { suggestPositionSize } from '../quant/risk.js';
 import { selectTodayProposals, verbFor, chronicAdjustment, stopBreachAdjustment, stopBreachLookbackDays, thesisConflictCaveat, type MarketVerb } from './today-proposals.js';
@@ -24,6 +25,8 @@ export interface TodayPosition {
   warning?: string;
   /** El motor lo ve como compra y ya lo tenés → podés sumar (un solo card, sin doble discurso). */
   canAdd: boolean;
+  /** Aditivo. AD-016: por qué no se habilita sumar aunque el motor diga BUY. */
+  concentrationCaveat?: string;
   avgCost: number;
   currentPrice: number;
   gainPct: number;
@@ -45,6 +48,8 @@ export interface TodayOpportunity {
   persistenceCaveat?: string;
   /** Regla de stop perforado (patología NEM): precio bajo un stop reciente del sistema = 32% win / −0.15R. */
   cooldownCaveat?: string;
+  /** Aditivo. Por qué no hay tamaño sugerido cuando la cartera no se pudo valuar entera. */
+  sizingCaveat?: string;
   /** Relación con TU cartera (del scan): diversifica / apila / neutral, con la razón. null = scan viejo sin el dato. */
   diversification?: { verdict: 'stacks' | 'diversifies' | 'neutral'; reason: string } | null;
   /**
@@ -93,6 +98,28 @@ export interface TodayView {
   regimes: Regimes;
   portfolioValue: number;
   scanDate?: string;
+  /**
+   * AD-016. Aditivo. Un hecho de la CARTERA, no de cada símbolo: va una vez, arriba de las
+   * oportunidades. Repetirlo en las ~101 tarjetas sería ruido (objetivo #3). null = sin freno,
+   * o sin datos para afirmarlo — nunca significa "cartera repartida".
+   */
+  concentrationCaveat: string | null;
+  /**
+   * Aditivo (regla #4). AD-015: cuántas posiciones se pudieron juzgar de verdad y cuáles no.
+   * Sin esto, una posición sin precio desaparecía de la vista sin dejar rastro y el registro
+   * del guardián se veía completo. `stopsAsOf` es la fecha del scan del que salen los stops:
+   * un stop que no se recalcula hace días es más bajo de lo que corresponde (el chandelier
+   * solo sube), o sea protege menos de lo que la vista aparenta.
+   */
+  portfolioCoverage: {
+    total: number;
+    evaluated: number;
+    stalePriced: number;
+    dropped: Array<{ symbol: string; reason: string }>;
+    stopsAsOf: string | null;
+    /** El valor de cartera —y todo sizing derivado— está calculado sobre una base incompleta. */
+    valueIsPartial: boolean;
+  };
 }
 
 const URGENCY: Record<PortfolioVerb, number> = { VENDER: 0, REVISAR: 1, MANTENER: 2 };
@@ -128,14 +155,38 @@ export async function getTodayDecisions(): Promise<TodayView> {
   // EXIT_ON_CLOSE=1 lo activa; por defecto OFF → comportamiento idéntico al actual.
   const exitOnClose = process.env.EXIT_ON_CLOSE === '1' || process.env.EXIT_ON_CLOSE === 'true';
 
+  // AD-016: la concentración deja de ser una tarjeta y pasa a frenar aportes. Solo DEGRADA.
+  // Cacheado 10 min en su servicio — no cuesta red en cada carga. Fail-soft: si falla, no se
+  // afirma nada (null), jamás se asume "cartera repartida".
+  let concentracionCaveat: string | null = null;
+  try {
+    const conc = await getPortfolioConcentration();
+    concentracionCaveat = concentrationCaveatFor(conc, APUESTAS_CONCENTRADA);
+  } catch (err) {
+    console.warn('[today] Concentración no disponible — sin freno por concentración:', (err as Error).message);
+  }
+
+  // AD-015: toda posición que NO se pueda evaluar se REPORTA. Antes se hacía `continue` y
+  // desaparecía de la vista y del registro, que quedaba pareciendo completo.
+  const descartadas: Array<{ symbol: string; reason: string }> = [];
+  let conPrecioViejo = 0;
+
   const portfolio: TodayPosition[] = [];
   for (const p of positions) {
-    if (p.avgCost <= 0) continue;
     const sym = p.symbol.toUpperCase();
+    if (p.avgCost <= 0) {
+      descartadas.push({ symbol: p.symbol, reason: 'Costo promedio inválido (≤0) — no se puede calcular resultado ni juzgar el stop.' });
+      continue;
+    }
     const opp = bySymbol.get(sym);
     const q = quoteBySym.get(sym);
-    const currentPrice = q?.current ?? opp?.currentPrice ?? 0;
-    if (currentPrice <= 0) continue;
+    const precio = resolvePositionPrice(q, opp, scan?.scannedAt?.slice(0, 10) ?? null);
+    if (precio == null) {
+      descartadas.push({ symbol: p.symbol, reason: 'Sin cotización viva y sin precio en el último scan — la posición NO está siendo vigilada.' });
+      continue;
+    }
+    const currentPrice = precio.price;
+    if (precio.isStale) conPrecioViejo++;
 
     const trailingStop = opp?.trailingStop ?? null;
     const target = opp?.tradeLevels?.takeProfit ?? null;
@@ -157,6 +208,8 @@ export async function getTodayDecisions(): Promise<TodayView> {
       engineSellReason: engineAction === 'SELL' && opp ? pickReason(opp) || undefined : undefined,
       closePrice,
       intraday,
+      priceIsStale: precio.isStale,
+      priceAsOf: precio.asOf,
     });
 
     portfolio.push({
@@ -164,7 +217,13 @@ export async function getTodayDecisions(): Promise<TodayView> {
       verb: v.verb,
       reason: v.reason,
       warning: v.warning,
-      canAdd: v.verb === 'MANTENER' && engineAction === 'BUY',
+      // AD-016: con la cartera concentrada, sumar a lo que ya tenés es exactamente el riesgo
+      // que ningún stop cubre. Solo degrada: nunca habilita un canAdd que el motor no dio.
+      canAdd: v.verb === 'MANTENER' && engineAction === 'BUY' && concentracionCaveat == null,
+      // Solo viaja donde efectivamente FRENÓ algo: si el motor no daba BUY, no hay nada que
+      // frenar y un caveat acá sería ruido en las 8 tarjetas.
+      concentrationCaveat: (v.verb === 'MANTENER' && engineAction === 'BUY' && concentracionCaveat != null)
+        ? concentracionCaveat : undefined,
       avgCost: round2(p.avgCost),
       currentPrice: round2(currentPrice),
       gainPct: v.gainPct,
@@ -211,6 +270,10 @@ export async function getTodayDecisions(): Promise<TodayView> {
   // Columna de riesgo: régimen por clase de activo + valor de cartera para el sizing.
   const regimes = await getRegimes();
   const portfolioValue = round2(portfolio.reduce((s, p) => s + p.value, 0));
+  // OJO: portfolioValue suma solo las EVALUADAS. Si alguna quedó afuera, esta base está
+  // incompleta y no se puede sugerir tamaño con ella (ver sizingCaveatFor).
+  const sizingCaveat = sizingCaveatFor(descartadas.map((d) => d.symbol));
+
 
   // --- Mercado: solo lo que NO tenés (excluye la cartera real → sin doble discurso) ---
   const scanDay = scan?.scannedAt?.slice(0, 10) ?? generatedAt.slice(0, 10);
@@ -226,7 +289,8 @@ export async function getTodayDecisions(): Promise<TodayView> {
   const opportunities: TodayOpportunity[] = candidates.map((o) => {
     const entry = o.tradeLevels?.entryPrice;
     const stop = o.tradeLevels?.stopLoss;
-    const size = entry != null && stop != null && portfolioValue > 0
+    // Fail-closed: con la cartera incompleta el sizing saldría chico y nadie lo notaría.
+    const size = sizingCaveat == null && entry != null && stop != null && portfolioValue > 0
       ? suggestPositionSize({ portfolioValue, entry, stop })
       : null;
     const nth = (priorAppearances.get(o.symbol) ?? 0) + 1;
@@ -241,6 +305,7 @@ export async function getTodayDecisions(): Promise<TodayView> {
       appearances: nth,
       persistenceCaveat: adj.caveat,
       cooldownCaveat: cd.caveat,
+      sizingCaveat: sizingCaveat ?? undefined,
       diversification: o.portfolioAdjustment
         ? { verdict: o.portfolioAdjustment.verdict, reason: o.portfolioAdjustment.reason }
         : null,
@@ -286,5 +351,17 @@ export async function getTodayDecisions(): Promise<TodayView> {
     console.warn('[today] Lectura de tesis gatilladas falló:', (err as Error).message);
   }
 
-  return { generatedAt, portfolio, opportunities, triggeredTheses, regimes, portfolioValue, scanDate: scan?.scannedAt };
+  return {
+    generatedAt, portfolio, opportunities, triggeredTheses, regimes, portfolioValue,
+    scanDate: scan?.scannedAt,
+    concentrationCaveat: concentracionCaveat,
+    portfolioCoverage: {
+      total: positions.length,
+      evaluated: portfolio.length,
+      stalePriced: conPrecioViejo,
+      dropped: descartadas,
+  stopsAsOf: scan?.scannedAt?.slice(0, 10) ?? null,
+      valueIsPartial: descartadas.length > 0,
+    },
+  };
 }

@@ -11,7 +11,7 @@ import { getHistoricalQuotes } from '../shared/yahoo.js';
 import { computeIndicators, detectDailyDivergences } from '../technical/technical-analysis.service.js';
 import { computeTrailingStop } from '../opportunities/today-decisions.js';
 import { resolveBacktestUniverse } from './ma-trend.service.js';
-import { shouldExit, strategyMetrics, type ExitRule, type StrategyMetrics } from './exit-rule-backtest.js';
+import { shouldExit, strategyMetrics, buyHoldMetrics, type ExitRule, type StrategyMetrics, type BuyHoldMetrics } from './exit-rule-backtest.js';
 
 const DEFAULTS = { years: 7, warmup: 220, commissionPct: 0.1, slippagePct: 0.05 };
 
@@ -35,7 +35,7 @@ function precomputeSignals(candles: OHLC[], warmup: number): BarSignal[] {
   return out;
 }
 
-function simulate(signals: BarSignal[], rule: ExitRule, commissionPct: number, slippagePct: number): { equity: number[]; trades: number[] } {
+function simulate(signals: BarSignal[], rule: ExitRule, commissionPct: number, slippagePct: number): { equity: number[]; trades: number[]; firstEntry: number | null } {
   const slip = slippagePct / 100;
   const comm = commissionPct / 100;
   let equity = 100;
@@ -44,12 +44,15 @@ function simulate(signals: BarSignal[], rule: ExitRule, commissionPct: number, s
   let posEntryEquity = 0;
   const eqCurve: number[] = [];
   const trades: number[] = [];
+  let firstEntry: number | null = null;
 
-  for (const s of signals) {
+  for (let i = 0; i < signals.length; i++) {
+    const s = signals[i];
     if (inPos) equity = posEntryEquity * (s.close / entryFill); // mark-to-market
 
     if (!inPos) {
       if (s.sma50 != null && s.close > s.sma50) { // entrada (igual para ambas)
+        if (firstEntry == null) firstEntry = i;
         entryFill = s.close * (1 + slip);
         equity *= 1 - comm;
         posEntryEquity = equity;
@@ -63,13 +66,17 @@ function simulate(signals: BarSignal[], rule: ExitRule, commissionPct: number, s
     }
     eqCurve.push(Math.round(equity * 100) / 100);
   }
-  return { equity: eqCurve, trades };
+  return { equity: eqCurve, trades, firstEntry };
 }
 
 export interface ExitRuleSymbolResult {
   symbol: string;
   sellOnWarning: StrategyMetrics;
   letItRun: StrategyMetrics;
+  /** Comprar y no hacer nada en la MISMA ventana operable. null = no se pudo calcular. */
+  buyHold: BuyHoldMetrics | null;
+  /** null cuando buyHold es null: "no se sabe" nunca se colapsa a false. */
+  letItRunBeatsBuyHold: boolean | null;
 }
 
 export interface ExitRuleStudy {
@@ -84,6 +91,17 @@ export interface ExitRuleStudy {
     avgMaxDdLetItRun: number;
     avgProfitFactorSellOnWarning: number;
     avgProfitFactorLetItRun: number;
+    /**
+     * AD-014 (auditoría 2026-07-29): hasta hoy el estudio solo decía cuál de las dos reglas
+     * activas ganaba. Faltaba la pregunta que decide: ¿alguna le gana a comprar y no hacer nada?
+     * Los agregados de buy&hold se promedian SOLO sobre los símbolos donde se pudo calcular
+     * (`evaluatedBuyHold`); imputar 0 en los que faltan inventaría un benchmark plano.
+     */
+    evaluatedBuyHold: number;
+    letItRunBeatsBuyHold: number;
+    sellOnWarningBeatsBuyHold: number;
+    avgReturnBuyHold: number | null;
+    avgMaxDdBuyHold: number | null;
   };
 }
 
@@ -109,14 +127,25 @@ export async function runExitRuleBacktest(
     const signals = precomputeSignals(candles, warmup);
     const a = simulate(signals, 'sell_on_warning', commissionPct, slippagePct);
     const b = simulate(signals, 'let_it_run', commissionPct, slippagePct);
+    // Buy&hold desde la MISMA vela en que la estrategia entra por primera vez. Arrancarlo en el
+    // fin del warmup le daría (o le sacaría) el tramo previo a la entrada, que la estrategia no
+    // capturó: la comparación tiene que ser mismo dinero, mismo día de compra, y la única
+    // diferencia el trailing. La entrada es idéntica en las dos reglas, así que una sola sirve.
+    // Fail-closed: si nunca entró, no hay comparación posible → null.
+    const buyHold = b.firstEntry != null ? buyHoldMetrics(signals.slice(b.firstEntry).map((s) => s.close)) : null;
+    const letItRun = strategyMetrics(b.equity, b.trades);
+    const sellOnWarning = strategyMetrics(a.equity, a.trades);
     perSymbol.push({
       symbol,
-      sellOnWarning: strategyMetrics(a.equity, a.trades),
-      letItRun: strategyMetrics(b.equity, b.trades),
+      sellOnWarning,
+      letItRun,
+      buyHold,
+      letItRunBeatsBuyHold: buyHold ? letItRun.totalReturn > buyHold.totalReturn : null,
     });
   }
 
   const ok = perSymbol;
+  const conBuyHold = ok.filter((r) => r.buyHold != null);
   return {
     params: { years },
     perSymbol,
@@ -129,6 +158,11 @@ export async function runExitRuleBacktest(
       avgMaxDdLetItRun: avg(ok.map((r) => r.letItRun.maxDrawdown)),
       avgProfitFactorSellOnWarning: avg(ok.map((r) => r.sellOnWarning.profitFactor)),
       avgProfitFactorLetItRun: avg(ok.map((r) => r.letItRun.profitFactor)),
+      evaluatedBuyHold: conBuyHold.length,
+      letItRunBeatsBuyHold: conBuyHold.filter((r) => r.letItRun.totalReturn > r.buyHold!.totalReturn).length,
+      sellOnWarningBeatsBuyHold: conBuyHold.filter((r) => r.sellOnWarning.totalReturn > r.buyHold!.totalReturn).length,
+      avgReturnBuyHold: conBuyHold.length ? avg(conBuyHold.map((r) => r.buyHold!.totalReturn)) : null,
+      avgMaxDdBuyHold: conBuyHold.length ? avg(conBuyHold.map((r) => r.buyHold!.maxDrawdown)) : null,
     },
   };
 }

@@ -48,17 +48,34 @@ export function ExitRuleStudyView() {
                     <th className="font-medium py-1"></th>
                     <th className="font-medium py-1 text-right">Vender en divergencia</th>
                     <th className="font-medium py-1 text-right">Dejar correr (Hoy)</th>
+                    <th className="font-medium py-1 text-right">Comprar y no tocar</th>
                   </tr>
                 </thead>
                 <tbody className="font-mono">
-                  <Row label="Retorno medio" a={pct(a.avgReturnSellOnWarning)} b={pct(a.avgReturnLetItRun)} bWins={a.avgReturnLetItRun >= a.avgReturnSellOnWarning} />
-                  <Row label="Drawdown medio (menos = mejor)" a={pct(a.avgMaxDdSellOnWarning)} b={pct(a.avgMaxDdLetItRun)} bWins={a.avgMaxDdLetItRun <= a.avgMaxDdSellOnWarning} />
-                  <Row label="Profit factor (más = mejor)" a={String(a.avgProfitFactorSellOnWarning)} b={String(a.avgProfitFactorLetItRun)} bWins={a.avgProfitFactorLetItRun >= a.avgProfitFactorSellOnWarning} />
+                  <Row label="Retorno medio" a={pct(a.avgReturnSellOnWarning)} b={pct(a.avgReturnLetItRun)}
+                    c={a.avgReturnBuyHold != null ? pct(a.avgReturnBuyHold) : 's/d'}
+                    bWins={a.avgReturnLetItRun >= a.avgReturnSellOnWarning} />
+                  <Row label="Drawdown medio (menos = mejor)" a={pct(a.avgMaxDdSellOnWarning)} b={pct(a.avgMaxDdLetItRun)}
+                    c={a.avgMaxDdBuyHold != null ? pct(a.avgMaxDdBuyHold) : 's/d'}
+                    bWins={a.avgMaxDdLetItRun <= a.avgMaxDdSellOnWarning} />
+                  <Row label="Profit factor (más = mejor)" a={String(a.avgProfitFactorSellOnWarning)} b={String(a.avgProfitFactorLetItRun)} c="—"
+                    bWins={a.avgProfitFactorLetItRun >= a.avgProfitFactorSellOnWarning} />
                 </tbody>
               </table>
               <p className="text-[11px] text-foreground mt-2">
-                "Hoy" (dejar correr) ganó en retorno en <span className="font-semibold text-green-400">{a.letItRunWinsReturn} de {a.evaluated}</span> símbolos.
-                {a.letItRunWinsReturn < a.evaluated && <span className="text-muted-foreground"> No es universal: en algunos, vender en la divergencia capturó más.</span>}
+                Contra el motor, "Hoy" ganó en <span className="font-semibold">{a.letItRunWinsReturn} de {a.evaluated}</span>.
+                {' '}Pero la pregunta que decide es contra <span className="text-foreground">comprar y no tocar</span>:{' '}
+                {a.evaluatedBuyHold === 0 ? (
+                  <span className="text-amber-400">no se pudo calcular en ningún símbolo.</span>
+                ) : (
+                  <span className={a.letItRunBeatsBuyHold * 2 >= a.evaluatedBuyHold ? 'font-semibold text-green-400' : 'font-semibold text-red-400'}>
+                    le gana en {a.letItRunBeatsBuyHold} de {a.evaluatedBuyHold}.
+                  </span>
+                )}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Ganarle a la otra regla no alcanza: si el trailing rinde menos que comprar el papel y no mirarlo, operar destruye
+                valor aunque gane el duelo. Esta columna faltaba hasta el 2026-07-29 (AD-014).
               </p>
             </CardContent>
           </Card>
@@ -67,19 +84,22 @@ export function ExitRuleStudyView() {
             <CardContent className="py-3">
               <div className="text-[11px] text-muted-foreground mb-2">Por símbolo (retorno · profit factor)</div>
               <div className="space-y-1">
-                {data!.perSymbol.map((s) => {
-                  const hoyWins = s.letItRun.totalReturn >= s.sellOnWarning.totalReturn;
-                  return (
-                    <div key={s.symbol} className="flex items-center gap-2 text-[11px] font-mono">
-                      <span className="w-14 font-semibold">{s.symbol}</span>
-                      <span className="w-40 text-right text-muted-foreground">motor {pct(s.sellOnWarning.totalReturn)} · PF {s.sellOnWarning.profitFactor}</span>
-                      <span className="w-40 text-right">Hoy {pct(s.letItRun.totalReturn)} · PF {s.letItRun.profitFactor}</span>
-                      <Badge className={`text-[8px] ${hoyWins ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                        {hoyWins ? 'Hoy' : 'motor'}
-                      </Badge>
-                    </div>
-                  );
-                })}
+                {data!.perSymbol.map((s) => (
+                  <div key={s.symbol} className="flex items-center gap-2 text-[11px] font-mono">
+                    <span className="w-14 font-semibold">{s.symbol}</span>
+                    <span className="w-32 text-right text-muted-foreground">motor {pct(s.sellOnWarning.totalReturn)}</span>
+                    <span className="w-32 text-right">Hoy {pct(s.letItRun.totalReturn)}</span>
+                    <span className="w-36 text-right text-muted-foreground">
+                      no tocar {s.buyHold != null ? pct(s.buyHold.totalReturn) : 's/d'}
+                    </span>
+                    {/* El badge responde la pregunta que importa, no el duelo entre reglas. */}
+                    <Badge className={`text-[8px] ${
+                      s.letItRunBeatsBuyHold == null ? 'bg-muted text-muted-foreground'
+                        : s.letItRunBeatsBuyHold ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                      {s.letItRunBeatsBuyHold == null ? 's/d' : s.letItRunBeatsBuyHold ? 'operar pagó' : 'no tocar ganaba'}
+                    </Badge>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
@@ -89,12 +109,13 @@ export function ExitRuleStudyView() {
   );
 }
 
-function Row({ label, a, b, bWins }: { label: string; a: string; b: string; bWins: boolean }) {
+function Row({ label, a, b, c, bWins }: { label: string; a: string; b: string; c: string; bWins: boolean }) {
   return (
     <tr>
       <td className="py-1 text-muted-foreground font-sans">{label}</td>
       <td className={`py-1 text-right ${bWins ? 'text-muted-foreground' : 'text-foreground'}`}>{a}</td>
       <td className={`py-1 text-right ${bWins ? 'text-green-400 font-semibold' : 'text-muted-foreground'}`}>{b}</td>
+      <td className="py-1 text-right text-foreground">{c}</td>
     </tr>
   );
 }

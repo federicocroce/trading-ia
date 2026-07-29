@@ -14,7 +14,7 @@ Un sector queda `AUDITADO` cuando una corrida completa no produce hallazgos P0�
 | `pipeline` | 2026-07-29 | pase completo — 10 hallazgos | AD-004 … AD-013 |
 | `descubrimiento` | — | nunca auditado | — |
 | `motor` | — | nunca auditado | — |
-| `guardian` | — | nunca auditado | — |
+| `guardian` | 2026-07-29 | 6 hallazgos · 5 resueltos, 1 acotado | ninguno — decisión de producto en AD-014 |
 | `cartera` | — | nunca auditado | — |
 | `medicion` | — | nunca auditado | — |
 | `llm` | — | nunca auditado | — |
@@ -22,7 +22,7 @@ Un sector queda `AUDITADO` cuando una corrida completa no produce hallazgos P0�
 | `frontend` | — | nunca auditado | — |
 | `operacion` | 2026-07-29 | pre-flight solamente | AD-001, AD-002, AD-003 |
 | `negocio` | — | nunca auditado | — |
-| `coherencia` | — | nunca auditado | — |
+| `coherencia` | 2026-07-29 | parcial — 1 hallazgo de paso | — |
 
 **Prioridad sugerida para la primera vuelta**: `guardian` y `medicion` primero. Son los dos sectores que sostienen todo lo que el §4 da por bueno y, justamente por eso, los menos atacados. Después `pipeline` y `descubrimiento` (donde el usuario ya sospecha que hay mejora), y `negocio` al final, cuando haya evidencia acumulada para contestarlo en serio.
 
@@ -488,3 +488,197 @@ Las etapas que el tooltip no menciona: `webSearch` (la que puede cancelar el dí
 **Daño**: objetivo #3 (cero humo). El dueño aprieta el botón a las 7:45 esperando tener el día resuelto antes de las 7:50 y en realidad no lo tiene hasta las 8:10. Con la apertura 9:30 ET el margen alcanza, pero la decisión de "¿lo corro ahora o después?" se toma con un número que está mal por un factor de 5. Y como el tooltip no nombra `webSearch`, el modal bloqueante aparece sin contexto.
 
 **Estado**: ABIERTO
+
+---
+
+### AD-014 · P3 · guardian · 2026-07-29 · CONFIRMADO — columna agregada, claim del §4 corregido
+
+**Claim atacado**: §4, *"⭐⭐ EL GUARDIÁN FUNCIONA — primera evidencia del objetivo #1"*. La tabla reporta trailing 496% vs vender-en-aviso 364%, drawdown 45.6% vs 51.0%, *"gana en 9 de 11 símbolos"*, y en SPY *"el trailing convierte un −30% en +64%"*.
+
+**Hallazgo**: el backtest **nunca compara contra comprar y no hacer nada**. Mide la regla A contra la regla B, dos formas de operar activamente, y ninguna contra la alternativa real. Es exactamente el pecado que el propio §4 identificó y corrigió para las señales (*"EL SISTEMA NUNCA MIDIÓ CONTRA EL ÍNDICE… una señal con +0.5% en una ventana donde el S&P hizo +2% destruyó valor y el sistema la contaba como win"*), reintroducido en el único componente que el proyecto da por demostrado.
+
+**Evidencia (a) — el código no computa buy-and-hold en ningún lado**:
+
+`exit-rule-backtest.service.ts:125` — el "9 de 11" es literalmente B contra A:
+```ts
+letItRunWinsReturn: ok.filter((r) => r.letItRun.totalReturn > r.sellOnWarning.totalReturn).length,
+```
+`StrategyMetrics` (`exit-rule-backtest.ts:26-34`) tiene `totalReturn`, `maxDrawdown`, `numTrades`, `winRate`, `profitFactor`, `avgWin`, `avgLoss`. **No tiene ningún campo de buy-and-hold.** Tampoco `ExitRuleStudy.aggregate` (`:78-87`).
+
+El backtest **hermano, en la misma carpeta**, sí lo hace — `ma-trend.service.ts:55-61`:
+```ts
+buyHoldReturnPct: m.buyAndHoldReturnPercent,
+buyHoldMaxDrawdownPct: bhMaxDrawdown(res.equityCurve),
+beatBuyHold: m.totalReturnPercent > m.buyAndHoldReturnPercent,
+```
+O sea: el patrón existe en el repo, está a 200 metros, y el backtest del guardián no lo usa.
+
+**Evidencia (b) — réplica con la columna faltante**. Reproduje `simulate()` con los MISMOS parámetros (chandelier 22 / 3×ATR de `today-decisions.ts:55-77`, entrada `close > SMA50`, `commissionPct 0.1` + `slippagePct 0.05` por punta = 0.30% ida y vuelta) sobre las velas diarias cacheadas en `historical_cache`, ventana **2025-10-06 → 2026-07-24** (251 velas):
+
+```
+símbolo | trailing ret | trailing dd | trades || buy&hold ret | b&h dd || diferencia
+SPY     |          0.7 |         6.2 |      6 ||         10.9 |    8.9 ||      -10.2
+QQQ     |          3.7 |        11.5 |      7 ||         14.1 |   12.0 ||      -10.5
+GGAL    |         25.9 |        33.8 |     19 ||         89.8 |   33.0 ||      -63.9
+NEM     |        -10.4 |        35.9 |     11 ||          8.5 |   32.1 ||      -19.0
+```
+
+**En 4 de 4 el trailing pierde contra no hacer nada. En 2 de 4 (GGAL, NEM) el drawdown es PEOR.** Se cae la frase que sostiene el claim: *"Más retorno, MENOS drawdown"* — contra la regla B sí; contra la alternativa real, ninguna de las dos.
+
+Validación de fidelidad de la réplica: da 6 trades de SPY en 9,5 meses; escalado a 7 años ≈ 53, contra los "55-95" que reporta el §4. La simulación reproduce el original.
+
+**Desviaciones declaradas de la réplica**: warmup 50 en vez de 220 (el cache tiene 251 velas, no 7 años); `SMA50` como media simple de cierres (`calculateSMA(closes, 50)`, `technical-analysis.service.ts:276` — coincide); 4 símbolos, no 11.
+
+**Qué habría que creer para que esto esté bien**: que la ventana medida (≈9,5 meses, alcista, SPY +10.9%) es la responsable de todo el resultado, y que en 7 años **incluyendo el bear de 2022** el trailing sí le gana a comprar y no hacer nada. Es un supuesto razonable —los trailing structuralmente pierden en tendencia sin correcciones— **pero es exactamente el número que el backtest no calcula.** El claim del §4 no está refutado: está **sin sostén**, porque el test que lo respalda no puede responder la pregunta.
+
+**Test que lo falsifica**: agregar `buyAndHoldReturnPct` / `buyHoldMaxDrawdownPct` a `ExitRuleStudy` —copiando lo que ya hace `ma-trend.service.ts`— y re-correr los 7 años sobre los 11 símbolos. Si el trailing le gana a buy-and-hold en la mayoría, el claim queda probado de verdad y este hallazgo se marca REFUTADO.
+
+**⭐ TEST CORRIDO — 2026-07-29. EL HALLAZGO SE CONFIRMA.** Se implementó `buyHoldMetrics` (fail-closed) y se corrió `runExitRuleBacktest({ years: 7, scope: 'portfolio' })` contra Yahoo, los mismos 11 símbolos:
+
+```
+símbolo | motor    | Hoy      | no tocar | ¿operar pagó?
+VIST    |   290.73 |   332.95 |  2050.97 | no
+YPF     |   308.78 |   189.72 |   786.58 | no
+PAM     |   -46.86 |   -30.12 |   705.66 | no
+GGAL    |   321.72 |   278.17 |   543.85 | no
+BTC-USD |   434.03 |  1015.91 |   602.96 | SÍ
+MARA    |   2621.1 |  2823.54 |  1005.91 | SÍ
+HUT     |    48.54 |   370.18 |  1696.49 | no
+TSM     |    46.36 |   240.02 |   657.34 | no
+NEM     |    -1.24 |    34.58 |    88.88 | no
+SPY     |   -30.65 |     62.5 |   165.78 | no
+QQQ     |     14.1 |    96.98 |   194.17 | no
+
+retorno medio  — motor 364.24 | Hoy 492.22 | no tocar 772.60
+drawdown medio — motor 50.95  | Hoy 45.61  | no tocar 59.35
+Hoy le gana al motor en 9/11 · Hoy le gana a NO TOCAR en 2/11 · motor a NO TOCAR en 1/11
+```
+
+**Los números originales del §4 se replicaron exactos** (492.2 vs 364.2; dd 45.6 vs 51.0 contra los "496 / 364 / 45.6 / 51.0" publicados): el head-to-head estaba bien hecho. Lo que estaba mal era la pregunta.
+
+**Conclusión medida**: el trailing le gana a comprar y no tocar en **2 de 11** (BTC-USD y MARA, los dos más volátiles). Compra ~14 puntos menos de drawdown a cambio de ~280 puntos de retorno, y también pierde en retorno/drawdown (10.8 vs 13.0). En SPY, el caso que el §4 citaba como "brutal": el trailing hace +62.5% donde no tocar hace **+165.8%**.
+
+**Caveat que queda abierto**: la simulación **re-compra apenas `close > SMA50`**, así que mide un sistema de tendencia con trailing, no "una posición con stop". Parte de la diferencia puede ser timing de reentrada y no el stop. Ese es el próximo test y está anotado como deuda en el §4.
+
+**Daño**: es el claim que justifica la jerarquía de decisión completa y, según el §4, *"lo único que funciona"* del sistema. Confirmado: el trailing pierde contra no hacer nada en 9 de 11 símbolos, y el §4 lo registraba como su primera victoria.
+
+**Estado**: **RESUELTO en código** (`buyHoldMetrics` + columna en `ExitRuleStudy` + tercera columna en `ExitRuleStudyView`, 4 tests) **y el §4 quedó corregido**. Lo que sigue ABIERTO es la decisión de producto: qué hace la app con un guardián que reduce drawdown y cuesta retorno. Es preferencia del dueño, no un bug.
+
+---
+
+### AD-015 · P0 · guardian · 2026-07-29 · ABIERTO
+
+**Claim atacado**: regla dura #1 de `CLAUDE.md`, *"Fail-closed: dato faltante = rechazo/null honesto, nunca neutral ni pass silencioso"*, aplicada al guardián.
+
+**Hallazgo**: el guardián decide **VENDER o MANTENER con un precio viejo, sin decirlo**, y en el peor caso hace desaparecer la posición de la vista sin dejar rastro.
+
+**Evidencia** — `today-decisions.service.ts:123` y `:136-138`:
+```ts
+const quotes = await getQuotes(heldSymbols).catch(() => []);      // :123 — falla total → array vacío
+...
+const currentPrice = q?.current ?? opp?.currentPrice ?? 0;         // :136
+if (currentPrice <= 0) continue;                                  // :137
+```
+Tres caminos, ninguno declarado al usuario:
+1. **Quote falla, símbolo en el scan** → se decide con `opp.currentPrice`, el precio del último scan. **Hoy eso son 5 ruedas de antigüedad** (último scan 2026-07-24, ver AD-001), y viaja al payload como `currentPrice` sin marca de frescura. `decidePositionVerb` (`today-decisions.ts:111-165`) no recibe ningún parámetro de antigüedad: no puede advertir lo que no sabe.
+2. **Quote falla y el símbolo no está en el scan** → `continue`: la posición **desaparece** de "Hoy". Sin fila, sin warning, sin contador.
+3. **`p.avgCost <= 0`** (`:133`) → mismo `continue` silencioso.
+
+No hay ninguna superficie que reporte el descarte:
+```
+$ grep -n "coverage\|dropped\|omitid\|skipped" apps/backend/src/opportunities/today-decisions.service.ts
+(sin resultados)
+```
+Y el registro nuevo del guardián hereda el agujero: `upsertPortfolioVerdicts` (`:189`) escribe `portfolio.map(...)` — o sea solo lo que sobrevivió. Una posición descartada no deja fila en `portfolio_verdicts`, y el registro construido para hacer medible el objetivo #1 se ve **completo** cuando no lo está.
+
+**El contraste es interno y decisivo**: el §4 documenta que `analyzePortfolioConcentration` hace exactamente lo correcto — *"fail-closed: una posición sin serie se DESCARTA y se reporta en `coverage` — imputar ceros bajaría la volatilidad e inflaría la diversificación, justo el error que haría ver una cartera concentrada como repartida"*. El mismo repo, el mismo dominio, el mismo tipo de falla: un módulo reporta la cobertura y el otro no. No es que el patrón no se conozca.
+
+**Mitigante medido, en honor a la verdad**: las 8 posiciones están hoy en el último scan, así que el camino 2 requiere doble falla.
+```
+$ sqlite3 data/trading.db "SELECT p.symbol, CASE WHEN s.symbol IS NULL THEN 'NO ESTÁ' ELSE 'ok' END
+  FROM positions p LEFT JOIN (SELECT DISTINCT symbol FROM opportunity_snapshots
+  WHERE scan_id=(SELECT MAX(id) FROM opportunity_scans)) s ON UPPER(p.symbol)=UPPER(s.symbol);"
+GGAL|ok  YPF|ok  PAM|ok  VIST|ok  MARA|ok  TSM|ok  HUT|ok  NEM|ok
+```
+El camino 1 —decidir con precio viejo sin avisar— **no tiene mitigante y está activo ahora mismo**.
+
+**Qué habría que creer para que esto esté bien**: que `getQuotes` nunca falla en bloque, y que un precio de hace 5 ruedas es equivalente a uno vivo para decidir si el precio perforó un stop. Lo segundo es falso por definición: un stop es una comparación contra el precio de HOY.
+
+**Test que lo falsifica**: correr `getTodayView` con la red de Yahoo caída y ver qué muestra la UI. Si aparecen las 8 posiciones con precios del 24 y verbos MANTENER/VENDER sin ninguna marca de antigüedad, el hallazgo está confirmado.
+
+**Daño**: un VENDER falso liquida una posición por nada y paga costos; un MANTENER falso deja correr una posición cuyo stop ya se perforó de verdad. Es el objetivo #1 fallando en silencio, que es la peor forma de fallar — y es indistinguible del funcionamiento normal para quien mira la pantalla.
+
+**Estado**: **RESUELTO 2026-07-29.** `resolvePositionPrice` (pura, 6 tests) reemplaza la cadena de `??` y declara de dónde salió el precio. Con `priceIsStale`, `decidePositionVerb` devuelve **REVISAR** nombrando la fecha —jamás un VENDER inventado ni un MANTENER silencioso— y avisa *"La app NO está vigilando esta posición"* (5 tests). El payload suma `portfolioCoverage` (aditivo, regla #4) con `total`/`evaluated`/`stalePriced`/`dropped[]`/`stopsAsOf`, y Hoy renderiza una tarjeta roja con las posiciones no vigiladas, copiando el patrón que `analyzePortfolioConcentration` ya usaba. El encabezado dejó de afirmar "Precios y stops en vivo" a ciegas: ahora lo dice el dato.
+
+---
+
+### AD-016 · P1 · guardian · 2026-07-29 · RESUELTO
+
+**Claim atacado**: §4, *"LA CARTERA REAL SON 1.8 APUESTAS, NO 8 POSICIONES… Es riesgo del objetivo #1 y más grande que cualquier stop individual: un stop protege de que UNA posición se dé vuelta, nada protegía de que se den vuelta las ocho juntas."*
+
+**Hallazgo**: se midió el riesgo más grande del objetivo #1 y **no cambia ninguna decisión**. Es una tarjeta.
+
+**Evidencia** — el único consumo de la función es el que la muestra:
+```
+$ grep -rn "analyzePortfolioConcentration" apps/backend/src --include="*.ts" | grep -v "\.test\.ts"
+apps/backend/src/portfolio/concentration.service.ts   (wrapper de I/O → tRPC → tarjeta)
+```
+Ningún camino de decisión la importa. `decidePositionVerb` (`today-decisions.ts:111`) recibe `avgCost, currentPrice, trailingStop, target, engineWarnsSell, engineSellReason, closePrice, intraday` — **ningún parámetro de concentración**. El sizing tampoco: `portfolio-risk.service.ts` evalúa si un CANDIDATO NUEVO apila riesgo, que es la función que el propio §4 dice que existía desde antes y no alcanzaba.
+
+**Qué habría que creer para que esto esté bien**: que informar al dueño es suficiente y que la decisión de reducir concentración debe ser 100% manual. Es una postura defendible —el §4 registra que el módulo Cartera es advisory por preferencia del dueño— **pero entonces el texto del §4 sobrevende**: decir *"nada protegía"* en pasado implica que ahora algo protege, y no protege nada. Mide y avisa.
+
+**Test que lo falsifica**: encontrar un camino donde `diversificationRatio` o `independentBets` altere un verbo, un sizing o un `suggestedWeight`. Si existe, REFUTADO.
+
+**Daño**: objetivo #3. El §4 anota como implementada una protección que es un cartel, y eso desplaza del backlog el trabajo de convertirla en regla — por ejemplo, gatear `canAdd` cuando el aporte apila el clúster que ya es el 76.4% de la cartera.
+
+**Estado**: **RESUELTO 2026-07-29.** `concentrationCaveatFor` (pura, 5 tests) convierte la medición en freno. **Solo degrada**, igual que el gate del LLM, el residente crónico y el stop perforado: `canAdd` pasa a false cuando la cartera está concentrada, y el caveat viaja únicamente donde efectivamente frenó algo (si el motor no daba BUY no hay nada que frenar, y un caveat en las 8 tarjetas sería ruido). Umbral reusado de `APUESTAS_CONCENTRADA` — el MISMO que ya clasifica la tarjeta, para que el cartel y el freno no puedan divergir. Fail-closed: sin reporte no se afirma nada, y con cobertura parcial el texto lo dice en vez de sentenciar sobre media cartera.
+
+**Justificación de haberlo tocado sin evidencia de expectancy**: la regla #7 del proyecto ("evidencia antes que intuición") gobierna los cambios que afirman *"esto va a rendir mejor"*. Un límite de riesgo no afirma eso: dice *"no apiles más riesgo del que querés"*. Es una restricción, no una predicción, y solo puede reducir exposición.
+
+**Costo controlado**: la concentración cuesta una serie de 1 año por posición y `getHistoricalQuotes` NO cachea, así que meterla en el hot path de Hoy habría disparado 8 fetches secuenciales a Yahoo por carga — la misma saturación de la cola global que el §4 documenta como causa sistémica de etapas colgadas. Se envolvió `getPortfolioConcentration` en el `createTtlCache` que ya existía (10 min, fail-closed: vencido recalcula, nunca sirve un valor viejo).
+
+---
+
+### AD-018 · P0 · guardian · 2026-07-29 · RESUELTO
+
+**Encontrado en el review del propio branch**, no en el pase original. Es la clase de bug que AD-015 vino a matar y que sobrevivió a su primer arreglo.
+
+**Hallazgo**: `portfolioValue` suma **solo las posiciones evaluadas** (`today-decisions.service.ts`: `portfolio.reduce((s, p) => s + p.value, 0)`), y de ahí sale `suggestPositionSize` para TODA posición nueva. Con una posición descartada, la base es más chica que la cartera real y **el tamaño sugerido sale sistemáticamente menor, en silencio**. AD-015 hizo VISIBLE el descarte pero no cortó su consecuencia río abajo.
+
+**Evidencia**: `const portfolioValue = round2(portfolio.reduce((s, p) => s + p.value, 0));` alimentando `suggestPositionSize({ portfolioValue, entry, stop })`, con `portfolio` ya filtrado por los dos `continue`.
+
+**Qué habría que creer para que esto esté bien**: que un tamaño calculado sobre una cartera incompleta es mejor que ninguno. Es al revés: un número que sabés que está mal y no lleva marca es peor que un hueco visible.
+
+**Estado**: **RESUELTO.** `sizingCaveatFor` (pura, 3 tests): con posiciones descartadas no se emite tamaño y se explica por qué, nombrando los símbolos. `portfolioCoverage.valueIsPartial` marca la base incompleta en el payload y la UI muestra el caveat.
+
+---
+
+### AD-019 · P2 · coherencia · 2026-07-29 · RESUELTO
+
+**Hallazgo**: el prompt maestro (§2 y §8 punto 6) y `/mejorar` instruían mergear a **`feat/outcome-resolver`**, rama detenida en el 2026-07-05, mientras el trabajo real seguía en `main`. Cualquier sesión que hubiera obedecido habría ramificado de una base de tres semanas atrás y mergeado a una rama muerta.
+
+**Evidencia**: `git branch -vv` → `feat/outcome-resolver d4e9757 docs: check anti-hype cuántica (2026-07-05)`, contra `main` con los commits del 2026-07-28/29.
+
+**Estado**: **RESUELTO.** Corregido en las 4 referencias accionables (§2, §8 punto 6, el comando de `/ralph-loop` del §9, y las dos de `/mejorar`). Queda una mención histórica deliberada en §2 explicando el error, para que no se re-introduzca.
+
+---
+
+### AD-017 · P5 · guardian · 2026-07-29 · ABIERTO
+
+**Hallazgo**: cero cobertura de escenarios de mercado adversos en los tests del guardián.
+
+**Evidencia**:
+```
+$ grep -n "gap\|halt\|split\|apertura" apps/backend/src/opportunities/today-decisions.test.ts
+(sin resultados)
+```
+
+**Qué habría que creer para que esto esté bien**: que `decidePositionVerb` es una comparación numérica pura y que un gap no es un caso distinto — el precio o está bajo el stop o no. **Es cierto**, y por eso esto es P5 y no P0: la función no tiene rama que un gap pueda romper.
+
+Lo que sí queda sin cubrir es aguas arriba: un split no ajustado desplazaría `avgCost` y `trailingStop` en factores distintos (el stop se recalcula desde velas ajustadas de Yahoo, el `avgCost` viene de `positions` cargado a mano), y ahí la comparación sí miente. No lo pude verificar: no hay ningún split en la ventana de datos disponible.
+
+**Test que lo falsifica**: un test con una posición cuyo `avgCost` es pre-split y velas post-split, verificando que el verbo no sea VENDER espurio.
+
+**Daño**: bajo hoy. Sube si entra al portfolio un símbolo con split anunciado.
+
+**Estado**: **ACOTADO 2026-07-29** con 3 tests que fijan el radio de daño: un `avgCost` pre-split (10×) NO convierte un MANTENER en VENDER ni evita un VENDER legítimo —la protección se decide precio-contra-stop, ambos post-split— pero `gainPct` sale disparatado (−88%) y nadie lo detecta. Si alguien hace depender el verbo de `avgCost`, los tests avisan. Queda ABIERTO el ajuste del resultado mostrado.

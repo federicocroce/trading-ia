@@ -23,6 +23,36 @@ export function shouldExit(rule: ExitRule, s: ExitState): boolean {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+export interface BuyHoldMetrics {
+  totalReturn: number;   // %
+  maxDrawdown: number;   // %
+}
+
+/**
+ * Comprar en la primera vela operable y no hacer nada más. Es la ALTERNATIVA REAL contra la que
+ * hay que medir cualquier regla de salida: una estrategia que gana menos que esto destruye valor
+ * aunque le gane a la otra regla.
+ *
+ * Fail-closed: una serie que no permite calcular un retorno honesto devuelve null. JAMÁS un 0,
+ * que en el agregado se leería como "no aportó" en vez de "no se sabe".
+ */
+export function buyHoldMetrics(closes: number[]): BuyHoldMetrics | null {
+  if (closes.length < 2) return null;
+  if (closes.some((c) => !Number.isFinite(c) || c <= 0)) return null;
+
+  let peak = -Infinity;
+  let maxDd = 0;
+  for (const c of closes) {
+    peak = Math.max(peak, c);
+    maxDd = Math.max(maxDd, ((peak - c) / peak) * 100);
+  }
+
+  return {
+    totalReturn: round2((closes[closes.length - 1] / closes[0] - 1) * 100),
+    maxDrawdown: round2(maxDd),
+  };
+}
+
 export interface StrategyMetrics {
   totalReturn: number;   // % (equity arranca en 100)
   maxDrawdown: number;   // %

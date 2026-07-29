@@ -28,7 +28,7 @@ Federico es un swing trader argentino individual. La app existe para **que compo
 - **La vista "Hoy" (2026-07-27)** ordena por prioridad de decisión, no por score: (1) tus posiciones con su verbo de guardián, (2) **dónde va el próximo aporte** (módulo Cartera), (3) tesis gatilladas, (4) **satélite** con setup de entrada —alfabético, sin ranking—, (5) en seguimiento. El score se calcula y persiste pero NO se muestra ni ordena en ninguna superficie.
 - **Datos**: `data/trading.db` (SQLite). Tablas clave: `opportunity_scans`/`opportunity_snapshots`, `signal_tracking` (resolución path-aware de señales, R-multiples), `anticipatory_alerts` (kinds: anticipatory/stop_breach/rearm), `discovered_symbols`, `anti_hype_rejections`, `market_digests`/`market_reports`, `unified_analysis_results`.
 - **LLMs**: Gemini 2.5 Pro/Flash, Groq llama-3.3-70b, OpenRouter free (nemotron-3-ultra-550b, gpt-oss-120b, nemotron-3-nano-reasoning, llama-3.3-70b), LM Studio local, Sonnet en chat. Router con fallbacks + circuit breaker + timeouts 90s + tracking de tokens.
-- **Branch de trabajo**: `feat/outcome-resolver` (remote `github-personal:federicocroce/trading-ia.git`). Trabajá siempre en branches `fix/...` desde ahí; merge solo con review aprobado.
+- **Branch de trabajo**: **`main`** (remote `github-personal:federicocroce/trading-ia.git`). Trabajá siempre en branches `fix/...` o `feat/...` desde `main`; merge solo con review aprobado. ⚠️ Corregido 2026-07-29: este documento decía `feat/outcome-resolver`, rama que quedó detenida en el 2026-07-05 mientras el trabajo real seguía en `main` — cualquier sesión que hubiera obedecido la instrucción habría ramificado de una base de tres semanas atrás.
 
 ## 3. Reglas duras (violarlas = rechazo automático en review)
 
@@ -109,7 +109,22 @@ Federico es un swing trader argentino individual. La app existe para **que compo
   **Instrumentación arreglada** (mismo commit): el agregador registra con fuente `'news'` y la búsqueda web con `'web_search'`, que son etiquetas verdaderas. `'yahoo'`/`'finnhub'` quedan como LEGACY y **están documentadas como no interpretables** en `discovery-registry.ts` — todo análisis histórico debe agruparlas. Recién desde acá la pregunta "¿qué caño paga?" es medible.
   **⚠️ Los caños sistemáticos NO están probados**: screener + radar + base_sweep suman **6 señales con alpha medido**. No hay evidencia de que sean mejores — están sin muestra. Invertir la mezcla a favor de ellos es una apuesta razonable por mecanismo (seleccionan por criterio, no por atención), no una conclusión medida.
   **DECISIÓN DEL DUEÑO, no se tomó** (regla §9): cortar o restringir la nominación por prensa es un cambio de producto — el stage de noticias también alimenta `macro_events`, contexto causal y digest, que no están en cuestión. Lo medido es específicamente **qué símbolos ENTRAN al universo**. Opciones: (a) que la prensa deje de nominar y quede como contexto; (b) subir el piso de relevance para nominar; (c) subir los caps de screener/base_sweep para que aporten volumen y por fin se puedan medir.
-- **⭐⭐ EL GUARDIÁN FUNCIONA — primera evidencia del objetivo #1** (2026-07-28, backtest de reglas de salida, 7 años, **incluye el bear de 2022**, cartera + benchmarks, con comisión y slippage modelados). Head-to-head entre las dos reglas opuestas: "vender cuando el motor avisa" vs "dejar correr con trailing stop" (lo que implementa el guardián de Hoy).
+- **⭐⭐ EL GUARDIÁN LE GANA AL MOTOR Y PIERDE CONTRA NO HACER NADA** (2026-07-28, **corregido 2026-07-29**; backtest de reglas de salida, 7 años, **incluye el bear de 2022**, cartera + benchmarks, con comisión y slippage modelados).
+
+  ⚠️ **CORRECCIÓN 2026-07-29 (AD-014 de la auditoría adversarial).** Este bullet se titulaba *"EL GUARDIÁN FUNCIONA — primera evidencia del objetivo #1"*. **El test que lo sostenía comparaba la regla A contra la regla B y nunca contra comprar y no hacer nada** — el mismo pecado que este documento identificó y corrigió para las señales ("EL SISTEMA NUNCA MIDIÓ CONTRA EL ÍNDICE"), reintroducido en el único componente que se daba por demostrado. Se agregó la columna faltante (`buyHoldMetrics`, fail-closed) y se re-corrió sobre los mismos 11 símbolos y 7 años. **Los números originales se replicaron exactos** (Hoy 492.2% vs motor 364.2%; drawdown 45.6 vs 51.0), así que el head-to-head era correcto — y a la vez irrelevante:
+
+  | | motor | **Hoy (trailing)** | **comprar y no tocar** |
+  |---|---|---|---|
+  | retorno medio | 364.2% | 493.1% | **790.6%** |
+  | drawdown medio | 51.0% | **45.6%** | 59.4% |
+  | retorno / drawdown | 7.1 | 10.8 | **13.3** |
+  | SPY | −30.6% | +62.6% | **+166.0%** |
+
+  **El trailing le gana a comprar y no tocar en 2 de 11 símbolos** (BTC-USD y MARA — los dos más volátiles). El motor, en 1 de 11. La lectura honesta: **el guardián compra ~14 puntos menos de drawdown a cambio de ~300 puntos de retorno**, y también pierde en retorno ajustado por drawdown. Para el objetivo #2 (componer capital vía aporte recurrente) es un mal negocio; puede seguir siendo bueno para el objetivo #1 si lo que se quiere comprar es específicamente dormir tranquilo, pero **eso es una preferencia del dueño, no un resultado medido**, y hay que nombrarlo así.
+  **Lo que NO cambia**: la jerarquía de decisión sigue justificada — entre las dos reglas activas, el trailing gana 9 de 11 y con un tercio de las operaciones. Si vas a operar, dejar correr con stop es mejor que vender el aviso. **Lo que sí cambia**: "operar" no era la única opción y perdía contra la que no se estaba midiendo.
+  **Benchmark justo**: el buy&hold arranca en la MISMA vela en que la estrategia entra por primera vez, no al final del warmup — mismo dinero, mismo día de compra, y la única diferencia es el trailing. (La primera versión de esta medición lo arrancaba antes y daba 772.6%; corregido da 790.6%, o sea la corrección va EN CONTRA del trailing.) **Deuda que queda**: la simulación re-compra apenas `close > SMA50`, así que sigue midiendo un sistema de tendencia con trailing. Falta la variante que entra una sola vez para aislar del todo el stop del timing de reentrada.
+
+  Head-to-head original entre las dos reglas opuestas: "vender cuando el motor avisa" vs "dejar correr con trailing stop" (lo que implementa el guardián de Hoy).
 
   | | Trailing (guardián) | Vender-en-aviso (motor) |
   |---|---|---|
@@ -233,12 +248,12 @@ Hecho y verificado: resolución direccional path-aware de señales + R-multiples
 3. Si tocaste el pipeline/scan: one-shot real (script temporal `npx tsx` desde `apps/backend`, cargando el `.env` de la RAÍZ del repo — `dotenv.config({ path: '../../.env' })` — o las API keys no cargan) y verificar en `data/trading.db` que las filas esperadas existan. Borrar el script temporal después.
 4. Coherencia: ¿alguna superficie (Hoy / Oportunidades / digest / reporte / chat) puede ahora contradecir a otra? Buscar el doble discurso activamente.
 5. ¿La feature es VISIBLE para el usuario? (P3 casi shippea la watchlist de re-armado sin ninguna superficie de render — verificar la ruta completa DB → tRPC → componente montado.)
-6. Review final whole-branch en el modelo más capaz antes de merge; merge a `feat/outcome-resolver` + push solo con "Ready to merge: Yes".
+6. Review final whole-branch en el modelo más capaz antes de merge; merge a **`main`** + push solo con "Ready to merge: Yes".
 
 ## 9. Para corridas autónomas (`/ralph-loop`)
 
 ```
-/ralph-loop "Leé docs/IA/prompt-maestro-mejora-continua.md y .superpowers/sdd/progress.md. Elegí el ítem de backlog de mayor prioridad (sección 6, orden A→B→C) que no esté marcado complete en el ledger, armá un plan corto en docs/superpowers/plans/ con fecha actual, ejecutalo con subagent-driven-development (tests canónicos: npm run test --workspace=apps/backend), review final, y registrá TODO en el ledger. NO mergees a feat/outcome-resolver sin review 'Ready to merge: Yes'; dejá el branch listo y el veredicto en el ledger. Al completar el ítem y dejar el ledger actualizado decí: ITEM_COMPLETO_Y_VERIFICADO" --completion-promise "ITEM_COMPLETO_Y_VERIFICADO" --max-iterations 20
+/ralph-loop "Leé docs/IA/prompt-maestro-mejora-continua.md y .superpowers/sdd/progress.md. Elegí el ítem de backlog de mayor prioridad (sección 6, orden A→B→C) que no esté marcado complete en el ledger, armá un plan corto en docs/superpowers/plans/ con fecha actual, ejecutalo con subagent-driven-development (tests canónicos: npm run test --workspace=apps/backend), review final, y registrá TODO en el ledger. NO mergees a main sin review 'Ready to merge: Yes'; dejá el branch listo y el veredicto en el ledger. Al completar el ítem y dejar el ledger actualizado decí: ITEM_COMPLETO_Y_VERIFICADO" --completion-promise "ITEM_COMPLETO_Y_VERIFICADO" --max-iterations 20
 ```
 
 Reglas para el loop: un ítem por corrida; la promise solo se emite con suite verde citada + ledger actualizado; ante ambigüedad que requiera decisión del dueño (ej. renovar FMP, taxonomía de sectores), NO decidir — dejar la pregunta escrita en el ledger y pasar al siguiente ítem.
