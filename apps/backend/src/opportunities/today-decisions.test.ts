@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeTrailingStop, concentrationCaveatFor, decidePositionVerb, resolvePositionPrice, sizingCaveatFor, timingCaveatFor, type Candle } from './today-decisions.js';
+import { computeTrailingStop, concentrationCaveatFor, decidePositionVerb, resolvePositionPrice, sizingCaveatFor, stopAplicaEnCapa, timingCaveatFor, type Candle } from './today-decisions.js';
 import type { TimingView } from '@trading/shared';
 
 function c(date: string, high: number, low: number, close: number): Candle {
@@ -318,5 +318,57 @@ describe('concentrationCaveatFor (la cartera concentrada frena aportes, no los s
 
   it('justo en el umbral no dispara (solo por debajo)', () => {
     expect(concentrationCaveatFor({ effectiveBets: 2.5, positions: 8, coverage: 1 }, 2.5)).toBeNull();
+  });
+});
+
+// OPCIÓN B (2026-07-29, decisión del dueño tras AD-014/AD-021). El stop duro deja de aplicar
+// al núcleo indexado y a la cobertura. Evidencia: en 7 años el trailing le ganó a comprar-y-no-
+// tocar en 2 de 11 símbolos —BTC-USD y MARA, los que pueden irse a cero— y perdió feo en SPY
+// (+62.6% vs +166.0%) y QQQ. Aislado de la reentrada, el stop solo convierte +797% en +7.7%.
+// Un índice se recupera; una minera puede no volver. El stop protege de lo segundo.
+// NUNCA en silencio: el stop perforado se sigue mostrando, cambia el verbo, no la información.
+describe('stopAplicaEnCapa', () => {
+  it('la capa riesgo conserva el stop duro', () => {
+    expect(stopAplicaEnCapa('riesgo', ['riesgo'])).toBe(true);
+  });
+
+  it('núcleo y cobertura quedan exentos', () => {
+    expect(stopAplicaEnCapa('nucleo', ['riesgo'])).toBe(false);
+    expect(stopAplicaEnCapa('cobertura', ['riesgo'])).toBe(false);
+  });
+
+  it('es configurable: con las tres capas vuelve el comportamiento viejo', () => {
+    expect(stopAplicaEnCapa('nucleo', ['nucleo', 'cobertura', 'riesgo'])).toBe(true);
+  });
+});
+
+describe('decidePositionVerb con el stop exento por capa (opción B)', () => {
+  const base = { avgCost: 100, currentPrice: 85, trailingStop: 90, target: 130 };
+
+  it('capa riesgo: el stop perforado sigue mandando VENDER', () => {
+    expect(decidePositionVerb({ ...base, closePrice: 85, hardStopApplies: true }).verb).toBe('VENDER');
+  });
+
+  it('núcleo: NO vende, pero DICE que el stop se perforó y por qué no vende', () => {
+    const v = decidePositionVerb({ ...base, closePrice: 85, hardStopApplies: false });
+    expect(v.verb).toBe('MANTENER');
+    expect(v.warning).toContain('90');            // nombra el stop perforado
+    expect(v.warning).toMatch(/núcleo|índice|recupera/i);
+    expect(v.stop).toBe(90);                      // el nivel se sigue mostrando
+  });
+
+  it('núcleo con el precio ARRIBA del stop: nada cambia, no aparece ruido', () => {
+    const v = decidePositionVerb({ ...base, currentPrice: 120, hardStopApplies: false });
+    expect(v.verb).toBe('MANTENER');
+    expect(v.warning).toBeUndefined();
+  });
+
+  it('el precio viejo gana sobre la exención: primero fail-closed, después la capa', () => {
+    const v = decidePositionVerb({ ...base, hardStopApplies: false, priceIsStale: true, priceAsOf: '2026-07-24' });
+    expect(v.verb).toBe('REVISAR');
+  });
+
+  it('REGRESIÓN: sin hardStopApplies el comportamiento vigente queda intacto', () => {
+    expect(decidePositionVerb({ ...base, closePrice: 85 }).verb).toBe('VENDER');
   });
 });

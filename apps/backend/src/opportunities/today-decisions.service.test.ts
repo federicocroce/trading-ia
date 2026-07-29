@@ -117,3 +117,34 @@ describe('getTodayDecisions con una posición imposible de valuar (AD-015)', () 
     expect(v.portfolioCoverage.evaluated + v.portfolioCoverage.dropped.length).toBe(v.portfolioCoverage.total);
   });
 });
+
+/**
+ * OPCIÓN B, cableado. La cartera real del dueño es 100% capa `riesgo`, así que el camino de
+ * núcleo NO se puede observar corriendo contra la DB viva: quedaría "escrito, sin correr".
+ * Acá se ejercita con una posición de núcleo real (SPY) atravesando el servicio entero.
+ */
+describe('getTodayDecisions con una posición de núcleo (opción B)', () => {
+  it('SPY con el stop perforado: NO vende, y dice por qué', async () => {
+    mockGetPortfolioPositions.mockReturnValue([{ symbol: 'SPY', quantity: 10, avgCost: 600 }]);
+    mockGetLatestOpportunityScan.mockReturnValue(scanCon([
+      { symbol: 'SPY', currentPrice: 700, trailingStop: 720, action: 'HOLD', tradeLevels: {} },
+    ]));
+    mockGetQuotes.mockResolvedValue([{ symbol: 'SPY', current: 700, previousClose: 705, marketState: 'CLOSED' }]);
+
+    const spy = (await getTodayDecisions()).portfolio.find((p) => p.symbol === 'SPY')!;
+
+    expect(spy.verb).toBe('MANTENER');
+    expect(spy.warning).toContain('720');
+    expect(spy.stop).toBe(720);
+  });
+
+  it('la MISMA situación en capa riesgo sí vende — la diferencia es la capa, no el precio', async () => {
+    mockGetPortfolioPositions.mockReturnValue([{ symbol: 'MARA', quantity: 10, avgCost: 600 }]);
+    mockGetLatestOpportunityScan.mockReturnValue(scanCon([
+      { symbol: 'MARA', currentPrice: 700, trailingStop: 720, action: 'HOLD', tradeLevels: {} },
+    ]));
+    mockGetQuotes.mockResolvedValue([{ symbol: 'MARA', current: 700, previousClose: 705, marketState: 'CLOSED' }]);
+
+    expect((await getTodayDecisions()).portfolio.find((p) => p.symbol === 'MARA')!.verb).toBe('VENDER');
+  });
+});
