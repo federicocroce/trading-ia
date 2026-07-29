@@ -524,6 +524,24 @@ async function runReportStage(runId: number): Promise<StageResult> {
  * colgar la corrida para siempre — el trabajo interno puede seguir en background y terminar
  * solo; lo que se acota es cuánto espera el pipeline.
  */
+/**
+ * AD-004 (P0): ¿un fallo de `webSearch` puede cancelar el día de trading?
+ *
+ * Era la primera etapa y su fallo hacía `pauseRunWaitingUser` + `return`: `runRemainingStages`
+ * nunca corría, o sea NO había scan, ni veredictos, ni "Hoy" — y el pipeline quedaba esperando
+ * que alguien tocara un botón que nadie sabía que había que tocar. El fix de fiabilidad del
+ * 2026-07-28 arregló ese patrón para `news` y no tocó este camino.
+ *
+ * Con `DISCOVERY_ATTENTION_NOMINATION=0` la búsqueda web ya no nomina símbolos: su salida es
+ * puramente narrativa. Bloquear las decisiones del día por narrativa contradice el objetivo #1.
+ *
+ * El gate humano sigue disponible con `WEBSEARCH_BLOQUEA_PIPELINE=1` (el flujo `resolveWebSearch`
+ * con retry/skip/cancel queda intacto), pero ya no es el default.
+ */
+export function webSearchDebeBloquear(status: string, flagBloqueante: boolean): boolean {
+  return flagBloqueante && status === 'failed';
+}
+
 /** Marca del StageResult fabricado por el vencimiento — la etapa real nunca escribió su estado. */
 export const TIMEOUT_PREFIX = 'stage-timeout:';
 
@@ -611,7 +629,12 @@ async function runRemainingStages(runId: number): Promise<void> {
     //   2. NO-BLOQUEANTE: su fallo degrada la corrida a 'partial', no la mata.
     const newsResult = await withStageTimeout(
       runNewsStage(runId),
-      envNumber('NEWS_STAGE_TIMEOUT_MS', 300_000),
+      // AD-005: el default era 300_000 (5 min) y **75 de 84 corridas exitosas de noticias lo
+      // superaban** (mediana 18 min, p95 47 min, máxima exitosa 72 min). No era un techo contra
+      // cuelgues: apagaba la etapa en 9 de cada 10 corridas —verificado en la corrida 124— y con
+      // ella macro_events, cadenas causales y el digest, que el §4 daba por intactos. 90 min deja
+      // pasar todo lo observado como sano y sigue cortando un cuelgue de verdad, que no termina.
+      envNumber('NEWS_STAGE_TIMEOUT_MS', 5_400_000),
       'news',
     );
     recordStageArtifact(runId, 'news', newsResult);
@@ -778,9 +801,12 @@ export async function checkOrRunPipeline(force = false, sectors?: OpportunitySec
     const webSearchResult = await runWebSearchStage(runId);
     recordStageArtifact(runId, 'webSearch', webSearchResult);
 
-    if (webSearchResult.status === 'failed') {
+    if (webSearchDebeBloquear(webSearchResult.status, process.env.WEBSEARCH_BLOQUEA_PIPELINE === '1')) {
       pauseRunWaitingUser(runId);
       return getPipelineRunByDate(today)!;
+    }
+    if (webSearchResult.status === 'failed') {
+      console.warn('[pipeline] webSearch falló — el día sigue igual (su salida es narrativa, el scan no la usa)');
     }
 
     await runRemainingStages(runId);
