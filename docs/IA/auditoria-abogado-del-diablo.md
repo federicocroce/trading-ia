@@ -11,10 +11,10 @@ Un sector queda `AUDITADO` cuando una corrida completa no produce hallazgos P0�
 
 | sector | último pase | estado | abiertos |
 |---|---|---|---|
-| `pipeline` | 2026-07-29 | 11 hallazgos — AD-020 resuelto | AD-004 … AD-013 |
+| `pipeline` | 2026-07-29 | 12 hallazgos — AD-020 resuelto | AD-004 … AD-013, AD-022 |
 | `descubrimiento` | — | nunca auditado | — |
 | `motor` | — | nunca auditado | — |
-| `guardian` | 2026-07-29 | 6 hallazgos · 5 resueltos, 1 acotado | ninguno — decisión de producto en AD-014 |
+| `guardian` | 2026-07-29 | 7 hallazgos · 5 resueltos, 1 acotado, 1 confirmado | decisión de producto en AD-014/021 |
 | `cartera` | — | nunca auditado | — |
 | `medicion` | — | nunca auditado | — |
 | `llm` | — | nunca auditado | — |
@@ -708,3 +708,46 @@ Código: `pipeline.service.ts` resolvía el vencimiento con `criticalError: 'sta
 **Deuda que queda ABIERTA**: la promesa de `runNewsStage` abandonada **sigue viva**. Si termina más tarde, va a llamar `updatePipelineStage` y **pisar retroactivamente el estado de una corrida ya cerrada**. Cancelarla de verdad requiere un `AbortSignal` que atraviese el stage entero; no se hizo acá para no mezclar un refactor con un fix de una línea.
 
 **Actualiza AD-002**: el fix de noticias deja de estar "escrito, sin correr" — corrió, cumplió su objetivo y tenía este defecto. AD-002 pasa a RESUELTO por ejecución verificada.
+
+---
+
+### AD-021 · P3 · guardian · 2026-07-29 · CONFIRMADO — cierra el caveat de AD-014
+
+**Claim atacado**: el caveat que el propio AD-014 dejó abierto — *"parte de la diferencia puede ser timing de reentrada y no el stop"*.
+
+**Hallazgo**: no es reentrada. **Es el stop.** Aislado con `reentry:false` (comprar una vez y, al saltar el stop, quedarse en efectivo — lo que el guardián le dice literalmente a una posición), sobre los mismos 11 símbolos y 7 años:
+
+| | con reentrada | **entrada única (el stop solo)** | comprar y no tocar |
+|---|---|---|---|
+| retorno medio | 510.5% | **+7.7%** | ~797% |
+| drawdown medio | 46.4% | **8.8%** | 59.4% |
+| le gana a no tocar | 2 de 10 | **0 de 11** | — |
+
+**El stop convierte +797% en +7.7%, y no le gana a comprar y no tocar en NINGUNO de los 11.** El drawdown de 8.8% no es protección: es no estar invertido.
+
+**Lo que se da vuelta**: lo que rescata a la estrategia con trailing **no es el stop, es la reentrada**. El estudio original le atribuía al stop el mérito de la regla de reentrada porque nunca las separó.
+
+**Lo que NO dice**: que el guardián sea inútil en la vida real — el dueño no se queda siete años en efectivo. La entrada única es el experimento de aislamiento, no una descripción del comportamiento real. Pero sí mueve la pregunta de producto de *"¿cuánto pago por menos drawdown?"* a *"¿el mecanismo que le atribuía valor al guardián era otro?"*.
+
+**Estado**: CONFIRMADO. `reentry` es ahora una opción del backtest (default `true`, sin cambio de comportamiento). AD-014 queda sin caveat pendiente.
+
+---
+
+### AD-022 · P5 · pipeline · 2026-07-29 · ABIERTO
+
+**Hallazgo**: cuando el proceso muere en el medio de una corrida, `markOrphanedRunsFailed` marca el RUN como `failed` en el próximo arranque, pero **deja las etapas en `'running'`**. Es la misma clase de AD-020 (fila que miente sobre su estado) por otra puerta: la caída del proceso en vez del timeout.
+
+**Evidencia** — corrida 125, matada por un reinicio de `tsx watch` (edité código del backend mientras corría, artefacto de la sesión, no un defecto del producto):
+```
+$ sqlite3 data/trading.db "SELECT status, news_status, macro_intelligence_status FROM pipeline_runs WHERE id=125;"
+failed|failed|running
+```
+`news` quedó correcto —`failed`, gracias al fix de AD-020— y `macro_intelligence` quedó en `running` sobre un run cerrado.
+
+**Qué habría que creer para que esto esté bien**: que nadie lee el estado por etapa de corridas viejas. Pero el pase de `pipeline` se apoyó justamente en esa columna para medir dónde se cuelga el sistema.
+
+**Test que lo falsifica**: contar corridas terminadas con alguna etapa en `'running'`. Si son solo las de crash conocido, el impacto es el que dice acá.
+
+**Daño**: bajo y acotado a la medición — infla el conteo de "etapas colgadas" con caídas de proceso. No afecta decisiones de trading.
+
+**Estado**: ABIERTO. El arreglo natural es que `markOrphanedRunsFailed` cierre también las etapas no terminales, con un motivo distinto ("proceso caído") para no mezclarlas con timeouts.

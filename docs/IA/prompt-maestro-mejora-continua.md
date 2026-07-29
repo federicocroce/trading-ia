@@ -122,7 +122,19 @@ Federico es un swing trader argentino individual. La app existe para **que compo
 
   **El trailing le gana a comprar y no tocar en 2 de 11 símbolos** (BTC-USD y MARA — los dos más volátiles). El motor, en 1 de 11. La lectura honesta: **el guardián compra ~14 puntos menos de drawdown a cambio de ~300 puntos de retorno**, y también pierde en retorno ajustado por drawdown. Para el objetivo #2 (componer capital vía aporte recurrente) es un mal negocio; puede seguir siendo bueno para el objetivo #1 si lo que se quiere comprar es específicamente dormir tranquilo, pero **eso es una preferencia del dueño, no un resultado medido**, y hay que nombrarlo así.
   **Lo que NO cambia**: la jerarquía de decisión sigue justificada — entre las dos reglas activas, el trailing gana 9 de 11 y con un tercio de las operaciones. Si vas a operar, dejar correr con stop es mejor que vender el aviso. **Lo que sí cambia**: "operar" no era la única opción y perdía contra la que no se estaba midiendo.
-  **Benchmark justo**: el buy&hold arranca en la MISMA vela en que la estrategia entra por primera vez, no al final del warmup — mismo dinero, mismo día de compra, y la única diferencia es el trailing. (La primera versión de esta medición lo arrancaba antes y daba 772.6%; corregido da 790.6%, o sea la corrección va EN CONTRA del trailing.) **Deuda que queda**: la simulación re-compra apenas `close > SMA50`, así que sigue midiendo un sistema de tendencia con trailing. Falta la variante que entra una sola vez para aislar del todo el stop del timing de reentrada.
+  **Benchmark justo**: el buy&hold arranca en la MISMA vela en que la estrategia entra por primera vez, no al final del warmup — mismo dinero, mismo día de compra, y la única diferencia es el trailing. (La primera versión lo arrancaba antes y daba 772.6%; corregido da 790.6%, o sea la corrección va EN CONTRA del trailing.)
+
+  **⭐⭐ AISLADO EL STOP DE LA REENTRADA (2026-07-29, `reentry:false`). El stop solo, no salva: destruye.** La deuda anotada acá era saber cuánto del daño lo hacía el stop y cuánto volver a entrar tarde. Corrido con entrada única —comprar una vez y, al saltar el stop, quedarse en efectivo, que es literalmente lo que el guardián le dice a una posición—:
+
+  | | con reentrada (sistema de tendencia) | **entrada única (el stop solo)** | comprar y no tocar |
+  |---|---|---|---|
+  | retorno medio | 510.5% | **+7.7%** | ~797% |
+  | drawdown medio | 46.4% | **8.8%** | 59.4% |
+  | le gana a no tocar | 2 de 10 | **0 de 11** | — |
+
+  **El stop convierte +797% en +7.7%.** Ni un solo símbolo de los 11 le gana a comprar y no tocar. Y el drawdown de 8.8% no es protección: es no estar invertido — pasás la mayor parte del período en efectivo, mirando.
+  **Conclusión de método, la más importante de la tanda**: lo que rescata a la estrategia con trailing **no es el stop, es la REENTRADA**. El stop saca temprano y lo que recupera el resultado es volver a comprar cuando el papel se repone. Cualquier lectura de "el trailing funciona" que no separe estas dos cosas está atribuyéndole al stop el mérito de la regla de reentrada.
+  **Lo que esto NO dice**: que el guardián sea inútil en la vida real. Federico no se queda en efectivo siete años — reentra o compra otra cosa. La entrada única es el experimento de aislamiento, no una descripción de su comportamiento. Lo que sí dice es que **el valor no está donde el proyecto creía**.
 
   Head-to-head original entre las dos reglas opuestas: "vender cuando el motor avisa" vs "dejar correr con trailing stop" (lo que implementa el guardián de Hoy).
 
