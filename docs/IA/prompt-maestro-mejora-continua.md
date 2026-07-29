@@ -109,7 +109,22 @@ Federico es un swing trader argentino individual. La app existe para **que compo
   **Instrumentación arreglada** (mismo commit): el agregador registra con fuente `'news'` y la búsqueda web con `'web_search'`, que son etiquetas verdaderas. `'yahoo'`/`'finnhub'` quedan como LEGACY y **están documentadas como no interpretables** en `discovery-registry.ts` — todo análisis histórico debe agruparlas. Recién desde acá la pregunta "¿qué caño paga?" es medible.
   **⚠️ Los caños sistemáticos NO están probados**: screener + radar + base_sweep suman **6 señales con alpha medido**. No hay evidencia de que sean mejores — están sin muestra. Invertir la mezcla a favor de ellos es una apuesta razonable por mecanismo (seleccionan por criterio, no por atención), no una conclusión medida.
   **DECISIÓN DEL DUEÑO, no se tomó** (regla §9): cortar o restringir la nominación por prensa es un cambio de producto — el stage de noticias también alimenta `macro_events`, contexto causal y digest, que no están en cuestión. Lo medido es específicamente **qué símbolos ENTRAN al universo**. Opciones: (a) que la prensa deje de nominar y quede como contexto; (b) subir el piso de relevance para nominar; (c) subir los caps de screener/base_sweep para que aporten volumen y por fin se puedan medir.
-- **⭐⭐ EL GUARDIÁN FUNCIONA — primera evidencia del objetivo #1** (2026-07-28, backtest de reglas de salida, 7 años, **incluye el bear de 2022**, cartera + benchmarks, con comisión y slippage modelados). Head-to-head entre las dos reglas opuestas: "vender cuando el motor avisa" vs "dejar correr con trailing stop" (lo que implementa el guardián de Hoy).
+- **⭐⭐ EL GUARDIÁN LE GANA AL MOTOR Y PIERDE CONTRA NO HACER NADA** (2026-07-28, **corregido 2026-07-29**; backtest de reglas de salida, 7 años, **incluye el bear de 2022**, cartera + benchmarks, con comisión y slippage modelados).
+
+  ⚠️ **CORRECCIÓN 2026-07-29 (AD-014 de la auditoría adversarial).** Este bullet se titulaba *"EL GUARDIÁN FUNCIONA — primera evidencia del objetivo #1"*. **El test que lo sostenía comparaba la regla A contra la regla B y nunca contra comprar y no hacer nada** — el mismo pecado que este documento identificó y corrigió para las señales ("EL SISTEMA NUNCA MIDIÓ CONTRA EL ÍNDICE"), reintroducido en el único componente que se daba por demostrado. Se agregó la columna faltante (`buyHoldMetrics`, fail-closed) y se re-corrió sobre los mismos 11 símbolos y 7 años. **Los números originales se replicaron exactos** (Hoy 492.2% vs motor 364.2%; drawdown 45.6 vs 51.0), así que el head-to-head era correcto — y a la vez irrelevante:
+
+  | | motor | **Hoy (trailing)** | **comprar y no tocar** |
+  |---|---|---|---|
+  | retorno medio | 364.2% | 492.2% | **772.6%** |
+  | drawdown medio | 51.0% | **45.6%** | 59.4% |
+  | retorno / drawdown | 7.1 | 10.8 | **13.0** |
+  | SPY | −30.7% | +62.5% | **+165.8%** |
+
+  **El trailing le gana a comprar y no tocar en 2 de 11 símbolos** (BTC-USD y MARA — los dos más volátiles). El motor, en 1 de 11. La lectura honesta: **el guardián compra ~14 puntos menos de drawdown a cambio de ~280 puntos de retorno**, y también pierde en retorno ajustado por drawdown. Para el objetivo #2 (componer capital vía aporte recurrente) es un mal negocio; puede seguir siendo bueno para el objetivo #1 si lo que se quiere comprar es específicamente dormir tranquilo, pero **eso es una preferencia del dueño, no un resultado medido**, y hay que nombrarlo así.
+  **Lo que NO cambia**: la jerarquía de decisión sigue justificada — entre las dos reglas activas, el trailing gana 9 de 11 y con un tercio de las operaciones. Si vas a operar, dejar correr con stop es mejor que vender el aviso. **Lo que sí cambia**: "operar" no era la única opción y perdía contra la que no se estaba midiendo.
+  **Deuda**: replicar esto con reentrada desactivada (la simulación re-compra apenas `close > SMA50`, así que mide un sistema de tendencia con trailing, no "una posición con stop"). Ese es el test que faltaría para aislar el stop del timing de reentrada.
+
+  Head-to-head original entre las dos reglas opuestas: "vender cuando el motor avisa" vs "dejar correr con trailing stop" (lo que implementa el guardián de Hoy).
 
   | | Trailing (guardián) | Vender-en-aviso (motor) |
   |---|---|---|

@@ -7,7 +7,7 @@
 import type { Opportunity, Price } from '@trading/shared';
 import { getPortfolioPositions, getLatestOpportunityScan, getTodayProposalAppearances, getRecentStopLevels, upsertPortfolioVerdicts } from '../db/repository.js';
 import { getQuotes } from '../shared/yahoo.js';
-import { decidePositionVerb, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
+import { decidePositionVerb, resolvePositionPrice, timingCaveatFor, type PortfolioVerb } from './today-decisions.js';
 import { getRegimes, assetClassOf, type Regimes } from '../quant/risk.service.js';
 import { suggestPositionSize } from '../quant/risk.js';
 import { selectTodayProposals, verbFor, chronicAdjustment, stopBreachAdjustment, stopBreachLookbackDays, thesisConflictCaveat, type MarketVerb } from './today-proposals.js';
@@ -93,6 +93,20 @@ export interface TodayView {
   regimes: Regimes;
   portfolioValue: number;
   scanDate?: string;
+  /**
+   * Aditivo (regla #4). AD-015: cuántas posiciones se pudieron juzgar de verdad y cuáles no.
+   * Sin esto, una posición sin precio desaparecía de la vista sin dejar rastro y el registro
+   * del guardián se veía completo. `stopsAsOf` es la fecha del scan del que salen los stops:
+   * un stop que no se recalcula hace días es más bajo de lo que corresponde (el chandelier
+   * solo sube), o sea protege menos de lo que la vista aparenta.
+   */
+  portfolioCoverage: {
+    total: number;
+    evaluated: number;
+    stalePriced: number;
+    dropped: Array<{ symbol: string; reason: string }>;
+    stopsAsOf: string | null;
+  };
 }
 
 const URGENCY: Record<PortfolioVerb, number> = { VENDER: 0, REVISAR: 1, MANTENER: 2 };
@@ -128,14 +142,27 @@ export async function getTodayDecisions(): Promise<TodayView> {
   // EXIT_ON_CLOSE=1 lo activa; por defecto OFF → comportamiento idéntico al actual.
   const exitOnClose = process.env.EXIT_ON_CLOSE === '1' || process.env.EXIT_ON_CLOSE === 'true';
 
+  // AD-015: toda posición que NO se pueda evaluar se REPORTA. Antes se hacía `continue` y
+  // desaparecía de la vista y del registro, que quedaba pareciendo completo.
+  const descartadas: Array<{ symbol: string; reason: string }> = [];
+  let conPrecioViejo = 0;
+
   const portfolio: TodayPosition[] = [];
   for (const p of positions) {
-    if (p.avgCost <= 0) continue;
     const sym = p.symbol.toUpperCase();
+    if (p.avgCost <= 0) {
+      descartadas.push({ symbol: p.symbol, reason: 'Costo promedio inválido (≤0) — no se puede calcular resultado ni juzgar el stop.' });
+      continue;
+    }
     const opp = bySymbol.get(sym);
     const q = quoteBySym.get(sym);
-    const currentPrice = q?.current ?? opp?.currentPrice ?? 0;
-    if (currentPrice <= 0) continue;
+    const precio = resolvePositionPrice(q, opp, scan?.scannedAt?.slice(0, 10) ?? null);
+    if (precio == null) {
+      descartadas.push({ symbol: p.symbol, reason: 'Sin cotización viva y sin precio en el último scan — la posición NO está siendo vigilada.' });
+      continue;
+    }
+    const currentPrice = precio.price;
+    if (precio.isStale) conPrecioViejo++;
 
     const trailingStop = opp?.trailingStop ?? null;
     const target = opp?.tradeLevels?.takeProfit ?? null;
@@ -157,6 +184,8 @@ export async function getTodayDecisions(): Promise<TodayView> {
       engineSellReason: engineAction === 'SELL' && opp ? pickReason(opp) || undefined : undefined,
       closePrice,
       intraday,
+      priceIsStale: precio.isStale,
+      priceAsOf: precio.asOf,
     });
 
     portfolio.push({
@@ -286,5 +315,15 @@ export async function getTodayDecisions(): Promise<TodayView> {
     console.warn('[today] Lectura de tesis gatilladas falló:', (err as Error).message);
   }
 
-  return { generatedAt, portfolio, opportunities, triggeredTheses, regimes, portfolioValue, scanDate: scan?.scannedAt };
+  return {
+    generatedAt, portfolio, opportunities, triggeredTheses, regimes, portfolioValue,
+    scanDate: scan?.scannedAt,
+    portfolioCoverage: {
+      total: positions.length,
+      evaluated: portfolio.length,
+      stalePriced: conPrecioViejo,
+      dropped: descartadas,
+      stopsAsOf: scan?.scannedAt?.slice(0, 10) ?? null,
+    },
+  };
 }

@@ -59,7 +59,11 @@ export function TodayPage() {
         </p>
         {data && (
           <p className="text-[10px] text-muted-foreground mt-1">
-            Precios y stops en vivo · análisis del motor {relTime(data.scanDate)}
+            {/* AD-015: "precios en vivo" era una afirmación fija. Ahora la dice el dato. */}
+            {data.portfolioCoverage.stalePriced > 0
+              ? <span className="text-amber-400">⚠ {data.portfolioCoverage.stalePriced} posición(es) SIN precio en vivo</span>
+              : 'Precios en vivo'}
+            {' · '}stops y análisis del motor {relTime(data.scanDate)}
             {relTime(data.scanDate).includes('d') && <span className="text-amber-400"> — conviene correr el pipeline</span>}
           </p>
         )}
@@ -121,6 +125,23 @@ export function TodayPage() {
       {/* ---- Tu cartera ---- */}
       <section className="space-y-2">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tu cartera</h3>
+
+        {/* AD-015: una posición que no se puede juzgar desaparecía sin dejar rastro y la lista
+            se veía completa. Mismo criterio que la tarjeta de concentración de arriba. */}
+        {data && data.portfolioCoverage.dropped.length > 0 && (
+          <Card size="sm" className="border-l-4 border-l-red-500">
+            <CardContent className="py-3 space-y-1">
+              <p className="text-[11px] font-semibold text-red-400">
+                ⚠ {data.portfolioCoverage.dropped.length} de {data.portfolioCoverage.total} posiciones NO se están vigilando
+              </p>
+              {data.portfolioCoverage.dropped.map((d) => (
+                <p key={d.symbol} className="text-[10px] text-muted-foreground">
+                  <span className="font-semibold text-foreground">{d.symbol}</span> — {d.reason}
+                </p>
+              ))}
+            </CardContent>
+          </Card>
+        )}
         {data && data.portfolio.length === 0 && (
           <Card size="sm"><CardContent><p className="text-xs text-muted-foreground py-3">No tenés posiciones cargadas.</p></CardContent></Card>
         )}

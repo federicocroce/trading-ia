@@ -11,7 +11,7 @@ import { getHistoricalQuotes } from '../shared/yahoo.js';
 import { computeIndicators, detectDailyDivergences } from '../technical/technical-analysis.service.js';
 import { computeTrailingStop } from '../opportunities/today-decisions.js';
 import { resolveBacktestUniverse } from './ma-trend.service.js';
-import { shouldExit, strategyMetrics, type ExitRule, type StrategyMetrics } from './exit-rule-backtest.js';
+import { shouldExit, strategyMetrics, buyHoldMetrics, type ExitRule, type StrategyMetrics, type BuyHoldMetrics } from './exit-rule-backtest.js';
 
 const DEFAULTS = { years: 7, warmup: 220, commissionPct: 0.1, slippagePct: 0.05 };
 
@@ -70,6 +70,10 @@ export interface ExitRuleSymbolResult {
   symbol: string;
   sellOnWarning: StrategyMetrics;
   letItRun: StrategyMetrics;
+  /** Comprar y no hacer nada en la MISMA ventana operable. null = no se pudo calcular. */
+  buyHold: BuyHoldMetrics | null;
+  /** null cuando buyHold es null: "no se sabe" nunca se colapsa a false. */
+  letItRunBeatsBuyHold: boolean | null;
 }
 
 export interface ExitRuleStudy {
@@ -84,6 +88,17 @@ export interface ExitRuleStudy {
     avgMaxDdLetItRun: number;
     avgProfitFactorSellOnWarning: number;
     avgProfitFactorLetItRun: number;
+    /**
+     * AD-014 (auditoría 2026-07-29): hasta hoy el estudio solo decía cuál de las dos reglas
+     * activas ganaba. Faltaba la pregunta que decide: ¿alguna le gana a comprar y no hacer nada?
+     * Los agregados de buy&hold se promedian SOLO sobre los símbolos donde se pudo calcular
+     * (`evaluatedBuyHold`); imputar 0 en los que faltan inventaría un benchmark plano.
+     */
+    evaluatedBuyHold: number;
+    letItRunBeatsBuyHold: number;
+    sellOnWarningBeatsBuyHold: number;
+    avgReturnBuyHold: number | null;
+    avgMaxDdBuyHold: number | null;
   };
 }
 
@@ -109,14 +124,22 @@ export async function runExitRuleBacktest(
     const signals = precomputeSignals(candles, warmup);
     const a = simulate(signals, 'sell_on_warning', commissionPct, slippagePct);
     const b = simulate(signals, 'let_it_run', commissionPct, slippagePct);
+    // Buy&hold sobre la MISMA ventana operable: las velas de warmup no se pueden operar, así que
+    // incluirlas le regalaría (o le sacaría) retorno al benchmark y la comparación no sería pareja.
+    const buyHold = buyHoldMetrics(signals.slice(warmup).map((s) => s.close));
+    const letItRun = strategyMetrics(b.equity, b.trades);
+    const sellOnWarning = strategyMetrics(a.equity, a.trades);
     perSymbol.push({
       symbol,
-      sellOnWarning: strategyMetrics(a.equity, a.trades),
-      letItRun: strategyMetrics(b.equity, b.trades),
+      sellOnWarning,
+      letItRun,
+      buyHold,
+      letItRunBeatsBuyHold: buyHold ? letItRun.totalReturn > buyHold.totalReturn : null,
     });
   }
 
   const ok = perSymbol;
+  const conBuyHold = ok.filter((r) => r.buyHold != null);
   return {
     params: { years },
     perSymbol,
@@ -129,6 +152,11 @@ export async function runExitRuleBacktest(
       avgMaxDdLetItRun: avg(ok.map((r) => r.letItRun.maxDrawdown)),
       avgProfitFactorSellOnWarning: avg(ok.map((r) => r.sellOnWarning.profitFactor)),
       avgProfitFactorLetItRun: avg(ok.map((r) => r.letItRun.profitFactor)),
+      evaluatedBuyHold: conBuyHold.length,
+      letItRunBeatsBuyHold: conBuyHold.filter((r) => r.letItRun.totalReturn > r.buyHold!.totalReturn).length,
+      sellOnWarningBeatsBuyHold: conBuyHold.filter((r) => r.sellOnWarning.totalReturn > r.buyHold!.totalReturn).length,
+      avgReturnBuyHold: conBuyHold.length ? avg(conBuyHold.map((r) => r.buyHold!.totalReturn)) : null,
+      avgMaxDdBuyHold: conBuyHold.length ? avg(conBuyHold.map((r) => r.buyHold!.maxDrawdown)) : null,
     },
   };
 }

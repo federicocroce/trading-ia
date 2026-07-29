@@ -95,6 +95,38 @@ export interface PositionInput {
   closePrice?: number;
   /** Mercado en sesión: el currentPrice es spot provisional, un toque NO confirma venta. */
   intraday?: boolean;
+  /**
+   * El precio NO vino de una cotización viva (falló el fetch y se cayó al último scan).
+   * Un stop es una comparación contra el precio de HOY: con un precio viejo no se sabe si se
+   * perforó, y la regla dura #1 exige decirlo en vez de elegir entre inventar una venta o
+   * dejar pasar en silencio. AD-015.
+   */
+  priceIsStale?: boolean;
+  /** Fecha del precio usado cuando es viejo (YYYY-MM-DD). null si ni eso se sabe. */
+  priceAsOf?: string | null;
+}
+
+/**
+ * De dónde sale el precio con el que se juzga el stop, y si eso es de hoy o no (AD-015).
+ * Antes era una cadena de `??` dentro del servicio: cuando la cotización fallaba, el precio del
+ * último scan entraba en silencio y el veredicto salía como si fuera del día.
+ * Fail-closed: sin ninguna fuente devuelve null — el llamador tiene que REPORTAR la posición
+ * como no evaluada, nunca saltearla.
+ */
+export function resolvePositionPrice(
+  quote: { current?: number | null } | undefined,
+  scanned: { currentPrice?: number | null } | undefined,
+  scanDate: string | null,
+): { price: number; isStale: boolean; asOf: string | null } | null {
+  const vivo = quote?.current;
+  if (typeof vivo === 'number' && Number.isFinite(vivo) && vivo > 0) {
+    return { price: vivo, isStale: false, asOf: null };
+  }
+  const viejo = scanned?.currentPrice;
+  if (typeof viejo === 'number' && Number.isFinite(viejo) && viejo > 0) {
+    return { price: viejo, isStale: true, asOf: scanDate };
+  }
+  return null;
 }
 
 export interface PositionVerdict {
@@ -109,11 +141,30 @@ export interface PositionVerdict {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export function decidePositionVerb(input: PositionInput): PositionVerdict {
-  const { avgCost, currentPrice, trailingStop, target, engineWarnsSell, engineSellReason, closePrice, intraday } = input;
+  const { avgCost, currentPrice, trailingStop, target, engineWarnsSell, engineSellReason, closePrice, intraday, priceIsStale, priceAsOf } = input;
   const gainPct = round2(((currentPrice - avgCost) / avgCost) * 100);
   const tgt = target ?? null;
   // Se DECIDE por el cierre confirmado; el spot vivo solo informa gain%/aviso intradiario.
   const decisionPrice = closePrice ?? currentPrice;
+
+  // FAIL-CLOSED (AD-015): antes que cualquier otra rama. Con un precio que no es de hoy no se
+  // puede afirmar ni que el stop se perforó ni que no — las dos salidas serían inventadas.
+  if (priceIsStale) {
+    const cuando = priceAsOf ? `del ${priceAsOf}` : 'de fecha desconocida';
+    const dondeQuedo = trailingStop != null
+      ? (decisionPrice <= trailingStop
+        ? ` Con ese precio ($${round2(decisionPrice)}) estarías BAJO el stop $${trailingStop}.`
+        : ` Con ese precio ($${round2(decisionPrice)}) estabas arriba del stop $${trailingStop}.`)
+      : ' Tampoco pude recalcular el stop.';
+    return {
+      verb: 'REVISAR',
+      reason: `No pude cotizar hoy: el último precio disponible es ${cuando}. Revisá el precio real antes de decidir.`,
+      stop: trailingStop,
+      target: tgt,
+      gainPct,
+      warning: `Precio ${cuando}, no de hoy — no pude confirmar contra el stop.${dondeQuedo} La app NO está vigilando esta posición hasta que vuelva a cotizar.`,
+    };
+  }
 
   if (trailingStop != null && decisionPrice <= trailingStop) {
     const breach = closePrice != null ? 'Cerró bajo' : 'Tocó';

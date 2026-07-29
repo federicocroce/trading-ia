@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeTrailingStop, decidePositionVerb, timingCaveatFor, type Candle } from './today-decisions.js';
+import { computeTrailingStop, decidePositionVerb, resolvePositionPrice, timingCaveatFor, type Candle } from './today-decisions.js';
 import type { TimingView } from '@trading/shared';
 
 function c(date: string, high: number, low: number, close: number): Candle {
@@ -174,5 +174,97 @@ describe('timingCaveatFor (coherencia: verbo OPERABLE vs vista de timing vendedo
     const caveat = timingCaveatFor('OPERABLE', bare);
     expect(caveat).toBeDefined();
     expect(caveat).toContain('55%');
+  });
+});
+
+// AD-015 (auditoría 2026-07-29): si getQuotes falla, el guardián caía al precio del último scan
+// —que puede tener días— y decidía VENDER/MANTENER sin decirlo. Un stop es una comparación contra
+// el precio de HOY: con un precio viejo no se sabe si se perforó, y "no sé" es la única respuesta
+// honesta (regla dura #1). Antes se elegía entre inventar una venta o dejar pasar en silencio.
+describe('decidePositionVerb con precio viejo (fail-closed)', () => {
+  const base = { avgCost: 100, trailingStop: 90, target: 130 };
+
+  it('precio viejo BAJO el stop: no inventa un VENDER, pide revisar y nombra la fecha', () => {
+    const v = decidePositionVerb({ ...base, currentPrice: 85, priceIsStale: true, priceAsOf: '2026-07-24' });
+    expect(v.verb).toBe('REVISAR');
+    expect(v.warning).toContain('2026-07-24');
+    expect(v.stop).toBe(90);
+  });
+
+  it('precio viejo ARRIBA del stop: tampoco pasa en silencio a MANTENER', () => {
+    const v = decidePositionVerb({ ...base, currentPrice: 120, priceIsStale: true, priceAsOf: '2026-07-24' });
+    expect(v.verb).toBe('REVISAR');
+    expect(v.warning).toContain('2026-07-24');
+  });
+
+  it('precio viejo sin fecha conocida: sigue siendo REVISAR y lo dice', () => {
+    const v = decidePositionVerb({ ...base, currentPrice: 120, priceIsStale: true });
+    expect(v.verb).toBe('REVISAR');
+    expect(v.warning).toMatch(/no pude confirmar|desconocida/i);
+  });
+
+  it('el precio viejo gana sobre el stop faltante: no se reporta "faltan datos de precio" a secas', () => {
+    const v = decidePositionVerb({ ...base, trailingStop: null, currentPrice: 120, priceIsStale: true, priceAsOf: '2026-07-24' });
+    expect(v.verb).toBe('REVISAR');
+    expect(v.warning).toContain('2026-07-24');
+  });
+
+  it('REGRESIÓN: sin priceIsStale el comportamiento vigente queda intacto', () => {
+    const vende = decidePositionVerb({ ...base, currentPrice: 85, closePrice: 85 });
+    expect(vende.verb).toBe('VENDER');
+    const mantiene = decidePositionVerb({ ...base, currentPrice: 120 });
+    expect(mantiene.verb).toBe('MANTENER');
+  });
+});
+
+// AD-015: la elección de qué precio usar era una cadena de `??` enterrada en el servicio, sin
+// test posible y sin dejar rastro de que había caído al fallback. Extraída y explícita.
+describe('resolvePositionPrice (de dónde salió el precio, y decirlo)', () => {
+  it('cotización viva: precio vivo, no viejo', () => {
+    const r = resolvePositionPrice({ current: 120 }, { currentPrice: 100 }, '2026-07-24');
+    expect(r).toEqual({ price: 120, isStale: false, asOf: null });
+  });
+
+  it('sin cotización pero con scan: cae al scan y lo marca viejo con su fecha', () => {
+    const r = resolvePositionPrice(undefined, { currentPrice: 100 }, '2026-07-24');
+    expect(r).toEqual({ price: 100, isStale: true, asOf: '2026-07-24' });
+  });
+
+  it('cotización en cero o negativa NO es cotización: cae al scan', () => {
+    expect(resolvePositionPrice({ current: 0 }, { currentPrice: 100 }, '2026-07-24')?.isStale).toBe(true);
+    expect(resolvePositionPrice({ current: -3 }, { currentPrice: 100 }, '2026-07-24')?.isStale).toBe(true);
+  });
+
+  it('FAIL-CLOSED: sin cotización y sin scan devuelve null — el llamador debe reportarlo, no saltearlo', () => {
+    expect(resolvePositionPrice(undefined, undefined, '2026-07-24')).toBeNull();
+    expect(resolvePositionPrice(undefined, { currentPrice: 0 }, '2026-07-24')).toBeNull();
+  });
+
+  it('scan sin fecha: sigue siendo viejo, con asOf null', () => {
+    expect(resolvePositionPrice(undefined, { currentPrice: 100 }, null)).toEqual({ price: 100, isStale: true, asOf: null });
+  });
+});
+
+// AD-017 (auditoría 2026-07-29): un split desincroniza `avgCost` (carga manual, pre-split) de las
+// velas de Yahoo (ajustadas, post-split). Este test FIJA el radio de daño: la PROTECCIÓN sale
+// intacta porque el verbo se decide comparando precio contra stop —ambos post-split— y no toca
+// avgCost. Lo que sí queda mal es el resultado mostrado. Si alguien hace depender el verbo de
+// avgCost, este test se rompe y avisa que rompió la protección.
+describe('split no ajustado: el verbo aguanta, el resultado miente', () => {
+  const postSplit = { currentPrice: 12, trailingStop: 10, target: 20 };
+
+  it('avgCost pre-split (10×) NO convierte un MANTENER en VENDER', () => {
+    const v = decidePositionVerb({ ...postSplit, avgCost: 100 });
+    expect(v.verb).toBe('MANTENER');
+    expect(v.stop).toBe(10);
+  });
+
+  it('avgCost pre-split (10×) tampoco evita un VENDER legítimo', () => {
+    const v = decidePositionVerb({ ...postSplit, currentPrice: 9, closePrice: 9, avgCost: 100 });
+    expect(v.verb).toBe('VENDER');
+  });
+
+  it('el daño conocido es el resultado: gainPct sale disparatado y nadie lo detecta', () => {
+    expect(decidePositionVerb({ ...postSplit, avgCost: 100 }).gainPct).toBe(-88);
   });
 });
